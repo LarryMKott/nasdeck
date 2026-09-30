@@ -1,17 +1,28 @@
 'use strict';
 
-/** 用户域状态：用户信息、角色、权限标识及登录/登出动作 */
+/**
+ * 用户域状态：本地固定会话。
+ * 面板鉴权由飞牛登录态承担（index.cgi 反代前已校验，见 fpk/README.md），
+ * 应用内不再有登录流程；admin 角色仅用于放行全部动态路由。
+ */
 import { defineStore } from 'pinia';
-import { apiLogin, apiLogout, apiGetUserInfo } from '@/api/auth';
-import { setToken, clearToken } from '@/utils/auth';
 import { STORAGE_PREFIX } from '@/constants';
-import { usePermissionStore } from './permission';
+
+/** 本地会话固定身份 */
+const LOCAL_USER = {
+  userId: 1,
+  username: 'admin',
+  nickname: 'admin',
+  avatar: '',
+  roles: ['admin'],
+  permissions: [],
+};
 
 export const useUserStore = defineStore('user', {
   state: () => ({
     /** 用户信息（持久化，刷新后无需等待即可渲染昵称等） */
     userInfo: {},
-    /** 角色编码列表（每次会话由接口刷新） */
+    /** 角色编码列表（每次会话由 ensureSession 注入） */
     roles: [],
     /** 权限标识列表（如 system:user:add） */
     permissions: [],
@@ -25,40 +36,12 @@ export const useUserStore = defineStore('user', {
   },
 
   actions: {
-    /**
-     * 账号密码登录：令牌由 utils/auth 持久化，不进入 store
-     * @param {{username: string, password: string}} form 登录表单
-     */
-    async login(form) {
-      const res = await apiLogin(form);
-      const { accessToken, refreshToken } = res?.data ?? {};
-      if (!accessToken) throw new Error('登录失败：未获取到访问令牌');
-      setToken({ accessToken, refreshToken });
-    },
-
-    /**
-     * 拉取当前登录用户信息
-     * @returns {Promise<string[]>} 角色编码列表
-     */
-    async fetchGetUserInfo() {
-      const res = await apiGetUserInfo();
-      const info = res?.data ?? {};
-      this.userInfo = info;
-      this.roles = Array.isArray(info.roles) ? info.roles : [];
-      this.permissions = Array.isArray(info.permissions) ? info.permissions : [];
-      return this.roles;
-    },
-
-    /** 退出登录：忽略登出接口异常，清理令牌、权限路由与本地状态 */
-    async logout() {
-      try {
-        await apiLogout();
-      } catch {
-        // 登出接口失败不阻断本地清理
-      }
-      clearToken();
-      usePermissionStore().reset();
-      this.$reset();
+    /** 幂等注入本地会话（无网络请求），由路由守卫在动态路由生成前调用 */
+    ensureSession() {
+      if (this.roles.length) return;
+      this.userInfo = { ...LOCAL_USER };
+      this.roles = [...LOCAL_USER.roles];
+      this.permissions = [...LOCAL_USER.permissions];
     },
   },
 

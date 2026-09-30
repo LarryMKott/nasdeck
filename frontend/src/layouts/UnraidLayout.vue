@@ -99,12 +99,6 @@ const themeMeta = computed(() => {
   };
   return meta[appStore.theme] || meta.dark;
 });
-
-/** 退出登录：清理本地状态后回登录页 */
-async function logout() {
-  await userStore.logout();
-  router.push('/login');
-}
 </script>
 
 <template>
@@ -182,8 +176,6 @@ async function logout() {
             <button @click="router.push('/nasdeck/about')">
               <u-icon name="info" />{{ userStore.nickname }}
             </button>
-            <hr />
-            <button class="danger" @click="logout"><u-icon name="power" />退出登录</button>
           </template>
         </u-dropdown>
       </div>

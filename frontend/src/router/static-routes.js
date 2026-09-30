@@ -17,11 +17,10 @@ export const LAYOUT_ROUTE = {
   children: [],
 };
 
-/** 登录页 */
+/** 旧登录地址兜底：应用内登录壳已移除（鉴权由飞牛登录态承担），直接回面板 */
 export const LOGIN_ROUTE = {
   path: '/login',
-  name: 'Login',
-  component: () => import('@/views/login/LoginView.vue'),
+  redirect: '/',
   meta: { title: '登录', hidden: true },
 };
 
