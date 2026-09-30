@@ -6,9 +6,11 @@ defineOptions({ name: 'App' });
 
 const appStore = useAppStore();
 
-// 主题联动：UNRAID 界面走 .nd[data-theme]，Element Plus 页面走 html.dark
+// 主题联动：UNRAID 界面走 .nd[data-theme]，Element Plus 页面走 html.dark；
+// system 模式随系统配色实时变化，先初始化监听再求值
+appStore.initThemeWatcher();
 watchEffect(() => {
-  const dark = appStore.theme !== 'light';
+  const dark = appStore.resolvedTheme !== 'light';
   document.documentElement.classList.toggle('dark', dark);
   document.body.classList.toggle('nd-dark', dark);
 });

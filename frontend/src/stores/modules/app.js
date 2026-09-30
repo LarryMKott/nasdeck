@@ -12,9 +12,19 @@ export const useAppStore = defineStore('app', {
     device: 'desktop',
     /** Element Plus 组件尺寸：large | default | small */
     size: 'default',
-    /** UNRAID 界面主题：dark（默认）| light */
+    /** UNRAID 界面主题：dark（默认）| light | system（跟随系统） */
     theme: 'dark',
+    /** 系统是否偏好暗色（prefers-color-scheme，theme 为 system 时据此解析） */
+    systemPrefersDark: false,
   }),
+
+  getters: {
+    /** 实际生效的主题：theme 为 system 时按系统偏好解析，其余原样返回 */
+    resolvedTheme() {
+      if (this.theme !== 'system') return this.theme;
+      return this.systemPrefersDark ? 'dark' : 'light';
+    },
+  },
 
   actions: {
     /** 切换侧边栏折叠状态 */
@@ -22,9 +32,19 @@ export const useAppStore = defineStore('app', {
       this.sidebarCollapsed = !this.sidebarCollapsed;
     },
 
-    /** 切换 UNRAID 界面黑/白主题 */
+    /** 切换 UNRAID 界面主题：dark → light → system 循环 */
     toggleTheme() {
-      this.theme = this.theme === 'dark' ? 'light' : 'dark';
+      const order = ['dark', 'light', 'system'];
+      this.theme = order[(order.indexOf(this.theme) + 1) % order.length];
+    },
+
+    /** 监听系统配色变化，供「跟随系统」模式实时联动；应用入口调用一次 */
+    initThemeWatcher() {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      this.systemPrefersDark = mq.matches;
+      mq.addEventListener('change', (e) => {
+        this.systemPrefersDark = e.matches;
+      });
     },
 
     /**

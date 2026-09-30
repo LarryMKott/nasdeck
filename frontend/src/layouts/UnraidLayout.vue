@@ -90,6 +90,16 @@ function jump(path) {
   router.push(path);
 }
 
+/** 主题按钮：图标反映当前模式，提示语说明点击后的去向（dark → light → system 循环） */
+const themeMeta = computed(() => {
+  const meta = {
+    dark: { icon: 'moon', title: '当前黑主题，点击切换白主题' },
+    light: { icon: 'sun', title: '当前白主题，点击跟随系统' },
+    system: { icon: 'monitor', title: '当前跟随系统，点击切换黑主题' },
+  };
+  return meta[appStore.theme] || meta.dark;
+});
+
 /** 退出登录：清理本地状态后回登录页 */
 async function logout() {
   await userStore.logout();
@@ -98,7 +108,7 @@ async function logout() {
 </script>
 
 <template>
-  <div class="nd" :data-theme="appStore.theme">
+  <div class="nd" :data-theme="appStore.resolvedTheme">
     <icon-sprite />
 
     <div class="nav" :class="{ icons: iconsMode }">
@@ -158,12 +168,8 @@ async function logout() {
           </button>
         </span>
 
-        <button
-          class="iconbtn"
-          :title="appStore.theme === 'dark' ? '切换到白主题' : '切换到黑主题'"
-          @click="appStore.toggleTheme()"
-        >
-          <u-icon :name="appStore.theme === 'dark' ? 'moon' : 'sun'" />
+        <button class="iconbtn" :title="themeMeta.title" @click="appStore.toggleTheme()">
+          <u-icon :name="themeMeta.icon" />
         </button>
 
         <u-dropdown :min-width="150">

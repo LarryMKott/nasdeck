@@ -81,6 +81,10 @@ const symbols = [
     body: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/>',
   },
   { id: 'moon', body: '<path d="M20 13.5A8.5 8.5 0 0 1 10.5 4 8.5 8.5 0 1 0 20 13.5Z"/>' },
+  {
+    id: 'monitor',
+    body: '<rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M12 16.5v4M8.5 20.5h7"/>',
+  },
   { id: 'menu', body: '<path d="M4 6.5h16M4 12h16M4 17.5h16"/>' },
   { id: 'send', body: '<path d="M21 3 10.5 13.5"/><path d="M21 3l-6.5 18-4-8-8-4Z"/>' },
   { id: 'clock', body: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.4 2"/>' },
