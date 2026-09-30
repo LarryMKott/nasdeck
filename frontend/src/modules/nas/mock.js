@@ -546,8 +546,8 @@ export const manual = {
 
 /** 关于页 */
 export const about = {
-  version: 'v2.3.3',
-  desc: '飞牛 fnOS 硬件监控面板 · UNRAID 风格概念稿',
+  version: 'dev-0.0.1',
+  desc: '飞牛 fnOS 硬件监控面板 · UNRAID 风格',
   slogan: '把要 SSH 才能看的硬件状态，装进一块面板',
   build: [
     ['构建时间', '2026-09-29 08:00'],
