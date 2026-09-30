@@ -14,6 +14,18 @@ class NetIface(BaseModel):
     total_tx_mb: float
 
 
+class GpuRealtime(BaseModel):
+    """GPU 实时分量（契约 §2.1；AMD sysfs / NVIDIA nvidia-smi，Intel 不提供实时值）。"""
+
+    available: bool = False
+    name: str = ""
+    percent: float | None = None
+    vram_used_mb: float | None = None
+    vram_total_mb: float | None = None
+    temp_c: float | None = None
+    source: str = ""
+
+
 class RealtimeSnapshot(BaseModel):
     ts: str
     available: bool = True
@@ -33,6 +45,8 @@ class RealtimeSnapshot(BaseModel):
     mem_cached_mb: float | None = None
     mem_reserved_mb: float | None = None
     swap_percent: float
+    # GPU 实时分量（medium_5s 采样；无卡/Intel 时 available=false 或 null）
+    gpu: GpuRealtime | None = None
     net: dict[str, NetIface]
     disk_io: dict[str, float]
     process_count: int

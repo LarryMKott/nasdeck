@@ -1,4 +1,4 @@
-"""GPU 采集：实时指标未接入（契约 §6.1），仅 Linux 下尝试枚举 drm 卡。"""
+"""GPU 硬件清单采集：枚举 drm 卡落库（实时指标见 services/monitor/gpu.py）。"""
 
 from __future__ import annotations
 

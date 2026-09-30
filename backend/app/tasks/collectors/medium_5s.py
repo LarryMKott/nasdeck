@@ -7,6 +7,7 @@ import logging
 from app.db.session import session_factory
 from app.services.alert.engine import evaluate_tick
 from app.services.control import fan_manager
+from app.services.monitor import gpu as gpu_service
 from app.services.monitor import temperature
 from app.services.monitor.cache import realtime_cache
 
@@ -44,6 +45,9 @@ async def medium_tick() -> None:
                         update(MetricPoint).where(MetricPoint.id == row_id).values(temp_max=temp_max)
                     )
                 await db.commit()
+
+        # GPU 实时分量（服务内 5s 采样缓存；fast_tick 落库 gpu 列与 realtime 快照读取该缓存）
+        realtime_cache.set("gpu", await gpu_service.collect(), ttl=10)
 
         # 风扇调速输出 + 结果回缓存（WS fans 事件源）
         async with session_factory() as db:

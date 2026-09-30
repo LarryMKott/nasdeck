@@ -69,6 +69,17 @@ export function applyCpuRealtime(cpu, snap) {
   else if (snap.cpu_freq_mhz) cpu.freqGHz = Math.round(snap.cpu_freq_mhz / 10) / 100;
 }
 
+/** 把实时快照的 GPU 分量并入总览 GPU 磁贴（契约 §2.1 gpu 对象；Intel/无卡不覆盖） */
+export function applyGpuRealtime(gpu, snap) {
+  const g = snap.gpu;
+  if (!g || !g.available) return;
+  if (g.percent != null) gpu.percent = Math.round(g.percent);
+  if (g.temp_c != null) gpu.tempC = Math.round(g.temp_c);
+  if (g.vram_total_mb) {
+    gpu.vramText = `显存 ${(g.vram_used_mb / 1024).toFixed(1)} GB`;
+  }
+}
+
 export async function fetchDashboard() {
   const [snapS, tempsS, raidS, dockerS, infoS, eventsS, fansS] = await Promise.allSettled([
     apiData('/api/v1/monitor/realtime'),
@@ -100,6 +111,7 @@ export async function fetchDashboard() {
 
   d.mem.percent = snap.mem_percent;
   applyMemRealtime(d.mem, snap);
+  applyGpuRealtime(d.gpu, snap);
 
   const ifaces = Object.entries(snap.net);
   const rxTotal = ifaces.reduce((a, [, v]) => a + v.rx_kbps, 0);

@@ -28,6 +28,7 @@ watch(
     d.value.cpu.percent = Math.round(snap.cpu_percent * 10) / 10;
     nasData.applyCpuRealtime(d.value.cpu, snap);
     nasData.applyMemRealtime(d.value.mem, snap);
+    nasData.applyGpuRealtime(d.value.gpu, snap);
     const ifaces = Object.entries(snap.net);
     d.value.net.rxText = `${(ifaces.reduce((a, [, v]) => a + v.rx_kbps, 0) / 1024).toFixed(1)} MB/s ↓`;
     d.value.diskIo.readText = `${((snap.disk_io.read_kbps ?? 0) / 1024).toFixed(0)} MB/s 读`;

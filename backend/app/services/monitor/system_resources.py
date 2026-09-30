@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 import psutil
 
+from app.utils.sysfs import read_text
 from app.utils.unit_convert import kbps_to_human
 
 _last_net = {"ts": 0.0, "counters": {}}
@@ -132,25 +133,99 @@ def _disk_io() -> dict[str, float]:
     }
 
 
-def _per_core_freq() -> list[float | None]:
-    """每逻辑核当前频率（MHz）；平台不给足每核条目时以 None 占位（Windows 实测仅回 1 条）。"""
-    n = psutil.cpu_count(logical=True) or 0
-    if not n:
-        return []
+def _read_proc_stat(path: str = "/proc/stat") -> list[tuple[int, int]] | None:
+    """解析 /proc/stat 的 cpu 行 → [(总 jiffies, 空闲 jiffies), ...]，首项为全机合计。
+
+    /proc 是内核内存文件，读取无磁盘 IO，1s 轮询开销可忽略（Unraid 同款做法，
+    不 fork top/lscpu）。非 Linux / 解析异常回 None。
+    """
+    try:
+        rows = []
+        with open(path, encoding="ascii") as fh:
+            for line in fh:
+                if not line.startswith("cpu"):
+                    break
+                fields = line.split()
+                if len(fields) < 5:
+                    break
+                vals = [int(v) for v in fields[1:9]]  # user nice system idle iowait irq softirq steal
+                rows.append((sum(vals), vals[3] + vals[4]))  # idle + iowait 视为空闲
+        return rows or None
+    except (OSError, ValueError):
+        return None
+
+
+# /proc/stat 上一轮采样（差值算占用，只保存上一次值）
+_cpu_stat_last = {"rows": None}
+
+
+def _cpu_percent() -> tuple[float, list[float]]:
+    """两次 /proc/stat 采样差值 → (全机占用%, 每核占用%)；首采为 0（与 psutil 同语义）。
+
+    非 Linux（开发机）退回 psutil——其内部同为 /proc/stat 差值，零外部命令。
+    """
+    rows = _read_proc_stat()
+    if rows is None:
+        return psutil.cpu_percent(interval=None), [
+            round(v, 1) for v in psutil.cpu_percent(interval=None, percpu=True)
+        ]
+    prev = _cpu_stat_last["rows"]
+    _cpu_stat_last["rows"] = rows
+    if not prev or len(prev) != len(rows):
+        return 0.0, [0.0] * (len(rows) - 1)
+    percents = [
+        round(max(0.0, min(100.0, (1 - (idle1 - idle0) / (total1 - total0)) * 100)), 1)
+        if total1 > total0
+        else 0.0
+        for (total1, idle1), (total0, idle0) in zip(rows, prev, strict=False)
+    ]
+    return percents[0], percents[1:]
+
+
+def _psutil_per_core_freq(n: int) -> list[float | None]:
+    """psutil 每核频率退路；平台不给足条目时以 None 占位（Windows 实测仅回 1 条）。"""
     freqs = psutil.cpu_freq(percpu=True) or []
-    if not freqs:
-        return [None] * n
     current = [f.current if f else None for f in freqs]
     if len(current) >= n:
         return [round(v) if v else None for v in current[:n]]
     return [round(current[i]) if i < len(current) and current[i] else None for i in range(n)]
 
 
+_freq_max_mhz: int | None = None
+
+
+def _per_core_freq() -> list[float | None]:
+    """每逻辑核当前频率（MHz）：直读 /sys/devices/system/cpu/cpuX/cpufreq/scaling_cur_freq。
+
+    内核实时导出，纯文本只读（零 psutil、零 lscpu）；缺文件的核以 None 占位，
+    全缺（无 cpufreq 的平台）退回 psutil。
+    """
+    global _freq_max_mhz
+    n = psutil.cpu_count(logical=True) or 0
+    if not n:
+        return []
+    freqs: list[float | None] = []
+    for i in range(n):
+        text = read_text(f"/sys/devices/system/cpu/cpu{i}/cpufreq/scaling_cur_freq")
+        try:
+            freqs.append(round(int(text) / 1000) if text else None)  # kHz → MHz
+        except ValueError:
+            freqs.append(None)
+        if _freq_max_mhz is None:
+            max_text = read_text(f"/sys/devices/system/cpu/cpu{i}/cpufreq/cpuinfo_max_freq")
+            try:
+                _freq_max_mhz = round(int(max_text) / 1000) if max_text else None
+            except ValueError:
+                _freq_max_mhz = None
+    if all(v is None for v in freqs):
+        return _psutil_per_core_freq(n)
+    return freqs
+
+
 async def snapshot() -> dict:
-    cpu_percent = psutil.cpu_percent(interval=None)
-    per_core = psutil.cpu_percent(interval=None, percpu=True)
-    freq = psutil.cpu_freq()
+    cpu_percent, per_core = _cpu_percent()
     freq_per_core = _per_core_freq()
+    freq_mhz = next((v for v in freq_per_core if v), None)
     mem = _mem_info()
     try:
         load = [round(x, 2) for x in psutil.getloadavg()]
@@ -161,9 +236,9 @@ async def snapshot() -> dict:
         "available": True,
         "cpu_percent": cpu_percent,
         "cpu_per_core": per_core,
-        "cpu_freq_mhz": round(freq.current, 0) if freq else None,
+        "cpu_freq_mhz": freq_mhz,
         "cpu_freq_per_core": freq_per_core,
-        "cpu_freq_max_mhz": round(freq.max, 0) if freq and freq.max else None,
+        "cpu_freq_max_mhz": _freq_max_mhz,
         "load": load,
         "mem_used_mb": mem["used_mb"],
         "mem_total_mb": mem["total_mb"],

@@ -21,6 +21,7 @@ async def realtime() -> dict:
     snap = realtime_cache.get("realtime")
     if snap is None:
         snap = await system_resources.snapshot()
+        snap["gpu"] = realtime_cache.get("gpu")  # GPU 由 medium_5s 采样维护
         realtime_cache.set("realtime", snap, ttl=5)
     return snap
 
