@@ -26,6 +26,8 @@ async def client():
 
     await engine.dispose()
     _TEST_DB.unlink(missing_ok=True)
+    for suffix in ("-wal", "-shm"):  # WAL 模式伴生文件一并清理
+        Path(f"{_TEST_DB}{suffix}").unlink(missing_ok=True)
 
 
 def ok(response) -> dict:

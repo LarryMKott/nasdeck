@@ -1,4 +1,4 @@
-"""1 秒级采集：系统资源快照 → 实时缓存 + metrics 原始点落库。"""
+"""1 秒级采集：系统资源快照 → 实时缓存；指标点每 5s 落库（§3.1 历史粒度足够）。"""
 
 from __future__ import annotations
 
@@ -14,13 +14,21 @@ from app.services.monitor.cache import realtime_cache
 
 logger = logging.getLogger(__name__)
 
+_tick_count = 0
+
 
 async def fast_tick() -> None:
+    global _tick_count
     try:
         snap = await system_resources.snapshot()
         # GPU 分量由 medium_5s 以 5s 采样维护（本 tick 只并入缓存与落库，不重复采集）
         snap["gpu"] = realtime_cache.get("gpu")
-        realtime_cache.set("realtime", snap, ttl=5)
+        realtime_cache.set("realtime", snap, ttl=5)  # WS 实时源，每秒更新
+        # 落库降频到 5s：1s 粒度对趋势图过剩（points≤500 本就抽稀），且每秒写事务
+        # 在慢盘上与 medium_tick 抢单写锁会导致调度跳秒（真机 2026-09-30 实测）
+        _tick_count += 1
+        if _tick_count % 5:
+            return
         async with session_factory() as db:
             net_kbps = round(sum(i["rx_kbps"] + i["tx_kbps"] for i in snap["net"].values()), 1)
             # 秒级时间戳是唯一键：调度器首跑与下一轮偶发落在同一秒，冲突即忽略防丢整轮
