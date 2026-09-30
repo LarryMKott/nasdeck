@@ -19,8 +19,26 @@ function hhmm(iso) {
     : `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
 }
 
-function gb(mb) {
-  return `${(mb / 1024).toFixed(1)} GB`;
+/** 内存分量格式化：<1GB 用 MB，其余 GB（free(1) 风格） */
+function memSize(mb) {
+  if (mb == null) return '—';
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
+/** 把实时快照的内存分量并入内存磁贴（首载与 WS 聚合共用；后端内存 5s 采集缓存）。
+ * 系统保留 = 总大小 − 可用（内核占用 + 不可回收部分，契约 §2.1） */
+export function applyMemRealtime(mem, snap) {
+  mem.percent = snap.mem_percent;
+  mem.usedText = memSize(snap.mem_used_mb);
+  mem.totalText = memSize(snap.mem_total_mb);
+  mem.availText = memSize(snap.mem_available_mb);
+  mem.buffersText = memSize(snap.mem_buffers_mb);
+  mem.cachedText = memSize(snap.mem_cached_mb);
+  mem.reservedText = memSize(
+    snap.mem_total_mb != null && snap.mem_available_mb != null
+      ? Math.max(0, snap.mem_total_mb - snap.mem_available_mb)
+      : null
+  );
 }
 
 function pick(settled) {
@@ -85,8 +103,7 @@ export async function fetchDashboard() {
   d.cpu.tempC = cpuTemp.length ? Math.max(...cpuTemp.map((t) => t.celsius)) : d.cpu.tempC;
 
   d.mem.percent = snap.mem_percent;
-  d.mem.usedText = `已用 ${gb(snap.mem_used_mb)}`;
-  d.mem.totalText = `共 ${gb(snap.mem_total_mb)}`;
+  applyMemRealtime(d.mem, snap);
 
   const ifaces = Object.entries(snap.net);
   const rxTotal = ifaces.reduce((a, [, v]) => a + v.rx_kbps, 0);

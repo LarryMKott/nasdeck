@@ -61,7 +61,15 @@ export const dashboard = {
     freqGHz: 3.49,
     tempC: 45,
   },
-  mem: { percent: 41, usedText: '已用 26.2 GB', totalText: '共 64 GB · ECC' },
+  mem: {
+    percent: 41,
+    usedText: '26.2 GB',
+    totalText: '64.0 GB',
+    availText: '40.1 GB',
+    buffersText: '412 MB',
+    cachedText: '21.4 GB',
+    reservedText: '23.9 GB',
+  },
   net: { rxText: '12.3 MB/s ↓', txText: '↑ 3.1 MB/s · eth0' },
   diskIo: { readText: '86 MB/s 读', writeText: '↑ 写 42 MB/s' },
   array: {

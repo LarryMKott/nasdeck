@@ -27,7 +27,7 @@ watch(
     if (!snap || !live.value) return;
     d.value.cpu.percent = Math.round(snap.cpu_percent * 10) / 10;
     nasData.applyCpuRealtime(d.value.cpu, snap);
-    d.value.mem.percent = snap.mem_percent;
+    nasData.applyMemRealtime(d.value.mem, snap);
     const ifaces = Object.entries(snap.net);
     d.value.net.rxText = `${(ifaces.reduce((a, [, v]) => a + v.rx_kbps, 0) / 1024).toFixed(1)} MB/s ↓`;
     d.value.diskIo.readText = `${((snap.disk_io.read_kbps ?? 0) / 1024).toFixed(0)} MB/s 读`;
@@ -141,9 +141,31 @@ const gpuSeries = [
           <div class="meter" style="margin-top: 9px">
             <i class="c-info" :style="{ width: `${d.mem.percent}%` }" />
           </div>
-          <div class="mtxt">
-            <span>{{ d.mem.usedText }}</span>
-            <span class="num">{{ d.mem.totalText }}</span>
+          <div class="kv2" style="margin-top: 8px">
+            <div class="kvrow kvline">
+              <span class="muted small">总大小</span>
+              <span class="small num">{{ d.mem.totalText }}</span>
+            </div>
+            <div class="kvrow kvline">
+              <span class="muted small">已使用</span>
+              <span class="small num">{{ d.mem.usedText }}</span>
+            </div>
+            <div class="kvrow kvline">
+              <span class="muted small">可用</span>
+              <span class="small num">{{ d.mem.availText }}</span>
+            </div>
+            <div class="kvrow kvline">
+              <span class="muted small">缓冲</span>
+              <span class="small num">{{ d.mem.buffersText }}</span>
+            </div>
+            <div class="kvrow kvline">
+              <span class="muted small">缓存</span>
+              <span class="small num">{{ d.mem.cachedText }}</span>
+            </div>
+            <div class="kvrow">
+              <span class="muted small">系统保留</span>
+              <span class="small num">{{ d.mem.reservedText }}</span>
+            </div>
           </div>
         </div>
       </div>

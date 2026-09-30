@@ -14,6 +14,22 @@ from app.utils.unit_convert import kbps_to_human
 
 _last_net = {"ts": 0.0, "counters": {}}
 _last_disk = {"ts": 0.0, "counters": None}
+# 内存/交换分区 5s 采集缓存：变化粒度粗，1s 重复读无意义（告警引擎评估同为 5s tick）
+_vmem_cache = {"ts": 0.0, "vm": None, "sm": None}
+
+
+def _mb(value) -> float | None:
+    """字节 → MB；平台缺该字段（Windows 无 buffers/cached）回 None。"""
+    return round(value / 1024 / 1024, 1) if value is not None else None
+
+
+def _mem_info() -> tuple:
+    now = time.monotonic()
+    if _vmem_cache["vm"] is None or now - _vmem_cache["ts"] >= 5.0:
+        _vmem_cache["vm"] = psutil.virtual_memory()
+        _vmem_cache["sm"] = psutil.swap_memory()
+        _vmem_cache["ts"] = now
+    return _vmem_cache["vm"], _vmem_cache["sm"]
 
 
 def _diff(curr: dict, last: dict) -> dict[str, float]:
@@ -79,8 +95,7 @@ async def snapshot() -> dict:
     per_core = psutil.cpu_percent(interval=None, percpu=True)
     freq = psutil.cpu_freq()
     freq_per_core = _per_core_freq()
-    vm = psutil.virtual_memory()
-    sm = psutil.swap_memory()
+    vm, sm = _mem_info()
     try:
         load = [round(x, 2) for x in psutil.getloadavg()]
     except (AttributeError, OSError):
@@ -97,6 +112,10 @@ async def snapshot() -> dict:
         "mem_used_mb": round(vm.used / 1024 / 1024, 1),
         "mem_total_mb": round(vm.total / 1024 / 1024, 1),
         "mem_percent": vm.percent,
+        # Linux 语义分量（缓冲/缓存，free(1) 口径）；Windows 无此字段回 None
+        "mem_available_mb": round(vm.available / 1024 / 1024, 1),
+        "mem_buffers_mb": _mb(getattr(vm, "buffers", None)),
+        "mem_cached_mb": _mb(getattr(vm, "cached", None)),
         "swap_percent": sm.percent,
         "net": _net_ifaces(),
         "disk_io": _disk_io(),
