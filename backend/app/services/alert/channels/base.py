@@ -1,4 +1,4 @@
-"""通知渠道基类与注册表（契约 §6.4：新类型追加 CHANNEL_TYPES 白名单）。"""
+"""通知渠道基类与注册表（契约 §2.19/§3.5：新类型追加 CHANNEL_TYPES 白名单）。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 
 from app.core.exceptions import InvalidParamsError
 
-CHANNEL_TYPES = ("telegram", "bark", "email")
+CHANNEL_TYPES = ("telegram", "bark", "email", "webhook")
 
 
 def mask_config(channel_type: str, config: dict) -> dict:

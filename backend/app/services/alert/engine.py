@@ -17,10 +17,11 @@ from app.services.alert.channels.bark import BarkChannel
 from app.services.alert.channels.base import CHANNEL_TYPES
 from app.services.alert.channels.email import EmailChannel
 from app.services.alert.channels.telegram import TelegramChannel
+from app.services.alert.channels.webhook import WebhookChannel
 
 logger = logging.getLogger(__name__)
 
-_CHANNELS = {c.type: c for c in (TelegramChannel(), BarkChannel(), EmailChannel())}
+_CHANNELS = {c.type: c for c in (TelegramChannel(), BarkChannel(), EmailChannel(), WebhookChannel())}
 
 # 进程内连击计数：rule_id → 连续满足次数
 _tick_counters: dict[int, int] = {}

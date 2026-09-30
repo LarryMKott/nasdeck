@@ -67,7 +67,7 @@ def _point_dict(row: MetricPoint) -> dict:
 
 
 async def stats(db: AsyncSession, minutes: int, dim: str) -> dict:
-    """区间统计（规划接口 /monitor/history/stats 的服务，见契约 §6.1）。"""
+    """区间统计（/monitor/history/stats 的服务，见契约 §3.1）。"""
     from datetime import UTC, datetime, timedelta
 
     since = (datetime.now(UTC) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -98,7 +98,7 @@ _DIM_FIELDS = {
 
 
 def export_build(rows: list[dict], dim: str, minutes: int, fmt: str) -> tuple[str, str, str]:
-    """构建导出文件（契约 §6.1：/monitor/history/export 文件流）。返回 (文件名, 内容, media_type)。"""
+    """构建导出文件（契约 §3.1：/monitor/history/export 文件流）。返回 (文件名, 内容, media_type)。"""
     from datetime import UTC, datetime
 
     unit = {"cpu": "%", "mem": "MB", "temp": "C", "net": "KB/s", "disk": "KB/s", "gpu": "%"}.get(dim, "")

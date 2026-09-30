@@ -1,4 +1,4 @@
-"""硬件清单只读接口（契约 §6.3 规划：GET /hardware、GET /hardware/{kind}）。
+"""硬件清单只读接口（契约 §3.7：GET /hardware、GET /hardware/{kind}）。
 
 数据来自 slow_60s 每轮落库的 hardware_items；返回每类采集器的最新一轮。
 """

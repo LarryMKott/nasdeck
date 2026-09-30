@@ -1,4 +1,4 @@
-"""GPU 采集：实时指标未接入（契约 §6.2），仅 Linux 下尝试枚举 drm 卡。"""
+"""GPU 采集：实时指标未接入（契约 §6.1），仅 Linux 下尝试枚举 drm 卡。"""
 
 from __future__ import annotations
 

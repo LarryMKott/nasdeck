@@ -22,7 +22,7 @@ class AlertRuleItem(AlertRuleIn):
 
 class AlertChannelIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
-    type: str = Field(pattern="^(telegram|bark|email)$")
+    type: str = Field(pattern="^(telegram|bark|email|webhook)$")
     config: dict
     enabled: bool = True
 

@@ -73,7 +73,7 @@ async def history_stats(
     minutes: int = Query(default=60, ge=1, le=43200),
     dim: str = Query(default="cpu", pattern="^(cpu|mem|temp|net|disk|gpu)$"),
 ) -> dict:
-    """区间统计（契约 §6.1 规划接口）。"""
+    """区间统计（契约 §3.1）。"""
     return await history_service.stats(db, minutes, dim)
 
 
@@ -84,7 +84,7 @@ async def history_export(
     dim: str = Query(default="cpu", pattern="^(cpu|mem|temp|net|disk|gpu)$"),
     fmt: str = Query(default="csv", pattern="^(csv|markdown|html)$"),
 ) -> Response:
-    """历史健康报告导出（契约 §6.1：文件流，非信封）。"""
+    """历史健康报告导出（契约 §3.1：文件流，非信封）。"""
     rows, _granularity = await history_service.query_history(db, minutes, 500)
     filename, content, media_type = history_service.export_build(rows, dim, minutes, fmt)
     return Response(

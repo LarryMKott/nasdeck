@@ -113,7 +113,7 @@ async def test_api_key_enforced_when_set(client, monkeypatch):
 
 
 async def test_hardware_read_api(client):
-    """§6.3：慢采集落库后 /hardware 可读（测试进程未跑 60s 任务时至少结构正确）。"""
+    """§3.7：慢采集落库后 /hardware 可读（测试进程未跑 60s 任务时至少结构正确）。"""
     from app.db.session import session_factory
     from app.models.hardware import HardwareItem
 
@@ -128,7 +128,7 @@ async def test_hardware_read_api(client):
 
 
 async def test_history_stats_and_export(client):
-    """§6.1：stats 聚合 + export 文件流（非信封）。"""
+    """§3.1：stats 聚合 + export 文件流（非信封）。"""
     from datetime import UTC, datetime, timedelta
 
     from app.db.session import session_factory

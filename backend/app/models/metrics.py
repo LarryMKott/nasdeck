@@ -19,6 +19,6 @@ class MetricPoint(Base):
     mem_mb: Mapped[float | None] = mapped_column(Float)
     net_kbps: Mapped[float | None] = mapped_column(Float)
     temp_max: Mapped[float | None] = mapped_column(Float)
-    gpu: Mapped[float | None] = mapped_column(Float)  # 实时未接入，暂恒 NULL（契约 §6.2）
+    gpu: Mapped[float | None] = mapped_column(Float)  # 实时未接入，暂恒 NULL（契约 §6.1）
     disk_read_kbps: Mapped[float | None] = mapped_column(Float)
     disk_write_kbps: Mapped[float | None] = mapped_column(Float)

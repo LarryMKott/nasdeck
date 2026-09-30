@@ -515,7 +515,7 @@ export async function fetchAbout() {
   };
 }
 
-// ---------------- 硬件检测（§6.3 /hardware 只读） ----------------
+// ---------------- 硬件检测（§3.7 /hardware 只读） ----------------
 
 export async function fetchDetect() {
   const [hwS, infoS, disksS, envS] = await Promise.allSettled([
@@ -649,7 +649,7 @@ export async function fetchDetect() {
   return { data: d, live: true };
 }
 
-/** 历史区间统计（§6.1 stats） */
+/** 历史区间统计（§3.1 stats） */
 export async function fetchHistoryStats(dim, rangeKey) {
   const minutes = { '24h': 1440, '7d': 10080, '30d': 43200 }[rangeKey] ?? 10080;
   try {
@@ -667,7 +667,7 @@ export async function fetchHistoryStats(dim, rangeKey) {
   }
 }
 
-/** 历史报告导出（§6.1 export 文件流），返回可直接下载的 url */
+/** 历史报告导出（§3.1 export 文件流），返回可直接下载的 url */
 export function historyExportUrl(dim, rangeKey, fmt) {
   const minutes = { '24h': 1440, '7d': 10080, '30d': 43200 }[rangeKey] ?? 10080;
   return `/api/v1/monitor/history/export?minutes=${minutes}&dim=${dim}&fmt=${fmt}`;
