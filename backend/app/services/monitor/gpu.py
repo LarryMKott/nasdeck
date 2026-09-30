@@ -1,9 +1,10 @@
-"""GPU 实时采集（契约 §2.1 gpu 对象）：sysfs 优先零 fork，仅 NVIDIA 才调 nvidia-smi。
+"""GPU 实时采集（契约 §2.1 gpu 对象）：策略决策层判定各 vendor 的采集策略。
 
-- AMD（vendor 0x1002）：device/gpu_busy_percent + mem_info_vram_{used,total} + hwmon 温度
+- AMD：device/gpu_busy_percent + mem_info_vram_{used,total} + hwmon 温度
   ——全部内核导出，纯文本只读（Unraid GPU Statistics 插件同款思路）
-- NVIDIA（0x10de）：nvidia-smi --query-gpu 只查需要字段，5s 采样避免高频 fork
-- Intel（0x8086）：无 sysfs 忙闲接口（Unraid 原生亦需 intel_gpu_top 插件），不提供实时值
+- NVIDIA：nvidia-smi --query-gpu 只查需要字段，5s 采样避免高频 fork；
+  仅当决策层判定 nvidia-smi 在位才扫描
+- Intel：无内核忙闲接口（Unraid 原生亦需 intel_gpu_top 插件），策略恒 unavailable
 
 无卡/读取失败 available=false，调用方按缺数据处理；采集永不抛异常。
 """
@@ -13,10 +14,12 @@ from __future__ import annotations
 import time
 
 from app.core.exceptions import ExternalToolError
+from app.services.hardware.policy import get_policy
 from app.utils import sysfs
 from app.utils.async_cmd import run_cmd
 
-VENDOR_AMD, VENDOR_NVIDIA, VENDOR_INTEL = "0x1002", "0x10de", "0x8086"
+# vendor key（决策层）→ sysfs vendor id
+VENDOR_IDS = {"amd": "0x1002", "nvidia": "0x10de", "intel": "0x8086"}
 
 # 5s 采样缓存：GPU 变化粒度粗，nvidia-smi 是 fork 外部进程（拒绝 1s 高频调用）
 _cache: dict = {"ts": 0.0, "data": None}
@@ -24,19 +27,26 @@ _cache: dict = {"ts": 0.0, "data": None}
 _scan_cache: dict = {"ts": 0.0, "cards": None}
 
 
+def _allowed_vendors() -> dict[str, str]:
+    """决策层允许实时采集的 vendor：sysfs vendor id → vendor key。"""
+    policy = get_policy()
+    return {VENDOR_IDS[key]: key for key, strategy in policy.gpu_vendors.items() if strategy != "unavailable"}
+
+
 def _scan_cards(base: str = "/sys/class/drm") -> list[dict]:
-    """枚举 drm 卡 → [{name, dev, vendor}]，只留 AMD/NVIDIA/Intel 三类已知 vendor。"""
+    """枚举 drm 卡 → [{name, dev, kind}]，只留策略允许实时采集的 vendor。"""
     now = time.monotonic()
     if _scan_cache["cards"] is not None and now - _scan_cache["ts"] < 60.0:
         return _scan_cache["cards"]
+    allowed = _allowed_vendors()
     cards = []
     for name in sysfs.list_dirs(base):
         if not name.startswith("card") or not name[4:].isdigit():
             continue
         dev = f"{base}/{name}/device"
         vendor = (sysfs.read_text(f"{dev}/vendor") or "").strip()
-        if vendor in (VENDOR_AMD, VENDOR_NVIDIA, VENDOR_INTEL):
-            cards.append({"name": name, "dev": dev, "vendor": vendor})
+        if vendor in allowed:
+            cards.append({"name": name, "dev": dev, "kind": allowed[vendor]})
     _scan_cache["cards"] = cards
     _scan_cache["ts"] = now
     return cards
@@ -101,7 +111,10 @@ async def _nvidia_card() -> dict | None:
 
 
 async def collect() -> dict:
-    """GPU 实时快照（5s 采样缓存）：{available, name, percent, vram_used_mb, vram_total_mb, temp_c, source}。"""
+    """GPU 实时快照（5s 采样缓存）：{available, name, percent, vram_used_mb, vram_total_mb, temp_c, source}。
+
+    决策层判定无 /sys/class/drm 或无可用 vendor 策略时直接返回不可用，不扫描不 fork。
+    """
     now = time.monotonic()
     if _cache["data"] is not None and now - _cache["ts"] < 5.0:
         return _cache["data"]
@@ -114,17 +127,18 @@ async def collect() -> dict:
         "temp_c": None,
         "source": "",
     }
-    for card in _scan_cards():
-        if card["vendor"] == VENDOR_AMD:
-            fields = _amd_card(card["dev"])
-            if fields["percent"] is not None:
-                data.update(fields, available=True, name=card["name"], source="sysfs")
-                break
-        elif card["vendor"] == VENDOR_NVIDIA:
-            fields = await _nvidia_card()
-            if fields:
-                data.update(fields, available=True, name=fields.get("name") or card["name"], source="nvidia-smi")
-                break
+    if get_policy().gpu_scan:
+        for card in _scan_cards():
+            if card["kind"] == "amd":
+                fields = _amd_card(card["dev"])
+                if fields["percent"] is not None:
+                    data.update(fields, available=True, name=card["name"], source="sysfs")
+                    break
+            elif card["kind"] == "nvidia":
+                fields = await _nvidia_card()
+                if fields:
+                    data.update(fields, available=True, name=fields.get("name") or card["name"], source="nvidia-smi")
+                    break
     _cache["data"] = data
     _cache["ts"] = now
     return data

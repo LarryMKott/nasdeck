@@ -1,8 +1,9 @@
 """系统资源实时采集 → RealtimeSnapshot 形状的 dict（契约 §2.1）。
 
-内存全读 /proc/meminfo（内核直接导出，零外部命令，Unraid 同口径），非 Linux 退回
-psutil；CPU/网络/磁盘走 psutil。网络与磁盘 IO 为两次采样差分：首采速率为 0 但
-累计量正确，1s 调度下无感知。
+各域的数据源策略由决策层启动时判定（services/hardware/policy.py）：内存全读
+/proc/meminfo、CPU 走 /proc/stat 差值与 /sys cpufreq——内核文件直读零 fork，
+非 Linux 退回 psutil。网络与磁盘 IO 为两次采样差分：首采速率为 0 但累计量
+正确，1s 调度下无感知。
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from datetime import UTC, datetime
 
 import psutil
 
+from app.services.hardware.policy import get_policy
 from app.utils.sysfs import read_text
 from app.utils.unit_convert import kbps_to_human
 
@@ -67,10 +69,11 @@ def _mem_fields(info: dict[str, int]) -> dict:
 
 
 def _mem_info() -> dict:
-    """5s 缓存的内存分量 dict；Linux 直读 /proc/meminfo，否则退回 psutil。"""
+    """5s 缓存的内存分量 dict。策略由决策层判定（policy.memory）：meminfo 直读
+    /proc/meminfo；psutil 策略（或老内核缺 MemAvailable）走 psutil 兜底路径。"""
     now = time.monotonic()
     if _mem_cache["data"] is None or now - _mem_cache["ts"] >= 5.0:
-        info = _read_meminfo()
+        info = _read_meminfo() if get_policy().memory == "meminfo" else None
         if info is None:
             vm, sm = psutil.virtual_memory(), psutil.swap_memory()
             info = {
@@ -162,13 +165,18 @@ _cpu_stat_last = {"rows": None}
 def _cpu_percent() -> tuple[float, list[float]]:
     """两次 /proc/stat 采样差值 → (全机占用%, 每核占用%)；首采为 0（与 psutil 同语义）。
 
-    非 Linux（开发机）退回 psutil——其内部同为 /proc/stat 差值，零外部命令。
+    策略由决策层启动时判定（policy.cpu_util）：proc 直读或 psutil（其内部同为
+    /proc/stat 差值，零外部命令）。启动后文件异常消失按无数据退 0，运行期不切换策略。
     """
-    rows = _read_proc_stat()
-    if rows is None:
+    if get_policy().cpu_util != "proc":
         return psutil.cpu_percent(interval=None), [
             round(v, 1) for v in psutil.cpu_percent(interval=None, percpu=True)
         ]
+    rows = _read_proc_stat()
+    if rows is None:
+        prev = _cpu_stat_last["rows"]
+        core_count = len(prev) - 1 if prev else 0
+        return 0.0, [0.0] * max(core_count, 0)
     prev = _cpu_stat_last["rows"]
     _cpu_stat_last["rows"] = rows
     if not prev or len(prev) != len(rows):
@@ -195,15 +203,17 @@ _freq_max_mhz: int | None = None
 
 
 def _per_core_freq() -> list[float | None]:
-    """每逻辑核当前频率（MHz）：直读 /sys/devices/system/cpu/cpuX/cpufreq/scaling_cur_freq。
+    """每逻辑核当前频率（MHz）。策略由决策层判定（policy.cpu_freq）：
 
-    内核实时导出，纯文本只读（零 psutil、零 lscpu）；缺文件的核以 None 占位，
-    全缺（无 cpufreq 的平台）退回 psutil。
+    sysfs 直读 /sys/devices/system/cpu/cpuX/cpufreq/scaling_cur_freq（内核实时导出，
+    零 lscpu）；缺文件的核以 None 占位，运行期不切换策略；psutil 策略走退路实现。
     """
     global _freq_max_mhz
     n = psutil.cpu_count(logical=True) or 0
     if not n:
         return []
+    if get_policy().cpu_freq != "sysfs":
+        return _psutil_per_core_freq(n)
     freqs: list[float | None] = []
     for i in range(n):
         text = read_text(f"/sys/devices/system/cpu/cpu{i}/cpufreq/scaling_cur_freq")
@@ -217,8 +227,6 @@ def _per_core_freq() -> list[float | None]:
                 _freq_max_mhz = round(int(max_text) / 1000) if max_text else None
             except ValueError:
                 _freq_max_mhz = None
-    if all(v is None for v in freqs):
-        return _psutil_per_core_freq(n)
     return freqs
 
 

@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.db.init_db import init_db
+from app.services.hardware.policy import get_policy
 from app.tasks import scheduler as scheduler_tasks
 
 
@@ -63,6 +64,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     setup_logging()  # 须先于任何业务日志：按 resolved_log_level 装配根 logger
+    get_policy()  # 启动时决策硬件采集策略（单例结论全进程复用，决策依据进日志）
     app = FastAPI(title="nasdeck", version=settings.app_version, lifespan=lifespan)
     app.middleware("http")(envelope_middleware)
     register_exception_handlers(app)

@@ -25,6 +25,7 @@ from app.schemas.system import (
     WhitelistIn,
     WhitelistItem,
 )
+from app.services.hardware.policy import TOOLS
 from app.services.system import docker as docker_service
 from app.services.system import ports as port_service
 from app.services.system import process as process_service
@@ -54,13 +55,15 @@ async def env_check() -> dict:
 
     实时探测而非读安装报告：工具后来补装、驱动状态变化都能如实反映；
     缺失项带安装提示（对应 install_callback「缺啥装啥、失败降级」的兜底说明）。
+    工具清单与用途说明来自策略决策层 TOOLS 注册表（单一来源）。
     """
     import shutil
     import sys
     from pathlib import Path
 
-    def tool(name: str, desc: str, pkg: str) -> dict:
+    def tool(name: str) -> dict:
         found = shutil.which(name)
+        desc, pkg = TOOLS[name]
         return {
             "name": name,
             "desc": desc,
@@ -80,16 +83,13 @@ async def env_check() -> dict:
             "raw_keep_minutes": settings.raw_keep_minutes,
             "trim_auth": settings.trim_auth,
         },
-        "tools": [
-            tool("smartctl", "硬盘 SMART 读取", "smartmontools"),
-            tool("sensors", "温度/风扇/电压传感", "lm-sensors"),
-            tool("mdadm", "软 RAID 阵列状态", "mdadm"),
-            tool("dmidecode", "主板/内存条信息", "dmidecode"),
-            tool("decode-dimms", "内存温度", "i2c-tools"),
-            tool("ethtool", "网卡信息与 WOL", "ethtool"),
-        ],
+        "tools": [tool(name) for name in TOOLS],
         "drivers": [
-            {"name": "nct6775", "desc": "风扇芯片驱动（Nuvoton 新机型）", "loaded": Path("/sys/module/nct6775").is_dir()},
+            {
+                "name": "nct6775",
+                "desc": "风扇芯片驱动（Nuvoton 新机型）",
+                "loaded": Path("/sys/module/nct6775").is_dir(),
+            },
             {"name": "it87", "desc": "风扇芯片驱动（ITE 旧机型）", "loaded": Path("/sys/module/it87").is_dir()},
         ],
         "storcli": {

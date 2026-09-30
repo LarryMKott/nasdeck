@@ -243,7 +243,19 @@ async def test_raid_status_hba_fallback(monkeypatch):
     """storcli 无 MegaRAID 可报 + lspci 有 HBA → controller 呈现 HBA、storcli_error 为说明。"""
     import unittest.mock as mock
 
+    from app.services.hardware import policy as policy_mod
+    from app.services.hardware.policy import HardwarePolicy
     from app.services.storage import raid
+
+    # 策略层判定 lspci 在位（门控通过后才会走到 fake_lspci）
+    monkeypatch.setattr(
+        policy_mod,
+        "_policy",
+        HardwarePolicy(
+            platform="Linux", cpu_util="proc", cpu_freq="sysfs", memory="meminfo",
+            gpu_scan=False, gpu_vendors={}, tools={"lspci": True},
+        ),
+    )
 
     real_lspci = (
         "00:17.0 SATA controller [0106]: Intel 200 Series/Z370 SATA Controller (AHCI) [8086:a282]\n"

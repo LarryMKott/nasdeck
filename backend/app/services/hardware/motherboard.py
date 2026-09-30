@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from app.services.hardware.base import BaseCollector
+from app.services.hardware.policy import get_policy
 from app.utils.async_cmd import run_cmd
 from app.utils.sysfs import read_text
 
@@ -41,11 +42,13 @@ class MotherboardCollector(BaseCollector):
         if not vendor:
             return {"name": "", "available": False}
         chipset = host_bridge = None
-        try:
-            _rc, lspci_out, _err = await run_cmd("lspci", "-nn", timeout=10)
-            chipset, host_bridge = parse_chipset(lspci_out)
-        except Exception:  # noqa: BLE001 lspci 缺失（Windows）不影响 DMI 部分
-            pass
+        # lspci 在位与否由策略决策层启动时判定；缺失（Windows/精简系统）不影响 DMI 部分
+        if get_policy().tools.get("lspci"):
+            try:
+                _rc, lspci_out, _err = await run_cmd("lspci", "-nn", timeout=10)
+                chipset, host_bridge = parse_chipset(lspci_out)
+            except Exception:  # noqa: BLE001
+                pass
         model = read_text(f"{DMI}/board_name")
         return {
             "name": f"{vendor} {model or ''}".strip(),

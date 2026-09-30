@@ -70,7 +70,14 @@ async def raid_status() -> dict:
 
 
 async def _detect_hba() -> dict | None:
-    """lspci 只读检测 HBA 直通卡；附带 mpt3sas 驱动版本（真机 fnOS 1.2 实测可读）。"""
+    """lspci 只读检测 HBA 直通卡；附带 mpt3sas 驱动版本（真机 fnOS 1.2 实测可读）。
+
+    lspci 在位与否由策略决策层启动时判定（policy.tools），缺失直接跳过不 fork。
+    """
+    from app.services.hardware.policy import get_policy
+
+    if not get_policy().tools.get("lspci"):
+        return None
     try:
         _rc, out, _err = await run_cmd("lspci", "-nn", timeout=10)
     except Exception:  # noqa: BLE001
