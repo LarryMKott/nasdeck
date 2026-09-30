@@ -43,6 +43,12 @@ const autoRefresh = ref(true);
 
 /** CPU 磁贴：每线程 使用率/频率 双视图（WS 1s 快照驱动） */
 const cpuMode = ref('usage');
+/** 柱条列数随线程数自适应：≤6 铺满一行，更多则两行均分（4 线程 4 列、16 线程 8 列） */
+const coreCols = computed(() => {
+  const n = (d.value.cpu.cores || []).length;
+  if (!n) return 8;
+  return n <= 6 ? n : Math.ceil(n / 2);
+});
 const coreFreqMhz = (i) => {
   const v = d.value.cpu.freqPerCore?.[i];
   return v > 0 ? v : null;
@@ -120,7 +126,7 @@ const gpuSeries = [
           <div class="meter" style="margin-top: 9px">
             <i class="c-ok" :style="{ width: `${d.cpu.percent}%` }" />
           </div>
-          <div class="cores">
+          <div class="cores" :style="{ gridTemplateColumns: `repeat(${coreCols}, 1fr)` }">
             <span v-for="(v, i) in d.cpu.cores" :key="i" class="core" :title="coreTip(i, v)">
               <i :style="cpuMode === 'usage' ? { height: `${v}%` } : freqBarStyle(i)" />
               <em v-if="cpuMode === 'freq'" class="cf">{{ freqLabel(i) }}</em>
@@ -517,6 +523,11 @@ const gpuSeries = [
 </template>
 
 <style scoped>
+/* 柱条略高于全局 .core（30px）：线程少列宽时视觉更饱满；仅本视图生效 */
+.cores .core {
+  height: 36px;
+}
+
 /* 使用率/频率 双视图切换（视图内局部控件，不入全局设计令牌） */
 .cpuswitch {
   display: inline-flex;
