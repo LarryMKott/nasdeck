@@ -19,7 +19,8 @@ PYTHON="$(command -v python3 || command -v python || echo /usr/bin/python3)"
 # - storcli 用随包内置的 ELF；前端静态目录指向随包 dist（SPA 由后端托管）
 export NASDECK_PORT=9800
 export NASDECK_HOST=127.0.0.1
-export NASDECK_DB_URL="sqlite+aiosqlite://${TRIM_PKGVAR}/nasdeck.db"
+# sqlite URL 三斜杠是相对路径；TRIM_PKGVAR 自带前导 /，须凑满四斜杠才是绝对路径
+export NASDECK_DB_URL="sqlite+aiosqlite:///${TRIM_PKGVAR}/nasdeck.db"
 export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"
 export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist"
 export NASDECK_LOG_LEVEL=INFO

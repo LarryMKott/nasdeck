@@ -18,8 +18,12 @@ SERVER_DIR = Path(__file__).resolve().parent / "server"
 os.environ.setdefault("NASDECK_PORT", "9800")
 os.environ.setdefault("NASDECK_HOST", "127.0.0.1")
 os.environ.setdefault("NASDECK_LOG_LEVEL", "INFO")
+# 与 cmd/main 对齐：本 shim 只在 FPK 布局里运行，分级鉴权默认开启
+os.environ.setdefault("NASDECK_TRIM_AUTH", "true")
+os.environ.setdefault("NASDECK_RAW_KEEP_MINUTES", "120")
 if "TRIM_PKGVAR" in os.environ:
-    os.environ.setdefault("NASDECK_DB_URL", f"sqlite+aiosqlite://{os.environ['TRIM_PKGVAR']}/nasdeck.db")
+    # sqlite URL 三斜杠是相对路径；TRIM_PKGVAR 自带前导 /，须凑满四斜杠才是绝对路径
+    os.environ.setdefault("NASDECK_DB_URL", f"sqlite+aiosqlite:///{os.environ['TRIM_PKGVAR']}/nasdeck.db")
 
 _site = SERVER_DIR / "site-packages"
 if _site.is_dir():
