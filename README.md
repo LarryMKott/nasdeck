@@ -1,6 +1,6 @@
 # nasdeck
 
-**当前版本：v2.3.3** · [下载最新 fpk](https://github.com/LarryMKott/nasdeck/releases/latest) · [📖 操作手册](docs/使用手册.md) · [🛠️ 前后端接口约定](docs/前后端数据接口约定.md) · [💬 飞牛社区讨论帖](https://club.fnnas.com/forum.php?mod=viewthread&tid=67060)
+**当前版本：v2.3.3** · [下载最新 fpk](https://github.com/LarryMKott/nasdeck/releases/latest) · [📖 操作手册](docs/使用手册.md) · [🛠️ 前后端接口约定](docs/前后端数据接口约定.md) · [📦 FPK 打包说明](fpk/README.md) · [💬 飞牛社区讨论帖](https://club.fnnas.com/forum.php?mod=viewthread&tid=67060)
 
 飞牛OS（fnOS）NAS 硬件监控面板 —— FPK 应用包
 
@@ -26,15 +26,15 @@
 ### 安装步骤
 1. 下载 `nasdeck.fpk`（GitHub Releases 或项目附件）
 2. 打开飞牛OS **应用中心 → 右上角「+ 手动安装」**，上传 `nasdeck.fpk`
-3. 确认安装（按安装向导确认），**依赖自动安装**：smartmontools / lm-sensors / mdadm / Flask / dmidecode / i2c-tools
+3. 确认安装（按安装向导确认）：系统工具自动安装（smartmontools / lm-sensors / mdadm / dmidecode / i2c-tools / ethtool；无外网时跳过，对应功能自动降级）；**Python 运行环境与全部依赖已随包离线内置**，安装无需联网编译
 4. 安装完成后，桌面出现「NAS硬件监控」图标，点击即可打开（经飞牛 cgi 反代入口，需登录飞牛账号）
 
-> **storcli 已随包内置**：LSI MegaRAID / HBA 直通卡用户无需从 Broadcom 官网手动下载，安装即自动落地到 `/opt/MegaRAID/storcli` 并建软链。
+> **storcli 已随包内置**：LSI MegaRAID / HBA 直通卡用户无需从 Broadcom 官网手动下载，安装即自动软链到 `/usr/local/bin/storcli64`。
 > 旧版手动装过依赖的机器：直接覆盖安装即可，`install_callback` 会跳过已装工具。
 
 ## 功能
 
-左侧边栏共十个功能模块（硬件配置检测 / 系统资源 / 温度监控 / 历史趋势 / 硬盘 SMART / 存储卷 / 风扇控制 / Docker / 端口占用 / 控制与自动化），外加「操作手册」和「关于 nasdeck」两个常驻入口，覆盖 NAS 硬件运维核心场景：
+UNRAID 风格侧栏共十一个功能视图（总览 / 硬件检测 / 系统资源 / 温度监控 / 历史趋势 / 硬盘 SMART / 存储卷 / 风扇控制 / Docker / 端口占用 / 控制与自动化），外加「操作手册」和「关于 nasdeck」两个常驻入口，覆盖 NAS 硬件运维核心场景：
 
 
 ### 🏠 硬件配置检测（首页仪表盘）
@@ -131,46 +131,76 @@
 
 | 工具 | 用途 | 必需 | 自动安装 |
 |------|------|------|----------|
-| Python 3 + Flask | Web 框架 | ✅ | ✅ pip/apt |
+| Python 3.12 运行时 | 后端解释器（应用中心 `python312` 应用，manifest `install_dep_apps` 声明） | ✅ | ✅ 应用中心依赖 |
+| Python 依赖（FastAPI 等 10 项） | Web 框架 / ORM / 采集调度 | ✅ | ✅ 随包离线内置（manylinux wheels，装机不联网） |
 | smartctl (smartmontools) | 硬盘 SMART | ✅ | ✅ apt |
-| sensors (lm-sensors) | 温度/风扇/电压 | ✅ | ✅ apt |
+| sensors (lm-sensors) | 传感器芯片探测 | ✅ | ✅ apt |
 | mdadm | RAID 阵列 | ✅ | ✅ apt |
+| dmidecode | 主板 / BIOS | ✅ | ✅ apt |
+| ethtool | 网卡信息 / WOL 唤醒 | ✅ | ✅ apt |
+| i2c-tools (decode-dimms) | 内存 SPD 直读 | ❌ | ✅ apt |
 | storcli | LSI MegaRAID 阵列卡信息 | ❌ | ✅ 随包内置 |
 | lspci (pciutils) | 显卡 / 阵列卡识别 | ✅ | 系统自带 |
 | ip (iproute2) | 网卡 | ✅ | 系统自带 |
 
-**storcli 现已随包内置**：LSI MegaRAID 阵列卡（IR/RAID 模式）走 `storcli /c0 show` 读取完整信息（含 ROC 芯片温度），HBA 直通卡（IT 模式）额外走 `storcli /c0 show temperature` 读取芯片温度（HBA 卡的 `/c0 show` 不含温度字段，这是正常现象，并非面板 bug）。安装时由 install_callback 自动落地到 /opt/MegaRAID/storcli 并建软链，无需再从 Broadcom 官网手动下载。纯 SATA 主板（无 LSI 卡）用户可忽略此工具。
+**storcli 现已随包内置**：LSI MegaRAID 阵列卡（IR/RAID 模式）走 `storcli /c0 show` 读取完整信息（含 ROC 芯片温度），HBA 直通卡（IT 模式）额外走 `storcli /c0 show temperature` 读取芯片温度（HBA 卡的 `/c0 show` 不含温度字段，这是正常现象，并非面板 bug）。安装时自动软链到 `/usr/local/bin/storcli64`，无需再从 Broadcom 官网手动下载。纯 SATA 主板（无 LSI 卡）用户可忽略此工具。
 
 ## 数据来源
 
-| 数据 | 命令 |
+| 数据 | 来源 |
 |------|------|
 | 阵列卡 | `lspci` 检测卡类型；MegaRAID 卡 `storcli /c0 show`，HBA 卡额外 `storcli /c0 show temperature` 取芯片温度 |
-| 硬盘 SMART / 转速 | `smartctl -a/-i /dev/sdX` |
-| 温度/风扇/电压 | `sensors -j`（JSON 输出分类解析） |
-| 风扇转速 | `sensors -j` + sysfs `pwmN_enable` / `pwmN` |
-| 显卡 / 阵列卡 | `lspci` |
-| 网卡 | `ip -o link/addr` + `/sys/class/net/` |
-| RAID 阵列 | `cat /proc/mdstat` |
-| 挂载点 | `df -h` |
-| CPU | `lscpu` |
-| 内存 | `cat /proc/meminfo` |
+| 硬盘 SMART / 转速 | `smartctl -j -a /dev/sdX` |
+| 物理盘枚举 | `lsblk -Jb` 显式列（兼容 util-linux 2.38 空输出问题） |
+| 温度 / 电压 | psutil sensors + `/sys/class/hwmon` |
+| 风扇转速 / PWM | `/sys/class/hwmon`（`fanN_input` / `pwmN` / `pwmN_enable`） |
+| 显卡 | `lspci -nn` + `/sys/class/drm` |
+| 网卡 | psutil + `/sys/class/net/` |
+| CPU / 内存 | `/proc/cpuinfo`、`/proc/meminfo`、psutil |
+| Docker | `docker ps --format json` |
+| 历史趋势 | SQLite 本地库（SQLAlchemy 2.x async，raw→1m→10m 自动降采样，保留 30 天） |
 
 ## API
 
-- `GET /` — 面板页面
-- `GET /api/all` — 全部数据 JSON（硬件配置检测 + 阵列卡 + 硬盘 + 系统 + 存储 + Docker）
+统一前缀 `/api/v1`，七个域：`monitor`（实时/历史）、`hardware`（硬件配置）、`storage`（磁盘/SMART/存储卷/阵列卡）、`system`（系统/网络/Docker/端口）、`control`（风扇/服务接管）、`alert`（告警与通知渠道）、`report`（健康报告）。响应统一信封 `{code, message, data, timestamp}`；可选 `X-API-Key` 鉴权（环境变量 `NASDECK_API_KEY` 留空则不校验）。
 
-## 技术栈
+- `GET /health` — 存活探针（无鉴权）
+- `WS /api/v1/ws/realtime` — 实时推送（1s 快照 / 5s 风扇 / 告警事件；断线自动降级 HTTP 轮询）
+- 完整接口契约见 [前后端数据接口约定](docs/前后端数据接口约定.md)
 
-- Python 3 + FastAPI（0.100+ / Pydantic v2）+ SQLAlchemy 2.x，`backend/` 模块化包，uvicorn 服务
-- storcli / smartctl / sensors / lspci / ip / mdadm 系统命令采集
-- 内联 HTML/CSS/JS 前端，无构建步骤
-- 标准 fnOS FPK 应用包格式
+## 技术栈与架构
+
+**访问模型（CGI 反代，真机验证）**：桌面入口 iframe → `/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi/`（飞牛校验登录态）→ `index.cgi` 在本机转发到 `127.0.0.1:9800` 的 uvicorn。**不走统一网关**——飞牛会周期性清空第三方网关入口导致 404（实测教训）；9800 仅绑回环不向局域网暴露，面板在飞牛登录态之后。用户数据（SQLite 历史库、风扇曲线、自定义名称等）落 `@appdata` 持久目录，升级/重装不丢。
+
+- 后端：Python 3.11+ · FastAPI + Pydantic v2 · SQLAlchemy 2.x async（aiosqlite）· APScheduler（1s/5s/60s 三级采集 + 降采样）· psutil + sysfs/procfs + storcli/smartctl/lsblk/lspci
+- 前端：Vue 3.4 · Vite 5 · Element Plus · Pinia · ECharts，UNRAID 风格 13 视图，pnpm 管理
+- 打包：标准 FPK 布局（manifest / config / cmd / wizard / app）+ 官方 fnpack 同等校验 + `scripts/build_fpk.py` 一键出包；解释器来自应用中心 `python312` 运行时，Python 依赖交叉编译为 manylinux wheels 离线随包（不污染系统 Python）
+
+## 开发与构建
+
+```bash
+# 本地开发：后端 8766 + 前端 5173（vite 代理已指向 127.0.0.1:8766）
+cd backend && .venv/Scripts/python.exe -m uvicorn main:app --port 8766
+cd frontend && pnpm dev
+
+# 打 FPK 包（Windows / Linux 通用；产物 build/fpk/nasdeck-fnpack-<版本>.fpk）
+backend/.venv/Scripts/python.exe scripts/build_fpk.py
+
+# 后端测试（40 项）
+cd backend && .venv/Scripts/python.exe -m pytest -q
+```
+
+| 目录 | 内容 |
+|------|------|
+| `backend/` | FastAPI 后端（`app/` 模块化包 + `main.py` + `bin/storcli64` 随包 ELF） |
+| `frontend/` | Vue3 前端（`.env.fpk` 为 FPK 打包构建模式，base 指向 cgi 反代前缀） |
+| `fpk/` | FPK 打包源（manifest / config / cmd 生命周期脚本 / wizard / ui / app.py 探活 shim） |
+| `scripts/build_fpk.py` | 一键打包：前端构建 → 依赖离线装配 → 组包 → 校验 → .fpk |
+| `docs/` | 使用手册、前后端接口约定 |
 
 ## 注意事项
 
-- 服务端口 9800（在 manifest 的 service_port 固定声明），修改需同步更新 manifest 的 service_port；调试重启必须通过 fnOS 服务管理，不要手动 `setsid app.py`，避免端口残留
+- 服务端口 9800（在 manifest 的 service_port 固定声明），仅监听 127.0.0.1；启停/状态由应用中心经 `cmd/main` 管理，不要手动 `setsid` 拉起进程，避免端口残留
 - smartctl / storcli 需要 sudo 权限（飞牛OS 应用框架默认提供）
 - 风扇 PWM 模式显示依赖 it87 / nct6775 等主板传感器驱动
 - 双磁臂（双执行器）硬盘：LSI 阵列卡会将其每个执行器作为独立盘暴露给系统，面板会识别并合并成一块盘，显示整盘标称容量并标注每执行器容量
