@@ -1,11 +1,21 @@
 #!/bin/bash
 # CGI 反代入口（fnpackup 同款，真机验证）：飞牛已校验登录态后把请求交给本脚本，
-# 本脚本把请求原样转发到本机 127.0.0.1:9800（cmd/main 启动的 uvicorn）。
+# 本脚本把请求原样转发到本机回环端口（cmd/main 启动的 uvicorn，默认 9800）。
 # HTTP_X_TRIM_* 为飞牛注入的可信身份头，转成 header 传给后端供鉴权使用。
 # 不走统一网关：飞牛会周期性清空第三方 gateway 入口（实测反复 404），cgi 反代稳定。
 
 cgi_name="index.cgi"
-target_url="http://127.0.0.1:9800";
+
+# 转发端口与 cmd/main 同源（安装向导 wizard_port 落盘）：优先读本脚本同目录的
+# ui/port 镜像（CGI 由飞牛从应用目录拉起，读自身目录最可靠），回退 @appdata
+# 权威副本，最后默认 9800。非法值一律回退，保证代理永不失联。
+port_file="$(dirname "$0")/port"
+[ -r "$port_file" ] || port_file="/var/apps/com.dashboard.nasdeck/var/port"
+nasdeck_port="$(head -n 1 "$port_file" 2>/dev/null | tr -d '[:space:]')"
+case "$nasdeck_port" in
+    ''|*[!0-9]*) nasdeck_port=9800 ;;
+esac
+target_url="http://127.0.0.1:${nasdeck_port}"
 
 if [[ "$REQUEST_URI" == *"$cgi_name"* ]]; then
     after_proxy="${REQUEST_URI#*$cgi_name}"

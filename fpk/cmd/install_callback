@@ -1,5 +1,5 @@
 #!/bin/bash
-# 安装后回调：系统工具自举 + 可执行位兜底 + 用户配置还原。
+# 安装后回调：监听端口落盘 + 系统工具自举 + 可执行位兜底 + 用户配置还原。
 # 幂等可重复执行（安装/升级都可能重跑）。
 #
 # - 系统工具：smartmontools / lm-sensors / mdadm / dmidecode / i2c-tools / ethtool
@@ -15,6 +15,10 @@ LOG="${TRIM_TEMP_LOGFILE}"
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)"
 _APP_DIR="$(cd "$_SCRIPT_DIR/.." && pwd 2>/dev/null)"
 
+# TRIM_PKGVAR 兜底默认（正常由系统注入）：0.2 端口落盘先于第 6 节的默认值设置，
+# 变量异常时不设护栏会把 port 文件写到文件系统根
+: "${TRIM_PKGVAR:=/usr/local/apps/@appdata/com.dashboard.nasdeck}"
+
 # 0. 可执行位兜底（Windows 构建机/打包工具不保证保留 x 位）
 chmod +x "$_APP_DIR/cmd/"* 2>/dev/null
 chmod +x "$_APP_DIR/ui/index.cgi" 2>/dev/null
@@ -26,6 +30,32 @@ if ! command -v storcli64 >/dev/null 2>&1 && [ -f "$_APP_DIR/server/bin/storcli6
     ln -sf "$_APP_DIR/server/bin/storcli64" /usr/local/bin/storcli 2>/dev/null
     echo "[nasdeck] usr-local-linker 未生效，已手动软链 storcli" >> "$LOG"
 fi
+
+# 0.2 监听端口落盘（安装向导 wizard_port，默认 9800）：
+#     权威副本落 ${TRIM_PKGVAR}/port（升级/重装保留），并镜像一份到 ui/port——
+#     index.cgi 由飞牛 CGI 从应用目录拉起，读自身同目录最可靠；cmd/main 读 var/port。
+#     manifest 按 CGI 规范未声明 service_port，端口占用在此自检，冲突则装机失败并提示。
+wizard_port="${wizard_port:-9800}"
+case "$wizard_port" in
+    ''|*[!0-9]*)
+        echo "监听端口必须是数字（收到：${wizard_port}），请返回安装向导修正" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+        ;;
+esac
+if [ "$wizard_port" -lt 1024 ] || [ "$wizard_port" -gt 65535 ]; then
+    echo "监听端口须在 1024-65535 范围内（收到：${wizard_port}）" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+if (exec 3<>"/dev/tcp/127.0.0.1/$wizard_port") 2>/dev/null; then
+    echo "端口 ${wizard_port} 已被其他服务占用，请在安装向导中更换端口后重试" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+mkdir -p "${TRIM_PKGVAR}" 2>/dev/null
+printf '%s\n' "$wizard_port" > "${TRIM_PKGVAR}/port"
+chmod 644 "${TRIM_PKGVAR}/port" 2>/dev/null
+printf '%s\n' "$wizard_port" > "$_APP_DIR/ui/port"
+chmod 644 "$_APP_DIR/ui/port" 2>/dev/null
+echo "[nasdeck] 监听端口: ${wizard_port}" >> "$LOG"
 
 # 1. 系统工具检测（缺啥装啥）
 need_install=()

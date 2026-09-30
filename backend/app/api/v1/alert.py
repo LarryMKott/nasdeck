@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ApiKeyDep, DbDep
+from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
 from app.core.exceptions import InvalidParamsError, NotFoundError
 from app.models.alert import AlertChannel, AlertEvent, AlertRule
 from app.schemas.alert import (
@@ -20,7 +20,7 @@ from app.schemas.alert import (
 from app.services.alert import engine
 from app.services.alert.channels.base import mask_config
 
-router = APIRouter(prefix="/alert", tags=["alert"], dependencies=[ApiKeyDep])
+router = APIRouter(prefix="/alert", tags=["alert"], dependencies=[ApiKeyDep, TrimAuthDep])
 
 
 def _rule_dict(rule: AlertRule) -> dict:

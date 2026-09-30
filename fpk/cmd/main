@@ -2,10 +2,11 @@
 # 运行控制：start / stop / status。
 # 退出码约定（官方规范）：0=成功/运行中，1=失败，3=status 时=未运行。
 #
-# 形态：FastAPI(uvicorn) 监听 127.0.0.1:9800，由 ui/index.cgi 在本机反代（fnpackup
-# 同款）。不走统一网关——飞牛会周期性清空第三方 gateway 入口导致 404（真机实测，
-# 详见 2026-08-14 网关看门狗的教训，改 cgi 反代后已删）。9800 仅绑回环不对外暴露，
-# 面板经飞牛登录态保护；service_port+checkport 供应用中心探测就绪。
+# 形态：FastAPI(uvicorn) 监听 127.0.0.1:${NASDECK_PORT}（默认 9800，安装向导可自定义，
+# 落盘 ${TRIM_PKGVAR}/port），由 ui/index.cgi 在本机反代（fnpackup 同款）。不走统一网关——
+# 飞牛会周期性清空第三方 gateway 入口导致 404（真机实测，详见 2026-08-14 网关看门狗的
+# 教训，改 cgi 反代后已删）。端口仅绑回环不对外暴露，面板经飞牛登录态 + 分级鉴权保护；
+# manifest 按 CGI 规范省略 service_port（checkport=false），端口占用由 install_callback 预检。
 PID_FILE="${TRIM_PKGVAR}/app.pid"
 SERVER_DIR="${TRIM_APPDEST}/server"
 LOG_FILE="${TRIM_PKGVAR}/app.log"
@@ -17,13 +18,28 @@ PYTHON="$(command -v python3 || command -v python || echo /usr/bin/python3)"
 # 运行时配置（全部走 NASDECK_ 环境变量，禁止硬编码路径进代码）：
 # - DB/历史数据落 TRIM_PKGVAR（@appdata），升级/重装不丢
 # - storcli 用随包内置的 ELF；前端静态目录指向随包 dist（SPA 由后端托管）
-export NASDECK_PORT=9800
+# 监听端口：安装向导 wizard_port 落盘于 ${TRIM_PKGVAR}/port（install_callback 写入，
+# 与 index.cgi 同源），未定制/文件缺失/非法值时回退 9800
+NASDECK_PORT="$(head -n 1 "${TRIM_PKGVAR}/port" 2>/dev/null | tr -d '[:space:]')"
+case "$NASDECK_PORT" in
+    ''|*[!0-9]*) NASDECK_PORT=9800 ;;
+esac
+export NASDECK_PORT
 export NASDECK_HOST=127.0.0.1
+# 运行参数：配置向导（config_callback）落盘于 ${TRIM_PKGVAR}/runtime.env，
+# 值均经白名单/数字校验后写入；文件缺失用默认
+NASDECK_LOG_LEVEL=INFO
+NASDECK_RAW_KEEP_MINUTES=120
+if [ -f "${TRIM_PKGVAR}/runtime.env" ]; then
+    . "${TRIM_PKGVAR}/runtime.env"
+fi
+export NASDECK_LOG_LEVEL NASDECK_RAW_KEEP_MINUTES
 # sqlite URL 三斜杠是相对路径；TRIM_PKGVAR 自带前导 /，须凑满四斜杠才是绝对路径
 export NASDECK_DB_URL="sqlite+aiosqlite:///${TRIM_PKGVAR}/nasdeck.db"
 export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"
 export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist"
-export NASDECK_LOG_LEVEL=INFO
+# 分级鉴权：读=飞牛登录用户（index.cgi 转发 X-Trim-Userid），写=管理员（X-Trim-Isadmin）
+export NASDECK_TRIM_AUTH=true
 export PYTHONPATH="${SERVER_DIR}/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 
 log_msg() {

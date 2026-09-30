@@ -2,6 +2,20 @@
 
 from __future__ import annotations
 
-from app.core.dependencies import ApiKeyDep, DbDep, get_db, require_api_key
+from app.core.dependencies import (
+    ApiKeyDep,
+    DbDep,
+    TrimAuthDep,
+    get_db,
+    require_api_key,
+    require_trim_auth,
+)
 
-__all__ = ["ApiKeyDep", "DbDep", "get_db", "require_api_key"]
+__all__ = [
+    "ApiKeyDep",
+    "DbDep",
+    "TrimAuthDep",
+    "get_db",
+    "require_api_key",
+    "require_trim_auth",
+]

@@ -1,6 +1,7 @@
 """WebSocket 实时推送（契约 §4）：realtime 1s / fans 5s / alert 事件 / pong。
 
-当前无鉴权（契约注明）；fnOS 网关穿透性待真机验证，前端保留轮询降级。
+常规形态无鉴权（契约注明）；飞牛 trim 形态要求 X-Trim-Userid 身份头（见端点守卫）。
+fnOS 网关穿透性待真机验证，前端保留轮询降级。
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.core.config import settings
 from app.services.monitor.cache import realtime_cache
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,11 @@ router = APIRouter()
 
 @router.websocket("/api/v1/ws/realtime")
 async def realtime_ws(ws: WebSocket) -> None:
+    # 飞牛形态（NASDECK_TRIM_AUTH=true）与 REST 同源鉴权：无 X-Trim-Userid 身份头
+    # 的连接直接拒（CGI 反代本就不通 WS，此处防本机进程绕过直连拉数据）。
+    if settings.trim_auth and not ws.headers.get("x-trim-userid", "").strip():
+        await ws.close(code=1008)
+        return
     await ws.accept()
     stop = asyncio.Event()
 

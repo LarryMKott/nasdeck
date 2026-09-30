@@ -1,2 +1,15 @@
 #!/bin/bash
+# 更新后回调：包文件被整体替换，从持久 var 还原监听端口镜像。
+# 权威端口在 ${TRIM_PKGVAR}/port（升级保留）；ui/port 镜像供 index.cgi 读取，
+# 丢失时此处重建，保证升级后面板仍指向自定义端口。
+: "${TRIM_PKGVAR:=/usr/local/apps/@appdata/com.dashboard.nasdeck}"
+
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)"
+_APP_DIR="$(cd "$_SCRIPT_DIR/.." && pwd 2>/dev/null)"
+
+if [ -f "${TRIM_PKGVAR}/port" ]; then
+    mkdir -p "$_APP_DIR/ui" 2>/dev/null
+    cp -f "${TRIM_PKGVAR}/port" "$_APP_DIR/ui/port" 2>/dev/null
+    chmod 644 "$_APP_DIR/ui/port" 2>/dev/null
+fi
 exit 0

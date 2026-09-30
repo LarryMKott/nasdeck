@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ApiKeyDep, DbDep
+from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
 from app.core.exceptions import NotFoundError
 from app.models.control import FanCurve
 from app.schemas.control import (
@@ -20,7 +20,7 @@ from app.schemas.control import (
 )
 from app.services.control import curve_engine, fan_manager, fcs_safe_takeover, hwmon_driver
 
-router = APIRouter(prefix="/control", tags=["control"], dependencies=[ApiKeyDep])
+router = APIRouter(prefix="/control", tags=["control"], dependencies=[ApiKeyDep, TrimAuthDep])
 
 
 @router.get("/hwmon/channels", response_model=list[HwmonChannel])

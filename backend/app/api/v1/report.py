@@ -7,11 +7,11 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
-from app.api.deps import ApiKeyDep
+from app.api.deps import ApiKeyDep, TrimAuthDep
 from app.services.report import diagnostic, html_generator
 from app.utils.validators import validate_report_filename
 
-router = APIRouter(prefix="/report", tags=["report"], dependencies=[ApiKeyDep])
+router = APIRouter(prefix="/report", tags=["report"], dependencies=[ApiKeyDep, TrimAuthDep])
 
 
 @router.post("/health")

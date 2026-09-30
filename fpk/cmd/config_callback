@@ -1,2 +1,96 @@
 #!/bin/bash
+# 配置后回调：应用「配置」流程提交的运行参数落盘并重启生效。
+# 向导字段（wizard/config）：wizard_port（0=维持）、wizard_log_level（keep=维持）、
+# wizard_raw_keep（0=维持）。权威存储：
+#   ${TRIM_PKGVAR}/port          → cmd/main / index.cgi 读的监听端口
+#   ${TRIM_PKGVAR}/runtime.env   → NASDECK_LOG_LEVEL / NASDECK_RAW_KEEP_MINUTES（cmd/main source）
+# 全部键值经白名单/数字校验后写入，无注入面。
+: "${TRIM_PKGVAR:=/usr/local/apps/@appdata/com.dashboard.nasdeck}"
+
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)"
+_APP_DIR="$(cd "$_SCRIPT_DIR/.." && pwd 2>/dev/null)"
+
+ENV_FILE="${TRIM_PKGVAR}/runtime.env"
+mkdir -p "${TRIM_PKGVAR}" 2>/dev/null
+
+# ---- 读取当前持久值（文件缺失时用默认）----
+cur_port="$(head -n 1 "${TRIM_PKGVAR}/port" 2>/dev/null | tr -d '[:space:]')"
+case "$cur_port" in ''|*[!0-9]*) cur_port=9800 ;; esac
+cur_level="$(sed -n 's/^NASDECK_LOG_LEVEL=//p' "$ENV_FILE" 2>/dev/null | head -n 1)"
+[ -n "$cur_level" ] || cur_level=INFO
+cur_keep="$(sed -n 's/^NASDECK_RAW_KEEP_MINUTES=//p' "$ENV_FILE" 2>/dev/null | head -n 1)"
+case "$cur_keep" in ''|*[!0-9]*) cur_keep=120 ;; esac
+
+changed=no
+
+# ---- 端口：0 = 维持；与当前相同则跳过占用预检（探测会命中自身监听）----
+new_port="${wizard_port:-0}"
+case "$new_port" in
+    ''|*[!0-9]*)
+        echo "端口必须是数字或 0（收到：${new_port}）" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+        ;;
+esac
+if [ "$new_port" != "0" ]; then
+    if [ "$new_port" -lt 1024 ] || [ "$new_port" -gt 65535 ]; then
+        echo "端口须在 1024-65535 范围内（收到：${new_port}）" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+    fi
+    if [ "$new_port" != "$cur_port" ]; then
+        if (exec 3<>"/dev/tcp/127.0.0.1/$new_port") 2>/dev/null; then
+            echo "端口 ${new_port} 已被其他服务占用，请更换端口后重试" > "${TRIM_TEMP_LOGFILE}"
+            exit 1
+        fi
+        printf '%s\n' "$new_port" > "${TRIM_PKGVAR}/port"
+        chmod 644 "${TRIM_PKGVAR}/port" 2>/dev/null
+        mkdir -p "$_APP_DIR/ui" 2>/dev/null
+        printf '%s\n' "$new_port" > "$_APP_DIR/ui/port"
+        chmod 644 "$_APP_DIR/ui/port" 2>/dev/null
+        changed=yes
+    fi
+fi
+
+# ---- 日志级别：keep = 维持；白名单校验 ----
+case "${wizard_log_level:-keep}" in
+    keep) : ;;
+    INFO|DEBUG|WARNING)
+        cur_level="$wizard_log_level"
+        changed=yes
+        ;;
+    *)
+        echo "日志级别非法（收到：${wizard_log_level}）" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+        ;;
+esac
+
+# ---- 原始数据保留时长：0 = 维持；范围 10 分钟 ~ 30 天 ----
+new_keep="${wizard_raw_keep:-0}"
+case "$new_keep" in
+    ''|*[!0-9]*)
+        echo "保留时长必须是数字或 0（收到：${new_keep}）" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+        ;;
+esac
+if [ "$new_keep" != "0" ]; then
+    if [ "$new_keep" -lt 10 ] || [ "$new_keep" -gt 43200 ]; then
+        echo "保留时长须在 10-43200 分钟之间（收到：${new_keep}）" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+    fi
+    cur_keep="$new_keep"
+    changed=yes
+fi
+
+# ---- 整文件重写 runtime.env（值均已校验）----
+cat > "$ENV_FILE" <<EOF
+NASDECK_LOG_LEVEL=$cur_level
+NASDECK_RAW_KEEP_MINUTES=$cur_keep
+EOF
+chmod 644 "$ENV_FILE" 2>/dev/null
+
+# ---- 有改动才重启（config 流程后系统未必自动重启应用，自行拉起最稳）----
+if [ "$changed" = "yes" ]; then
+    bash "$_APP_DIR/cmd/main" stop 2>/dev/null || true
+    # 失败原因由 cmd/main 自己写入 TRIM_TEMP_LOGFILE，此处不覆盖
+    bash "$_APP_DIR/cmd/main" start || exit 1
+fi
 exit 0

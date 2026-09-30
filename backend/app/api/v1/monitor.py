@@ -6,14 +6,14 @@ from fastapi import APIRouter, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ApiKeyDep, DbDep
+from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
 from app.schemas.monitor import HistoryResponse, RealtimeSnapshot, Summary, TemperatureItem
 from app.services.monitor import history as history_service
 from app.services.monitor import system_resources, temperature
 from app.services.monitor.cache import realtime_cache
 from app.services.storage import volumes as volume_service
 
-router = APIRouter(prefix="/monitor", tags=["monitor"], dependencies=[ApiKeyDep])
+router = APIRouter(prefix="/monitor", tags=["monitor"], dependencies=[ApiKeyDep, TrimAuthDep])
 
 
 @router.get("/realtime", response_model=RealtimeSnapshot)

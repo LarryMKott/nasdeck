@@ -1,0 +1,73 @@
+[
+    {
+        "stepTitle": "运行配置",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "<p>调整面板运行参数，保存后服务自动重启生效。值填 <b>0</b> 或选「保持不变」表示沿用当前设置；当前生效值可查看应用数据目录（@appdata）下的 <b>port</b> 与 <b>runtime.env</b> 文件。</p>"
+            },
+            {
+                "type": "text",
+                "field": "wizard_port",
+                "label": "面板监听端口（0 = 保持当前端口不变）",
+                "initValue": "0",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入端口（0 表示不修改）"
+                    },
+                    {
+                        "pattern": "^[0-9]+$",
+                        "message": "端口必须是数字"
+                    }
+                ]
+            },
+            {
+                "type": "select",
+                "field": "wizard_log_level",
+                "label": "日志级别",
+                "initValue": "keep",
+                "options": [
+                    {
+                        "label": "保持不变",
+                        "value": "keep"
+                    },
+                    {
+                        "label": "INFO（常规）",
+                        "value": "INFO"
+                    },
+                    {
+                        "label": "DEBUG（排障，日志量大）",
+                        "value": "DEBUG"
+                    },
+                    {
+                        "label": "WARNING（仅警告及以上）",
+                        "value": "WARNING"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择日志级别"
+                    }
+                ]
+            },
+            {
+                "type": "text",
+                "field": "wizard_raw_keep",
+                "label": "原始数据保留时长（分钟，0 = 保持不变，默认 120）",
+                "initValue": "0",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入保留时长（0 表示不修改）"
+                    },
+                    {
+                        "pattern": "^[0-9]+$",
+                        "message": "必须是数字（分钟）"
+                    }
+                ]
+            }
+        ]
+    }
+]

@@ -9,11 +9,11 @@ from fastapi import APIRouter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ApiKeyDep, DbDep
+from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
 from app.core.exceptions import NotFoundError
 from app.models.hardware import HardwareItem
 
-router = APIRouter(prefix="/hardware", tags=["hardware"], dependencies=[ApiKeyDep])
+router = APIRouter(prefix="/hardware", tags=["hardware"], dependencies=[ApiKeyDep, TrimAuthDep])
 
 
 async def _latest_round(db: AsyncSession) -> dict[str, dict]:

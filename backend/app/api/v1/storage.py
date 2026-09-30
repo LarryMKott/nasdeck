@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ApiKeyDep, DbDep
+from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
 from app.core.exceptions import ExternalToolError, NotFoundError
 from app.schemas.storage import (
     AliasDeleted,
@@ -24,7 +24,7 @@ from app.services.storage import volumes as volume_service
 from app.utils.async_cmd import run_cmd
 from app.utils.validators import validate_device_name
 
-router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[ApiKeyDep])
+router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[ApiKeyDep, TrimAuthDep])
 
 
 async def _disk_items(db: AsyncSession) -> list[DiskItem]:

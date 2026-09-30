@@ -262,7 +262,7 @@ def render_logo(size: int) -> tuple[int, int, bytearray]:
 
 
 def gen_icons(staging: Path) -> None:
-    """包根 64/256 图标 + 入口 images/icon-{64,256}.png。优先仓库 ICON_256.PNG，缺失时几何重绘。"""
+    """包根 64/256 图标 + 入口 images/icon_{64,256}.png。优先仓库 ICON_256.PNG，缺失时几何重绘。"""
     src = ROOT / "ICON_256.PNG"
     have_src = src.is_file()
     if have_src:
@@ -277,14 +277,15 @@ def gen_icons(staging: Path) -> None:
     png_write(staging / "ICON.PNG", w64, h64, px64)
     images = staging / "app" / "ui" / "images"
     images.mkdir(parents=True, exist_ok=True)
-    png_write(images / "icon-64.png", w64, h64, px64)
+    # 官方命名（下划线）：ui/config 的 icon 字段 images/icon_{0}.png 替换后即此名
+    png_write(images / "icon_64.png", w64, h64, px64)
     if have_src:
         shutil.copyfile(src, staging / "ICON_256.PNG")
-        shutil.copyfile(src, images / "icon-256.png")
+        shutil.copyfile(src, images / "icon_256.png")
     else:
         png_write(staging / "ICON_256.PNG", w, h, px256)
-        png_write(images / "icon-256.png", w, h, px256)
-    log("图标已生成：ICON.PNG 64px / ICON_256.PNG 256px / ui/images/icon-{64,256}.png")
+        png_write(images / "icon_256.png", w, h, px256)
+    log("图标已生成：ICON.PNG 64px / ICON_256.PNG 256px / ui/images/icon_{64,256}.png")
 
 
 # ---------------------------------------------------------------- 组装 staging
@@ -403,13 +404,13 @@ def validate(staging: Path) -> None:
         for i in ids:
             need(i.startswith(appname), f"入口 ID {i} 未用 appname 作前缀")
         for size in ("64", "256"):
-            need((staging / "app" / "ui" / "images" / f"icon-{size}.png").is_file(), f"缺少入口图标 icon-{size}.png")
+            need((staging / "app" / "ui" / "images" / f"icon_{size}.png").is_file(), f"缺少入口图标 icon_{size}.png")
         need((staging / "app" / "ui" / "index.cgi").is_file(), "缺少 cgi 反代入口 index.cgi")
     except Exception as exc:  # noqa: BLE001
         errors.append(f"app/ui/config 解析失败：{exc}")
 
-    # 向导（cgi 形态发布版需要安装/卸载说明页）
-    for f in ("install", "uninstall"):
+    # 向导（cgi 形态发布版需要安装/卸载说明页 + 运行配置页）
+    for f in ("install", "uninstall", "config"):
         need((staging / "wizard" / f).is_file(), f"缺少 wizard/{f}")
 
     # 随包内容自检
@@ -530,8 +531,11 @@ def fnpack_build(exe: Path, staging: Path) -> Path | None:
         encoding="utf-8",
         errors="replace",
     )
-    log((proc.stdout or proc.stderr or "").strip()[-800:])
-    if proc.returncode != 0:
+    output = f"{proc.stdout or ''}{proc.stderr or ''}"
+    log(output.strip()[-800:])
+    # fnpack 失败时退出码可能仍为 0，只在 stdout 打印 Packing failed（1.2.3 实测），
+    # 不能只信退出码；配合 main() 里先清理旧 *.fpk，杜绝 glob 捞到上次的产物
+    if proc.returncode != 0 or "Packing failed" in output:
         return None
     produced = sorted(BUILD_DIR.glob("*.fpk"))
     return produced[-1] if produced else None
@@ -582,9 +586,11 @@ def main() -> None:
     validate(STAGING)
 
     out = BUILD_DIR / f"nasdeck-fnpack-{version}.fpk"
-    if out.exists():
-        out.unlink()
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    # 清掉全部旧 .fpk：fnpack 失败退出码可能为 0，防止 glob 误捞上次产物当新包
+    for stale in BUILD_DIR.glob("*.fpk"):
+        stale.unlink()
+        log(f"已清理旧产物 {stale.name}")
 
     builder = args.builder
     if builder in ("auto", "fnpack") and not args.skip_fnpack_download:
