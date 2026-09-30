@@ -31,6 +31,13 @@ _COLLECTORS = (
 async def slow_tick() -> None:
     try:
         rows = [await c.safe_collect() for c in _COLLECTORS]
+        logger.debug(
+            "硬件采集: %s",
+            " ".join(
+                f"{c.kind}:{r.get('name') or '?'}({'ok' if r.get('available') else '缺'})"
+                for c, r in zip(_COLLECTORS, rows, strict=False)
+            ),
+        )
         async with session_factory() as db:
             db.add_all(
                 HardwareItem(kind=c.kind, name=r.get("name", ""), props=r)
@@ -45,5 +52,6 @@ async def slow_tick() -> None:
         degraded = sum(1 for v in raid["software_raid"] + raid["hardware_raid"] if not v["healthy"])
         realtime_cache.set("disk_failed", failed, ttl=120)
         realtime_cache.set("raid_degraded", degraded, ttl=120)
+        logger.debug("磁盘清单 %d 块（failing=%d），阵列降级 %d 卷", len(disks), failed, degraded)
     except Exception as exc:  # noqa: BLE001
         logger.warning("slow_tick 异常: %s", exc)

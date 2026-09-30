@@ -14,6 +14,7 @@ from app.api.v1 import api_router
 from app.api.ws.realtime import router as ws_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
+from app.core.logging import setup_logging
 from app.db.init_db import init_db
 from app.tasks import scheduler as scheduler_tasks
 
@@ -41,6 +42,19 @@ async def envelope_middleware(request: Request, call_next):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger = logging.getLogger("nasdeck")
+    logger.info(
+        "nasdeck %s 启动 host=%s port=%s log_level=%s trim_auth=%s api_key=%s db=%s storcli=%s static=%s",
+        settings.app_version,
+        settings.host,
+        settings.port,
+        settings.resolved_log_level,
+        settings.trim_auth,
+        "set" if settings.api_key else "unset",
+        settings.db_url,
+        settings.storcli_cmd,
+        settings.static_dir or "-",
+    )
     await init_db()
     scheduler_tasks.start()  # 模块入口：先注册 1s/5s/60s 采集与降采样任务，再启动调度器
     yield
@@ -48,6 +62,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    setup_logging()  # 须先于任何业务日志：按 resolved_log_level 装配根 logger
     app = FastAPI(title="nasdeck", version=settings.app_version, lifespan=lifespan)
     app.middleware("http")(envelope_middleware)
     register_exception_handlers(app)

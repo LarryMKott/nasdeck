@@ -17,7 +17,8 @@ mkdir -p "${TRIM_PKGVAR}" 2>/dev/null
 cur_port="$(head -n 1 "${TRIM_PKGVAR}/port" 2>/dev/null | tr -d '[:space:]')"
 case "$cur_port" in ''|*[!0-9]*) cur_port=9800 ;; esac
 cur_level="$(sed -n 's/^NASDECK_LOG_LEVEL=//p' "$ENV_FILE" 2>/dev/null | head -n 1)"
-[ -n "$cur_level" ] || cur_level=INFO
+# 留空 = 用户从未显式选过级别：维持「跟随版本通道缺省」（dev 包 DEBUG / 正式包
+# INFO，由后端 Settings.resolved_log_level 判定），此时不落盘固定值
 cur_keep="$(sed -n 's/^NASDECK_RAW_KEEP_MINUTES=//p' "$ENV_FILE" 2>/dev/null | head -n 1)"
 case "$cur_keep" in ''|*[!0-9]*) cur_keep=120 ;; esac
 
@@ -80,11 +81,11 @@ if [ "$new_keep" != "0" ]; then
     changed=yes
 fi
 
-# ---- 整文件重写 runtime.env（值均已校验）----
-cat > "$ENV_FILE" <<EOF
-NASDECK_LOG_LEVEL=$cur_level
-NASDECK_RAW_KEEP_MINUTES=$cur_keep
-EOF
+# ---- 整文件重写 runtime.env（值均已校验；未显式配置的级别不写键，维持通道缺省）----
+{
+    [ -n "$cur_level" ] && echo "NASDECK_LOG_LEVEL=$cur_level"
+    echo "NASDECK_RAW_KEEP_MINUTES=$cur_keep"
+} > "$ENV_FILE"
 chmod 644 "$ENV_FILE" 2>/dev/null
 
 # ---- 有改动才重启（config 流程后系统未必自动重启应用，自行拉起最稳）----

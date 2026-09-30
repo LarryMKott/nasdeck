@@ -60,7 +60,7 @@ build/fpk/nasdeck-fnpack-*.fpk  # 最终交付物
 |---|---|---|
 | 访问模型 | **CGI 反代**（iframe → index.cgi → 本机回环端口），不用统一网关 | 飞牛会周期性清空第三方 `entry.gateway_socket` 导致网关 404（2026-08 真机实测，看门狗方案已废弃） |
 | 端口 | 回环端口**默认 9800，安装向导可自定义、应用「配置」可随时修改**（`wizard_port` → 校验+占用预检 → 落盘 `${TRIM_PKGVAR}/port`，镜像 `ui/port`）；manifest 按 CGI 规范省略 `service_port`、`checkport=false` | cmd/main 与 index.cgi 从同一落盘文件读端口（非法值回退 9800）；仅绑 127.0.0.1，不向局域网暴露管理面板 |
-| 运行参数 | 日志级别 / 原始数据保留时长经**配置向导**落盘 `${TRIM_PKGVAR}/runtime.env`，cmd/main 启动时 source | `NASDECK_LOG_LEVEL`（默认 INFO）、`NASDECK_RAW_KEEP_MINUTES`（默认 120）；后端 pydantic-settings 前缀映射零改动 |
+| 运行参数 | 日志级别 / 原始数据保留时长经**配置向导**落盘 `${TRIM_PKGVAR}/runtime.env`，cmd/main 启动时 source | `NASDECK_LOG_LEVEL` 仅在用户显式选过时落盘导出，缺省由后端按版本通道判定：**dev- 前缀包 DEBUG**（真机排查采集链路）、正式包 INFO；`NASDECK_RAW_KEEP_MINUTES`（默认 120）；后端 pydantic-settings 前缀映射零改动 |
 | 鉴权 | `NASDECK_TRIM_AUTH=true`：读=飞牛登录（X-Trim-Userid），写=管理员（X-Trim-Isadmin） | index.cgi 转发的可信身份头在后端强制校验（`require_trim_auth`）；桌面入口 `allUsers=false` 仅管理员可见；`/health` 探针除外 |
 | 权限 | `run-as: root` | SMART / storcli / hwmon PWM 写入 / systemctl 全部需要 root；面板本身在飞牛登录态 + 分级鉴权之后 |
 | Python | `install_dep_apps=python312` 提供解释器；依赖离线打进 site-packages | 不联网、不 pip 装系统（旧 `--break-system-packages` 方案废弃）；`PYTHONPATH` 注入 |
@@ -74,7 +74,7 @@ build/fpk/nasdeck-fnpack-*.fpk  # 最终交付物
 export PATH=/var/apps/python312/target/bin:$PATH   # 运行时解释器
 export NASDECK_PORT="$(head -n 1 "${TRIM_PKGVAR}/port")"  # 向导落盘端口，缺省回退 9800
 export NASDECK_HOST=127.0.0.1   # 回环反代
-. "${TRIM_PKGVAR}/runtime.env"  # 配置向导落盘：LOG_LEVEL / RAW_KEEP_MINUTES（缺省 INFO/120）
+. "${TRIM_PKGVAR}/runtime.env"  # 配置向导落盘：LOG_LEVEL（显式配置才有）/ RAW_KEEP_MINUTES（缺省 120）
 export NASDECK_DB_URL="sqlite+aiosqlite:///${TRIM_PKGVAR}/nasdeck.db"  # 四斜杠=绝对路径，三斜杠是相对路径
 export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"
 export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist" # 后端托管 SPA
@@ -99,7 +99,8 @@ export PYTHONPATH="${SERVER_DIR}/site-packages"
    - 向导填已占用端口 → 安装失败并弹「端口已被占用」提示；换端口后可装
    - 升级一次 → 端口镜像 `ui/port` 被还原，面板仍走 9801
 4. 配置向导验证（应用中心 → 应用设置 → 配置）：
-   - 改日志级别为 DEBUG 保存 → `var/runtime.env` 更新，app.log 出现 DEBUG 记录
+   - dev 包未配置过日志级别时 `var/runtime.env` 无 `NASDECK_LOG_LEVEL` 键，app.log 启动行显示 `log_level=DEBUG` 且有工具调用/采集明细（`工具 smartctl … → rc=0 …`）
+   - 改日志级别为 DEBUG 保存 → `var/runtime.env` 更新，app.log 出现 DEBUG 记录；改回 INFO 后采集明细消失（启动行 `log_level=INFO`）
    - 改端口（如 9802）保存 → 服务自动重启，面板经 9802 可访问；改回 9801 同理
    - 全部选「保持不变/0」保存 → 服务不重启，runtime.env 不变
    - 保留时长改 240 → 数据库原始表保留窗口变化（降采样任务按新值裁剪）

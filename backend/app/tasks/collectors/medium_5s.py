@@ -17,6 +17,13 @@ async def medium_tick() -> None:
     try:
         items = await temperature.temperatures()
         realtime_cache.set("temperatures", items, ttl=15)
+        if items:
+            logger.debug(
+                "温度采集 %d 点（芯片: %s）max=%.1fC",
+                len(items),
+                ",".join(sorted({t["chip"] for t in items})),
+                temperature.max_celsius(items) or 0.0,
+            )
         # 用最新温度修正最近一条原始点的 temp_max（存在才写）
         if items:
             from sqlalchemy import select, update

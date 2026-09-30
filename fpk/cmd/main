@@ -27,13 +27,16 @@ esac
 export NASDECK_PORT
 export NASDECK_HOST=127.0.0.1
 # 运行参数：配置向导（config_callback）落盘于 ${TRIM_PKGVAR}/runtime.env，
-# 值均经白名单/数字校验后写入；文件缺失用默认
-NASDECK_LOG_LEVEL=INFO
+# 值均经白名单/数字校验后写入。
+# 日志级别仅在用户显式配置过时导出：缺省由后端 Settings.resolved_log_level 按版本
+# 通道决定（dev- 前缀包 DEBUG 便于真机排查采集链路，正式包 INFO）——shell 里不
+# 重复维护一份缺省值，避免两处逻辑漂移。
 NASDECK_RAW_KEEP_MINUTES=120
 if [ -f "${TRIM_PKGVAR}/runtime.env" ]; then
     . "${TRIM_PKGVAR}/runtime.env"
 fi
-export NASDECK_LOG_LEVEL NASDECK_RAW_KEEP_MINUTES
+[ -n "$NASDECK_LOG_LEVEL" ] && export NASDECK_LOG_LEVEL
+export NASDECK_RAW_KEEP_MINUTES
 # sqlite URL 三斜杠是相对路径；TRIM_PKGVAR 自带前导 /，须凑满四斜杠才是绝对路径
 export NASDECK_DB_URL="sqlite+aiosqlite:///${TRIM_PKGVAR}/nasdeck.db"
 export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"

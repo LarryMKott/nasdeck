@@ -76,7 +76,7 @@ async def env_check() -> dict:
         "config": {
             "port": settings.port,
             "host": settings.host,
-            "log_level": settings.log_level,
+            "log_level": settings.resolved_log_level,
             "raw_keep_minutes": settings.raw_keep_minutes,
             "trim_auth": settings.trim_auth,
         },

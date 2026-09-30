@@ -24,10 +24,17 @@ class Settings(BaseSettings):
     db_url: str = f"sqlite+aiosqlite:///{(APP_ROOT / 'data' / 'nasdeck.db').as_posix()}"
     raw_keep_minutes: int = 120
     storcli_path: str = ""
-    log_level: str = "INFO"
+    # 空 = 跟随版本通道缺省（resolved_log_level）：dev 包 DEBUG 便于真机排查采集
+    # 链路，正式包 INFO；FPK 形态由配置向导显式选择后写入 runtime.env
+    log_level: str = ""
     app_version: str = "dev-0.0.3"
     # FPK 打包形态：指向前端 dist 目录时由本服务托管 SPA；开发形态留空不挂载
     static_dir: str = ""
+
+    @property
+    def resolved_log_level(self) -> str:
+        """生效日志级别：显式配置（NASDECK_LOG_LEVEL / 向导）优先，未配置时 dev 前缀包 DEBUG。"""
+        return (self.log_level or ("DEBUG" if self.app_version.startswith("dev") else "INFO")).upper()
 
     @property
     def storcli_cmd(self) -> str:
