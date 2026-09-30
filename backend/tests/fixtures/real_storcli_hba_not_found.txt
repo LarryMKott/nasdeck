@@ -1,0 +1,6 @@
+CLI Version = 007.2705.0000.0000 August 24, 2023
+Operating system = Linux 6.18.18.c1107-trim
+Controller = 0
+Status = Failure
+Description = Controller 0 not found
+

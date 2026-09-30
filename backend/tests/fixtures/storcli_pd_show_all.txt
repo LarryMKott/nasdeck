@@ -1,0 +1,39 @@
+Drive /c0/e252/s4 :
+==================
+
+SN = 3SD2ZBW
+Model Number = ST3600057SS
+WWN = 5000c5005e12f884
+Firmware Revision = ES64
+Raw size = 3.638 TB [3619661837568 Bytes]
+Drive Temperature = 38C
+S.M.A.R.T alert flagged by drive = No
+Media Error Count = 0
+Other Error Count = 12
+Predictive Failure Count = 0
+
+Drive /c0/e252/s4 - PD Information :
+==================================
+
+EID:Slt DID State DG     Size Intf Med SED PI SeSz Model                      Sp Type 
+252:4      8 Onln   0 3.638 TB SAS  HDD N   N  512B ST3600057SS                 U  - 
+
+Drive /c0/e252/s3 :
+==================
+
+SN = 3SD1AAA
+Model Number = ST3600057SS
+WWN = 5000c5005e12f900
+Firmware Revision = ES64
+Raw size = 3.638 TB [3619661837568 Bytes]
+Drive Temperature = 41C
+S.M.A.R.T alert flagged by drive = Yes
+Media Error Count = 3
+Other Error Count = 0
+Predictive Failure Count = 1
+
+Drive /c0/e252/s3 - PD Information :
+==================================
+
+EID:Slt DID State DG     Size Intf Med SED PI SeSz Model                      Sp Type 
+252:3      7 GHS    - 3.638 TB SAS  HDD N   N  512B ST3600057SS                 U  - 

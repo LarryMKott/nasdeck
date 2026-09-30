@@ -1,0 +1,35 @@
+// Element Plus 全局样式微调（覆盖第三方样式统一收敛在本文件）
+@use './variables' as *;
+
+// 品牌主色对齐 UNRAID 稿的 nasdeck 橙（含暗色模式与梯度变量）
+html {
+  --el-color-primary: #f15a2c;
+  --el-color-primary-light-3: #f47e58;
+  --el-color-primary-light-5: #f8a184;
+  --el-color-primary-light-7: #fcc4af;
+  --el-color-primary-light-8: #fdd6c7;
+  --el-color-primary-light-9: #feebe3;
+  --el-color-primary-dark-2: #c74320;
+}
+
+html.dark {
+  --el-color-primary: #f15a2c;
+  --el-color-primary-light-3: #6e3a28;
+  --el-color-primary-light-5: #5c3122;
+  --el-color-primary-light-7: #4a2a1f;
+  --el-color-primary-light-8: #43251c;
+  --el-color-primary-light-9: #37201a;
+  --el-color-primary-dark-2: #ff6e3f;
+}
+
+.el-menu {
+  border-right: none;
+}
+
+.el-main {
+  padding: 16px;
+}
+
+#nprogress .bar {
+  background: $color-primary !important;
+}

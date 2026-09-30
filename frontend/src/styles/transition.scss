@@ -1,0 +1,27 @@
+// 路由与元素过渡动画
+.fade-transform-enter-active,
+.fade-transform-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.fade-transform-enter-from {
+  opacity: 0;
+  transform: translateX(-12px);
+}
+
+.fade-transform-leave-to {
+  opacity: 0;
+  transform: translateX(12px);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}

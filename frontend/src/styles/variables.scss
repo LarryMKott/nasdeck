@@ -1,0 +1,38 @@
+// ============================================================
+// 全局 SCSS 变量（由 vite additionalData 注入到每个样式编译入口）
+// 注意：
+// 1. 本文件只允许存放变量与混入，禁止输出任何 CSS 规则；
+// 2. 在 .vue <style> 中直接使用以下变量即可，不要再 @use 本文件
+//    （会导致「模块重复加载」编译错误）；
+// 3. 被 index.scss @use 的局部样式文件（如 element-plus.scss）
+//    不会被注入，需要时请自行 @use './variables.scss' as *;
+// ============================================================
+
+// 布局尺寸
+$sidebar-width: 220px;
+$sidebar-collapsed-width: 64px;
+$navbar-height: 56px;
+
+// 主题色（与 Element Plus 默认主题保持一致）
+$color-primary: #409eff;
+$color-success: #67c23a;
+$color-warning: #e6a23c;
+$color-danger: #f56c6c;
+$color-info: #909399;
+
+// 文字与边框
+$color-text-primary: #303133;
+$color-text-secondary: #606266;
+$color-text-placeholder: #a8abb2;
+$border-color: #dcdfe6;
+
+// 背景
+$bg-page: #f0f2f5;
+$bg-dark: #001529;
+
+// 混入
+@mixin text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

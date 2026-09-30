@@ -1,0 +1,17 @@
+# 行尾治理：仓库统一 LF；shell 类文件强制 LF（fnOS bash 无法解析 CRLF 的脚本）
+* text=auto
+
+# 生命周期脚本 / CGI / 构建脚本 —— 必须 LF
+fpk/cmd/* text eol=lf
+fpk/app/ui/index.cgi text eol=lf
+fpk/manifest text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+
+# 二进制产物 —— 禁止任何转换
+*.fpk binary
+*.tgz binary
+*.png binary
+*.jpg binary
+*.svg text eol=lf
+storcli64 binary

@@ -1,0 +1,115 @@
+#!/bin/bash
+# 运行控制：start / stop / status。
+# 退出码约定（官方规范）：0=成功/运行中，1=失败，3=status 时=未运行。
+#
+# 形态：FastAPI(uvicorn) 监听 127.0.0.1:9800，由 ui/index.cgi 在本机反代（fnpackup
+# 同款）。不走统一网关——飞牛会周期性清空第三方 gateway 入口导致 404（真机实测，
+# 详见 2026-08-14 网关看门狗的教训，改 cgi 反代后已删）。9800 仅绑回环不对外暴露，
+# 面板经飞牛登录态保护；service_port+checkport 供应用中心探测就绪。
+PID_FILE="${TRIM_PKGVAR}/app.pid"
+SERVER_DIR="${TRIM_APPDEST}/server"
+LOG_FILE="${TRIM_PKGVAR}/app.log"
+
+# Python 解释器：应用中心 python312 运行时（manifest install_dep_apps 已声明依赖）
+export PATH="/var/apps/python312/target/bin:$PATH"
+PYTHON="$(command -v python3 || command -v python || echo /usr/bin/python3)"
+
+# 运行时配置（全部走 NASDECK_ 环境变量，禁止硬编码路径进代码）：
+# - DB/历史数据落 TRIM_PKGVAR（@appdata），升级/重装不丢
+# - storcli 用随包内置的 ELF；前端静态目录指向随包 dist（SPA 由后端托管）
+export NASDECK_PORT=9800
+export NASDECK_HOST=127.0.0.1
+export NASDECK_DB_URL="sqlite+aiosqlite://${TRIM_PKGVAR}/nasdeck.db"
+export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"
+export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist"
+export NASDECK_LOG_LEVEL=INFO
+export PYTHONPATH="${SERVER_DIR}/site-packages${PYTHONPATH:+:$PYTHONPATH}"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+status_app() {
+    if [ -f "$PID_FILE" ]; then
+        local pid
+        pid="$(head -n 1 "$PID_FILE" | tr -d '[:space:]')"
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+        rm -f "$PID_FILE"
+    fi
+    return 1
+}
+
+start_app() {
+    if status_app; then
+        return 0
+    fi
+    mkdir -p "$TRIM_PKGVAR" 2>/dev/null
+    # 自愈：飞牛经 /app/app.py 软链做启动/健康检；uninstall 会删掉它而 install 不重建，
+    # 不补则 start 必报 10500（真机实测）。cmd/main 以 root 运行，此处自动重建软链。
+    if [ -f "${TRIM_APPDEST}/app.py" ]; then
+        mkdir -p /app 2>/dev/null
+        ln -sf "${TRIM_APPDEST}/app.py" /app/app.py 2>/dev/null
+    fi
+    # 风扇控制芯片驱动按需加载（缺则忽略）：新机 NCT67xx 走 nct6775，旧机 IT87 走 it87。
+    # fnOS 默认不加载，须由应用自启恢复风扇可见性。
+    modprobe nct6775 2>/dev/null || true
+    modprobe it87 2>/dev/null || true
+    # 兜底：WOL 依赖 ethtool。安装阶段 NAS 无外网时可能缺，启动时幂等补一次
+    # （已存在则 command -v 直接命中，不产生开销）。
+    if ! command -v ethtool >/dev/null 2>&1; then
+        (apt-get install -y -qq ethtool || apk add ethtool || yum install -y ethtool) >> "$LOG_FILE" 2>&1 || true
+    fi
+    log_msg "Starting nasdeck (uvicorn ${NASDECK_HOST}:${NASDECK_PORT})..."
+    cd "$SERVER_DIR" || {
+        echo "缺少应用目录 $SERVER_DIR，安装可能不完整" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+    }
+    "$PYTHON" main.py >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    # 就绪等待：/health 通了最好；最终以进程存活为准（避免慢盘误判启动失败）
+    for _ in $(seq 1 30); do
+        curl -sf -o /dev/null "http://127.0.0.1:${NASDECK_PORT}/health" 2>/dev/null && break
+        kill -0 "$(head -n 1 "$PID_FILE" | tr -d '[:space:]')" 2>/dev/null || break
+        sleep 0.5
+    done
+    if kill -0 "$(head -n 1 "$PID_FILE" | tr -d '[:space:]')" 2>/dev/null; then
+        log_msg "nasdeck started"
+        exit 0
+    fi
+    echo "应用启动失败，请查看日志: $LOG_FILE" > "${TRIM_TEMP_LOGFILE}"
+    log_msg "nasdeck start FAILED"
+    rm -f "$PID_FILE"
+    exit 1
+}
+
+stop_app() {
+    log_msg "Stopping nasdeck..."
+    if [ ! -f "$PID_FILE" ]; then
+        return 0
+    fi
+    local pid
+    pid="$(head -n 1 "$PID_FILE" | tr -d '[:space:]')"
+    if [ -z "$pid" ]; then
+        rm -f "$PID_FILE"
+        return 0
+    fi
+    kill -TERM "$pid" 2>> "$LOG_FILE" || true
+    local count=0
+    while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 10 ]; do
+        sleep 1
+        count=$((count + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>> "$LOG_FILE" || true
+    fi
+    rm -f "$PID_FILE"
+}
+
+case "$1" in
+    start)  start_app ;;
+    stop)   stop_app ;;
+    status) status_app && exit 0 || exit 3 ;;
+    *)      echo "Unknown command: $1" > "${TRIM_TEMP_LOGFILE}"; exit 1 ;;
+esac

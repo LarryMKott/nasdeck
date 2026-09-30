@@ -1,0 +1,1917 @@
+<!DOCTYPE html>
+<!--
+  nasdeck 界面原型 · UNRAID 风格探索稿（Web 顶部导航布局 + 手机端）
+  ============================================================
+  定位: 与 fnOS 风格稿(nasdeck-hifi.html)平行的另一版设计探索——
+        完全不参考现有 nasdeck 视觉与图标资产，按 UNRAID webGUI 的
+        设计语言重做：黑色主题为默认、品牌橙点缀、顶部横向页签导航、
+        居中单列内容、全宽堆叠卡片、阵列设备表 + Array Operation 卡、
+        仪表盘式磁贴首页。图标为本稿新绘的几何风格 SVG sprite，
+        未复用 icons.ts 路径，也未引用 ui/images 插画。
+  布局: 顶部导航条（品牌 + 13 个页签 + 搜索/通知/主题/用户），
+        内容列 max-width 1240 居中；<900px 页签收进汉堡下拉面板。
+  页面: 13 个视图 = 既有 12 页 + UNRAID 招牌的 Dashboard 总览首页。
+  交互: hash 换页 · 主题黑/白切换 · 通知下拉 · 页签导航(移动端汉堡) ·
+        页签组/单选/chips · 分区折叠 · 弹窗/抽屉/Esc · 确认气泡(弹窗内保宿主) ·
+        下拉菜单(自检/导出) · 开关/滑杆联动 · 图表十字线 tooltip ·
+        dataZoom 拖拽缩放 · 风扇曲线拖拽编辑 · 端口筛选 · 刷新动效
+  数据: 全部 mock，无任何后端调用。file:// 直开即可。
+-->
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nasdeck 界面原型 · UNRAID 风格探索</title>
+<style>
+/* ============================================================
+   1. 令牌 —— UNRAID 式黑/白双主题（本稿自有取值，非现网令牌）
+   ============================================================ */
+:root{
+  color-scheme:dark;
+  --bg:#141518; --sf:#1D1E21; --sf2:#242529; --sf3:#2C2D32;
+  --bd:#323338; --bd2:#3E4046;
+  --tx0:#F0F0F2; --tx1:#C4C5CA; --tx2:#8B8D95; --tx3:#5B5D65;
+  --acc:#F15A2C; --acc-h:#FF6E3F; --acc-d:#C74320; --accbg:rgba(241,90,44,.13);
+  --ok:#3FB68B; --okbg:rgba(63,182,139,.13);
+  --warn:#ECA43C; --warnbg:rgba(236,164,60,.13);
+  --bad:#E5484D; --badbg:rgba(229,72,77,.15);
+  --info:#5B9CF6; --infobg:rgba(91,156,246,.13);
+  --purp:#A077E8;
+  --grid:rgba(255,255,255,.07); --axis:#7A7D86;
+  --tt:#222327; --ttbd:#3A3B41; --shadow:0 10px 32px rgba(0,0,0,.5);
+  --r:8px; --r-s:5px;
+  --t:170ms; --ease:cubic-bezier(.32,.72,.24,1);
+}
+[data-theme="light"]{
+  color-scheme:light;
+  --bg:#F2F3F5; --sf:#FFFFFF; --sf2:#F6F7F9; --sf3:#ECEEF1;
+  --bd:#DFE2E7; --bd2:#C9CDD4;
+  --tx0:#17181B; --tx1:#3B3E45; --tx2:#74777F; --tx3:#A6A9B1;
+  --acc:#E04E22; --acc-h:#C74320; --acc-d:#B03A18; --accbg:rgba(224,78,34,.1);
+  --ok:#1E9E6E; --okbg:rgba(30,158,110,.1);
+  --warn:#C77E14; --warnbg:rgba(199,126,20,.11);
+  --bad:#D33A3F; --badbg:rgba(211,58,63,.1);
+  --info:#2F6FDE; --infobg:rgba(47,111,222,.1);
+  --purp:#7C4FD0;
+  --grid:rgba(0,0,0,.08); --axis:#8A8D95;
+  --tt:#FFFFFF; --ttbd:#D8DBE0; --shadow:0 10px 32px rgba(20,22,26,.14);
+}
+/* ============================================================
+   2. 基础
+   ============================================================ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{min-height:100%}
+body{
+  font-family:Inter,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;
+  font-size:14px;line-height:1.6;color:var(--tx0);background:var(--bg);
+}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--tx2)}
+.small{font-size:12px}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font:inherit;color:var(--tx0)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:1px;border-radius:3px}
+.ico{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+::selection{background:var(--accbg)}
+
+/* ============================================================
+   3. 顶部导航（UNRAID 式横向页签）
+   ============================================================ */
+.nav{
+  position:sticky;top:0;z-index:50;height:52px;
+  display:flex;align-items:center;gap:6px;padding:0 14px;
+  background:color-mix(in srgb,var(--sf) 88%,transparent);
+  backdrop-filter:blur(12px) saturate(1.3);-webkit-backdrop-filter:blur(12px) saturate(1.3);
+  border-bottom:1px solid var(--bd);
+}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:.01em;flex:none;padding-right:10px}
+.logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(160deg,var(--acc-h),var(--acc-d));display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 8px rgba(241,90,44,.35)}
+.logo svg{width:15px;height:15px;fill:#fff}
+.tabs{display:flex;align-items:stretch;gap:1px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;height:52px}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  position:relative;display:flex;align-items:center;gap:6px;padding:0 12px;flex:none;
+  font-size:13.5px;color:var(--tx2);white-space:nowrap;
+  transition:color var(--t) var(--ease);
+}
+.tab .ico{width:15px;height:15px;opacity:.8}
+.tab:hover{color:var(--tx0)}
+.tab.on{color:var(--acc);font-weight:600}
+.tab.on::after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:2px;border-radius:2px 2px 0 0;background:var(--acc)}
+.tab .n{font-size:10.5px;line-height:16px;padding:0 6px;border-radius:8px;background:var(--sf3);color:var(--tx2)}
+.tab .n.hot{background:var(--warnbg);color:var(--warn)}
+.tab.on .n{background:var(--accbg);color:var(--acc)}
+.tgroup{display:flex;gap:1px}
+/* 纯图标模式（左上角菜单按钮切换）：启动器式小方块，仅隐藏文字 */
+.nav.icons .tabs{justify-content:space-evenly;gap:0}
+.nav.icons .tgroup{gap:8px}
+.nav.icons .tgroup + .tgroup{margin-left:8px;padding-left:16px;border-left:1px solid var(--bd)}
+/* 纯图标模式（左上角菜单按钮切换）：启动器式小方块，仅隐藏文字 */
+.nav.icons .tab{
+  width:38px;height:38px;padding:0;justify-content:center;flex:none;align-self:center;
+  border:1px solid var(--bd);border-radius:9px;background:var(--sf2);color:var(--tx2);
+}
+.nav.icons .tab .ico{width:17px;height:17px;opacity:1}
+.nav.icons .tab .lbl{display:none}
+.nav.icons .tab:hover{border-color:var(--bd2);background:var(--sf3);color:var(--tx0)}
+.nav.icons .tab.on{background:var(--accbg);border-color:rgba(241,90,44,.55);color:var(--acc)}
+.nav.icons .tab.on::after{display:none}
+.nav.icons .tab .n{
+  position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;line-height:14px;
+  padding:0 4px;border-radius:8px;font-size:9.5px;font-weight:700;
+  background:var(--sf3);color:var(--tx1);border:1px solid var(--bd2);
+  box-shadow:0 0 0 2px var(--bg);
+}
+.nav.icons .tab .n.hot{background:var(--warnbg);color:var(--warn);border-color:rgba(236,164,60,.5)}
+.nav.icons .tab.on .n{background:#fff;color:var(--acc-d);border-color:transparent}
+.hd-x{display:flex;align-items:center;gap:6px;flex:none}
+.search{
+  display:flex;align-items:center;gap:7px;width:200px;height:32px;padding:0 10px;
+  border:1px solid var(--bd);border-radius:6px;background:var(--sf2);color:var(--tx3);
+  transition:border-color var(--t) var(--ease);
+}
+.search:focus-within{border-color:var(--acc)}
+.search .ico{width:14px;height:14px}
+.search input{border:none;outline:none;background:none;flex:1;color:var(--tx0);min-width:0;font-size:13px}
+.search input::placeholder{color:var(--tx3)}
+.iconbtn{
+  position:relative;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid transparent;border-radius:6px;color:var(--tx2);
+  transition:all var(--t) var(--ease);
+}
+.iconbtn:hover{background:var(--sf2);color:var(--tx0);border-color:var(--bd)}
+.iconbtn .b{
+  position:absolute;top:4px;right:4px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;
+  background:var(--acc);color:#fff;font-size:9.5px;font-weight:700;line-height:14px;text-align:center;
+}
+.avatar{
+  width:30px;height:30px;border-radius:50%;background:var(--accbg);color:var(--acc);
+  display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;flex:none;
+  border:1px solid var(--accbg);
+}
+@keyframes drop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+/* 通知下拉 */
+.popmenu{
+  position:fixed;z-index:60;width:300px;background:var(--tt);border:1px solid var(--ttbd);
+  border-radius:var(--r);box-shadow:var(--shadow);padding:6px;display:none;
+}
+.popmenu.show{display:block;animation:drop var(--t) var(--ease)}
+.popmenu .pm-h{padding:8px 10px 6px;font-size:11px;letter-spacing:.08em;color:var(--tx3);text-transform:uppercase}
+.popmenu .pm-i{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:9px 10px;border-radius:6px}
+.popmenu .pm-i:hover{background:var(--sf2)}
+.popmenu .pm-i .t{font-size:13px;color:var(--tx0);line-height:1.45}
+.popmenu .pm-i .d{font-size:11.5px;color:var(--tx3)}
+.popmenu .pm-f{border-top:1px solid var(--bd);margin-top:5px;padding:7px 10px 3px;text-align:center}
+.popmenu .pm-f button{font-size:12.5px;color:var(--acc);font-weight:600}
+
+/* ============================================================
+   4. 内容列与页头
+   ============================================================ */
+.content{max-width:1240px;margin:0 auto;padding:20px 20px 64px}
+.view{display:none}
+.view.on{display:block;animation:vin var(--t) var(--ease)}
+@keyframes vin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.ph{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.ph h1{font-size:19px;font-weight:700;letter-spacing:-.01em}
+.ph .sub{color:var(--tx2);font-size:13px}
+.ph .tag{
+  display:inline-flex;align-items:center;gap:6px;height:23px;padding:0 10px;border-radius:5px;
+  font-size:12px;font-weight:600;
+}
+.tag.ok{background:var(--okbg);color:var(--ok)}
+.tag.warn{background:var(--warnbg);color:var(--warn)}
+.tag.acc{background:var(--accbg);color:var(--acc)}
+.tag .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.ph .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lup{color:var(--tx3);font-size:12px}
+
+/* ============================================================
+   5. 卡片 / 网格 / 表格 / 按钮 / 控件
+   ============================================================ */
+.wg{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:14px;overflow:hidden}
+.wg-h{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--bd)}
+.wg-h .ico{width:15px;height:15px;color:var(--tx2)}
+.wg-h h3{font-size:13px;font-weight:600;color:var(--tx1)}
+.wg-h .x{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--tx3);font-weight:400}
+.wg-b{padding:14px}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+.t3{grid-column:span 3}.t4{grid-column:span 4}.t5{grid-column:span 5}
+.t6{grid-column:span 6}.t7{grid-column:span 7}.t8{grid-column:span 8}.t12{grid-column:span 12}
+.grid .wg{margin-bottom:0}
+
+table.u{width:100%;border-collapse:collapse;font-size:13px}
+table.u th{
+  text-align:left;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--tx3);padding:9px 12px;border-bottom:1px solid var(--bd);white-space:nowrap;
+}
+table.u td{padding:10px 12px;border-bottom:1px solid var(--bd);white-space:nowrap;vertical-align:middle;color:var(--tx1)}
+table.u tr:last-child td{border-bottom:none}
+table.u tbody tr{transition:background var(--t) var(--ease)}
+table.u tbody tr:hover{background:var(--sf2)}
+table.u td.r,table.u th.r{text-align:right}
+table.u td b{color:var(--tx0);font-weight:600}
+.tscroll{overflow-x:auto}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;
+  border:1px solid var(--bd2);border-radius:6px;background:transparent;color:var(--tx1);
+  font-size:13px;font-weight:600;transition:all var(--t) var(--ease);white-space:nowrap;
+}
+.btn .ico{width:14px;height:14px}
+.btn:hover{border-color:var(--acc);color:var(--acc)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-h);border-color:var(--acc-h);color:#fff}
+.btn.go{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.go:hover{background:#37a37c;border-color:#37a37c;color:#fff}
+.btn.stop{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.stop:hover{background:#d13a3f;border-color:#d13a3f;color:#fff}
+.btn.sm{height:28px;padding:0 10px;font-size:12.5px;border-radius:5px}
+.btn:disabled{color:var(--tx3);border-color:var(--bd);background:transparent;cursor:not-allowed}
+.btn .spin{animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 仪表条 */
+.meter{height:8px;border-radius:4px;background:var(--sf3);overflow:hidden}
+.meter i{display:block;height:100%;border-radius:4px;background:var(--acc);transition:width .5s var(--ease)}
+.meter i.c-ok{background:var(--ok)}
+.meter i.c-info{background:var(--info)}
+.meter i.c-warn{background:var(--warn)}
+.meter i.c-bad{background:var(--bad)}
+.meter.thin{height:5px}
+/* CPU 核心小柱 */
+.cores{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-top:10px}
+.core{height:30px;border-radius:3px;background:var(--sf3);position:relative;overflow:hidden}
+.core i{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,var(--acc-h),var(--acc));border-radius:3px 3px 0 0}
+/* 仪表磁贴 */
+.tile-wg .big{font-size:26px;font-weight:700;letter-spacing:-.01em;line-height:1.25}
+.tile-wg .big small{font-size:12.5px;font-weight:500;color:var(--tx2);margin-left:3px}
+.tile-wg .cap{font-size:12px;color:var(--tx2);margin-bottom:7px;display:flex;align-items:center;gap:6px}
+.tile-wg .cap .ico{width:13px;height:13px}
+.mtxt{display:flex;justify-content:space-between;font-size:11.5px;color:var(--tx3);margin-top:6px}
+/* 总览：风扇小卡 */
+.fans3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.fanb{border:1px solid var(--bd);border-radius:6px;background:var(--sf2);padding:10px 12px}
+.fanb .fn{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--tx2)}
+.fanb .fn .mini-rotor{width:15px;height:15px;fill:var(--acc);stroke:none;opacity:.85;transform-box:fill-box;transform-origin:center;animation:rot var(--d,3s) linear infinite;flex:none}
+.fanb .fn .chip{margin-left:auto;font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--tx3);border:1px solid var(--bd2);border-radius:4px;padding:0 5px;line-height:16px}
+.fanb .fr{margin:4px 0 7px}
+.fanb .fr b{font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--tx0)}
+.fanb .fr small{font-size:11px;color:var(--tx2);font-weight:500}
+.fanb .fd{display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-top:5px}
+.fanb .fd b{color:var(--tx1)}
+@media (max-width:700px){.fans3{grid-template-columns:1fr}}
+/* 温度格 */
+.temps{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}
+.temp{border:1px solid var(--bd);border-radius:6px;padding:8px 11px;background:var(--sf2)}
+.temp .n{font-size:11px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.temp .v{font-size:16px;font-weight:700;margin-top:1px}
+.temp.warm{border-color:color-mix(in srgb,var(--warn) 40%,var(--bd));background:linear-gradient(180deg,var(--warnbg),transparent)}
+.temp.warm .v{color:var(--warn)}
+.temp.hot{border-color:color-mix(in srgb,var(--bad) 45%,var(--bd));background:linear-gradient(180deg,var(--badbg),transparent)}
+.temp.hot .v{color:var(--bad);animation:blink 1.6s ease infinite}
+@keyframes blink{50%{opacity:.5}}
+.legend{display:flex;gap:15px;font-size:11.5px;color:var(--tx2);margin-top:11px;flex-wrap:wrap}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+/* 状态 */
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;color:var(--ok)}
+.st .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.st.warn{color:var(--warn)}
+.st.bad{color:var(--bad)}
+.st.mute{color:var(--tx3)}
+.st.off .dot{background:var(--tx3)}
+.t-ok{color:var(--ok)}.t-warn{color:var(--warn)}.t-bad{color:var(--bad)}
+.fsbadge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:600;background:var(--sf3);color:var(--tx2)}
+/* 盘位 / DIMM 格 */
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:8px}
+.slot{border:1px solid var(--bd);border-radius:6px;padding:9px 11px;background:var(--sf2);cursor:pointer;text-align:left;position:relative;overflow:hidden;transition:border-color var(--t) var(--ease),transform var(--t) var(--ease)}
+.slot:hover{border-color:var(--bd2);transform:translateY(-1px)}
+.slot::before{content:"";position:absolute;left:0;top:0;right:0;height:3px;background:var(--ok)}
+.slot.warn::before{background:var(--warn)}
+.slot.empty{border-style:dashed;cursor:default}
+.slot.empty::before{display:none}
+.slot .sn{font-size:10.5px;color:var(--tx3);letter-spacing:.04em}
+.slot .sv{font-weight:700;font-size:13.5px;margin-top:1px}
+.slot .sd{font-size:10.5px;color:var(--tx2);margin-top:1px}
+.slot.empty .sn,.slot.empty .sv,.slot.empty .sd{color:var(--tx3)}
+/* 折叠分区 */
+.sec{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.sec-h{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;font-size:13.5px;font-weight:600;color:var(--tx1);text-align:left}
+.sec-h:hover{color:var(--tx0)}
+.sec-h .sico{width:25px;height:25px;border-radius:6px;background:var(--accbg);color:var(--acc);display:flex;align-items:center;justify-content:center;flex:none}
+.sec-h .sico .ico{width:13px;height:13px}
+.sec-h .arr{margin-left:auto;color:var(--tx3);transition:transform var(--t) var(--ease)}
+.sec.open .sec-h .arr{transform:rotate(90deg)}
+.sec-b{display:none;padding:2px 14px 14px}
+.sec.open .sec-b{display:block}
+/* 页签(页内) / 单选组 / chips */
+.tabs2{display:flex;gap:2px;border-bottom:1px solid var(--bd)}
+.tabs2 button{padding:8px 14px;color:var(--tx2);font-size:13px;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs2 button:hover{color:var(--tx0)}
+.tabs2 button.on{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--bd2);border-radius:6px;overflow:hidden}
+.seg button{height:28px;padding:0 12px;font-size:12px;color:var(--tx2);border-right:1px solid var(--bd)}
+.seg button:last-child{border-right:none}
+.seg button.on{background:var(--acc);color:#fff;font-weight:600}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chips button{height:27px;padding:0 12px;border:1px solid var(--bd2);border-radius:5px;color:var(--tx2);font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:all var(--t) var(--ease)}
+.chips button .cdot{width:7px;height:7px;border-radius:2px}
+.chips button:hover{border-color:var(--acc);color:var(--acc)}
+.chips button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.chips button:disabled{opacity:.45;cursor:not-allowed}
+.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--tx1);font-size:13px;user-select:none}
+.switch .tr{width:36px;height:20px;border-radius:10px;background:var(--sf3);position:relative;transition:background var(--t) var(--ease);flex:none}
+.switch .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#8B8D95;transition:all var(--t) var(--ease)}
+.switch.on .tr{background:var(--acc)}
+.switch.on .tr::after{left:18px;background:#fff}
+select,input[type=text]{height:32px;padding:0 10px;border:1px solid var(--bd2);border-radius:6px;background:var(--sf2);outline:none;font-size:13px}
+select:focus,input[type=text]:focus{border-color:var(--acc)}
+input[type=range]{accent-color:var(--acc);width:100%;height:20px;cursor:pointer}
+.frm{display:grid;grid-template-columns:140px 1fr;gap:11px 14px;align-items:center;max-width:620px}
+.frm label{color:var(--tx2);text-align:right;font-size:13px}
+@media (max-width:560px){.frm{grid-template-columns:1fr}.frm label{text-align:left}}
+/* 进度 */
+.bar{height:9px;border-radius:4px;background:var(--sf3);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--acc-h),var(--acc));position:relative;overflow:hidden;transition:width .5s var(--ease)}
+.bar.stripes i::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(-45deg,rgba(255,255,255,.22) 0 7px,transparent 7px 14px);animation:stripes 1s linear infinite}
+@keyframes stripes{to{background-position:14px 0}}
+/* 拓扑树 */
+.tree{font-size:13px;line-height:2.05;color:var(--tx1)}
+.tree ul{list-style:none;padding-left:20px}
+.tree li{position:relative;padding-left:14px}
+.tree li::before{content:"";position:absolute;left:0;top:0;bottom:0;border-left:1px solid var(--bd2)}
+.tree li:last-child::before{height:15px}
+.tree li::after{content:"";position:absolute;left:0;top:15px;width:11px;border-top:1px solid var(--bd2)}
+.tree .row{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.tree .ico{width:14px;height:14px}
+.tree .nd{font-weight:600;color:var(--tx0)}
+.tree .sub{color:var(--tx3);font-size:11.5px}
+.tree .ddot{width:8px;height:8px;border-radius:50%;flex:none}
+/* 告警行 */
+.alertrow{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid var(--bd);border-left:3px solid var(--warn);border-radius:6px;background:var(--sf);margin-bottom:9px}
+.alertrow:hover{border-color:var(--bd2)}
+.alertrow .txt{flex:1;font-size:13px;color:var(--tx1);min-width:0}
+.alertrow .txt b{color:var(--tx0)}
+.alertrow .tm{color:var(--tx3);font-size:11.5px;flex:none}
+.lvl{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:4px;font-size:10.5px;font-weight:700;letter-spacing:.06em;flex:none}
+.lvl.warn{background:var(--warnbg);color:var(--warn)}
+.lvl.bad{background:var(--badbg);color:var(--bad)}
+.lvl.info{background:var(--infobg);color:var(--info)}
+/* 阵列操作卡（UNRAID 招牌） */
+.opcard{display:flex;align-items:center;gap:14px;padding:15px 16px;flex-wrap:wrap}
+.opcard .odot{width:11px;height:11px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px var(--okbg);flex:none}
+.opcard .odot.off{background:var(--tx3);box-shadow:0 0 0 4px var(--sf3)}
+.opcard .ot{flex:1;min-width:220px}
+.opcard .ot b{font-size:15px}
+.opcard .ot small{display:block;font-size:12px;color:var(--tx2)}
+.opcard .oa{display:flex;gap:9px;flex-wrap:wrap}
+/* Docker 容器格 */
+.cav{width:28px;height:28px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;margin-right:10px;vertical-align:middle}
+.cav.c1{background:var(--accbg);color:var(--acc)}
+.cav.c2{background:var(--okbg);color:var(--ok)}
+.cav.c3{background:var(--infobg);color:var(--info)}
+.cav.c4{background:rgba(160,119,232,.15);color:var(--purp)}
+/* 弹窗 / 抽屉 / 气泡 / 菜单 */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:90;display:none;backdrop-filter:blur(2px)}
+.mask.show{display:block}
+.modal{
+  position:fixed;z-index:95;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(560px,calc(100vw - 32px));max-height:82vh;overflow:auto;
+  background:var(--sf);border:1px solid var(--bd2);border-radius:10px;box-shadow:var(--shadow);display:none;
+}
+.modal.show{display:block;animation:mIn .18s var(--ease)}
+@keyframes mIn{from{opacity:0;transform:translate(-50%,-52%) scale(.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+.modal .wg-h{position:sticky;top:0;background:var(--sf);z-index:2}
+.drawer{
+  position:fixed;z-index:95;top:0;right:0;bottom:0;width:min(312px,84vw);overflow:auto;
+  background:var(--sf);border-left:1px solid var(--bd2);box-shadow:var(--shadow);
+  transform:translateX(100%);transition:transform var(--t) var(--ease);
+}
+.drawer.show{transform:none}
+.drawer .wg-h{position:sticky;top:0;background:var(--sf);z-index:2}
+.toc-item{display:block;padding:9px 18px;color:var(--tx1);font-size:13.5px;cursor:pointer;border-left:2px solid transparent}
+.toc-item:hover{background:var(--sf2);color:var(--acc);border-left-color:var(--acc)}
+.toc-item.lv2{padding-left:34px;color:var(--tx2);font-size:13px}
+.pop{
+  position:fixed;z-index:96;width:238px;padding:13px 14px;background:var(--tt);
+  border:1px solid var(--ttbd);border-radius:8px;box-shadow:var(--shadow);display:none;
+  font-size:13px;color:var(--tx1);
+}
+.pop.show{display:block;animation:drop .15s var(--ease)}
+.pop .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:11px}
+.menu{
+  position:fixed;z-index:96;min-width:158px;padding:5px;background:var(--tt);
+  border:1px solid var(--ttbd);border-radius:8px;box-shadow:var(--shadow);display:none;
+}
+.menu.show{display:block;animation:drop .14s var(--ease)}
+.menu button{display:flex;width:100%;align-items:center;gap:8px;padding:7px 11px;border-radius:5px;font-size:13px;color:var(--tx1);text-align:left}
+.menu button:hover{background:var(--sf2);color:var(--tx0)}
+.menu button .ico{width:13px;height:13px;color:var(--tx2)}
+.menu hr{border:none;border-top:1px solid var(--bd);margin:4px 6px}
+.menu button.danger,.menu button.danger .ico{color:var(--bad)}
+.menu button.danger:hover{background:var(--badbg)}
+/* 日志 */
+.logbox{border:1px solid var(--bd);border-radius:7px;background:var(--bg);padding:4px 0;font-family:ui-monospace,Consolas,Menlo,monospace;font-size:12px;max-height:300px;overflow:auto}
+.log-line{padding:4px 12px;line-height:1.7;white-space:pre-wrap;color:var(--tx1)}
+.log-line .lt{color:var(--tx3);margin-right:10px}
+.log-line.lv-warn{background:var(--warnbg);color:var(--warn)}
+.log-line.lv-bad{background:var(--badbg);color:var(--bad)}
+/* 图表 */
+.chartbox{position:relative}
+.chartbox svg.plot{width:100%;display:block}
+.chart-tip{
+  position:absolute;z-index:5;pointer-events:none;display:none;min-width:116px;
+  background:var(--tt);border:1px solid var(--ttbd);border-radius:7px;box-shadow:var(--shadow);
+  padding:8px 11px;font-size:12px;color:var(--tx1);
+}
+.chart-tip .tt-t{color:var(--tx3);font-size:11px;margin-bottom:4px}
+.chart-tip .tt-r{display:flex;align-items:center;gap:6px;line-height:1.9;white-space:nowrap}
+.chart-tip .tt-r b{margin-left:auto;color:var(--tx0);padding-left:12px}
+.chart-tip .tt-d{width:8px;height:8px;border-radius:2px;flex:none}
+.zoombar{height:26px;margin-top:8px;position:relative}
+.zb-track{position:absolute;inset:4px 0;border-radius:5px;background:var(--sf3);border:1px solid var(--bd)}
+.zb-win{position:absolute;top:0;bottom:0;border-radius:5px;background:var(--accbg);border:1px solid color-mix(in srgb,var(--acc) 45%,transparent);cursor:grab}
+.zb-win:active{cursor:grabbing}
+.zb-h{position:absolute;top:-3px;bottom:-3px;width:8px;border-radius:4px;background:var(--acc);opacity:.9;cursor:ew-resize}
+.zb-h.l{left:-4px}.zb-h.r{right:-4px}
+/* 风扇 */
+.fanrow{display:flex;gap:18px;align-items:center;margin-bottom:8px}
+.fanrow .big{font-size:23px;font-weight:700}
+.fanrow .big small{font-size:12px;font-weight:500;color:var(--tx2)}
+.fanrow .duty{font-size:12.5px;color:var(--tx2)}
+.fan-ic{width:30px;height:30px;flex:none;color:var(--tx3)}
+.fan-ic .rotor{fill:var(--acc);opacity:.8;stroke:none;transform-box:fill-box;transform-origin:center;animation:rot var(--d,3s) linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.dutyrow{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--tx2)}
+.readout{font-size:12px;color:var(--tx2);background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:3px 9px}
+.readout b{color:var(--acc)}
+.curve-wrap svg{width:100%;display:block;touch-action:none}
+.curve-wrap .pt{cursor:grab;fill:var(--acc);stroke:var(--sf);stroke-width:2;transition:r var(--t) var(--ease)}
+.curve-wrap .pt:hover{r:7}
+/* prose / about */
+.prose{max-width:820px}
+.prose h2{font-size:14.5px;font-weight:700;margin:18px 0 9px}
+.prose h2:first-child{margin-top:0}
+.prose p{font-size:13.5px;color:var(--tx2);line-height:1.9;margin-bottom:10px}
+.prose .note{display:flex;gap:9px;padding:11px 13px;border:1px solid var(--bd);border-left:3px solid var(--acc);border-radius:6px;background:var(--sf2);font-size:13px;color:var(--tx1);margin-bottom:12px}
+.prose .note .ico{width:15px;height:15px;color:var(--acc);flex:none;margin-top:3px}
+.brandhero{display:flex;gap:18px;align-items:center}
+.brandhero .mark{width:76px;height:76px;border-radius:20px;background:linear-gradient(160deg,var(--acc-h),var(--acc-d));display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 10px 26px rgba(241,90,44,.35)}
+.brandhero .mark svg{width:42px;height:42px;fill:#fff}
+.brandhero .nm{font-size:19px;font-weight:700;display:flex;align-items:center;gap:9px}
+.brandhero .ver{font-size:11.5px;font-weight:700;background:var(--accbg);color:var(--acc);border-radius:5px;padding:1px 9px}
+.brandhero .ds{color:var(--tx2);font-size:12.5px;margin-top:3px}
+.m-cards{display:none}
+/* 视口指示 */
+.vp-ind{position:fixed;right:12px;bottom:12px;z-index:60;padding:3px 11px;border-radius:5px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;opacity:.85;pointer-events:none}
+
+/* ============================================================
+   6. 响应式（<900px 页签进汉堡面板；<700px 栅格纵排）
+   ============================================================ */
+@media (max-width:900px){
+  .search{display:none}
+}
+@media (max-width:700px){
+  .content{padding:14px 12px 60px}
+  .t3,.t4,.t5,.t6,.t7,.t8{grid-column:span 12}
+  .ph .right{margin-left:0;width:100%}
+  .m-hide{display:none}
+  .m-cards{display:block}
+  .grid{gap:10px}
+  .kv2{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 图标 sprite（本稿新绘几何风格，未复用现有路径） ===== -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-dash" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-array" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6.6" rx="1.6"/><rect x="3" y="13.4" width="18" height="6.6" rx="1.6"/><circle cx="7.2" cy="7.3" r="1.2" fill="currentColor" stroke="none"/><circle cx="7.2" cy="16.7" r="1.2" fill="currentColor" stroke="none"/><path d="M17.5 7.3h.6M17.5 16.7h.6"/></symbol>
+  <symbol id="i-drive" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><circle cx="16.4" cy="12" r="1.8"/><path d="M6.5 12h4"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.8" y="9.8" width="4.4" height="4.4" rx=".8"/><path d="M9 2.8v3.2M15 2.8v3.2M9 18v3.2M15 18v3.2M2.8 9H6M2.8 15H6M18 9h3.2M18 15h3.2"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-7.5 4 15 3-7.5h4"/></symbol>
+  <symbol id="i-temp" viewBox="0 0 24 24"><path d="M12 3.2a1.9 1.9 0 0 1 1.9 1.9v8.1a4.5 4.5 0 1 1-3.8 0V5.1A1.9 1.9 0 0 1 12 3.2Z"/><path d="M12 8.5v6"/></symbol>
+  <symbol id="i-hist" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2"/></symbol>
+  <symbol id="i-fan" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.1"/><path d="M12 9.4c-.5-3.8-2.2-5.7-4.2-5.1C5.8 4.9 5.4 7.4 7.3 8.9c1.5 1.1 3.2.7 4.7.5Z"/><path d="M14.2 13.3c3.4 1.8 6 1.5 6.6-.5.6-2-1.3-3.6-3.7-3-1.8.5-2.6 2.1-2.9 3.5Z"/><path d="M9.8 14.1c-3 2.2-3.9 4.6-2.5 6 1.4 1.5 3.8.9 4.6-1.4.6-1.8-.5-3.3-2.1-4.6Z"/></symbol>
+  <symbol id="i-docker" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M3.5 9.5h17M9.5 9.5V20.5M15 9.5V20.5"/></symbol>
+  <symbol id="i-net" viewBox="0 0 24 24"><path d="M4 8.5h13.2l-3.1-3.1M20 15.5H6.8l3.1 3.1"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.2 9.6a5.8 5.8 0 0 1 11.6 0c0 4.6 1.7 6 2.4 6.7H3.8c.7-.7 2.4-2.1 2.4-6.7Z"/><path d="M10.3 19.8a1.9 1.9 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 2.7v5.5c0 4.6-2.9 7.9-7 9.8-4.1-1.9-7-5.2-7-9.8V5.7Z"/><path d="m9 11.8 2.2 2.2 4.2-4.5"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4.5h5.5A2.5 2.5 0 0 1 12 7v13a2 2 0 0 0-2-2H4Z"/><path d="M20 4.5h-5.5A2.5 2.5 0 0 0 12 7v13a2 2 0 0 1 2-2h6Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8"/><path d="M12 11v5.2"/><path d="M12 7.6h.01"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7.2"/><path d="m20.5 20.5-4.5-4.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+  <symbol id="i-chevd" viewBox="0 0 24 24"><path d="m6 9.5 6 6 6-6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20.2 3.6V7.4h-3.8"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8.5"/><path d="M17.8 6.6a8 8 0 1 1-11.6 0"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5Z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3.5V15"/><path d="m7 10.5 5 4.5 5-4.5"/><path d="M4.5 19.5h15"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.8 21 19.5H3Z"/><path d="M12 10v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 13.5A8.5 8.5 0 0 1 10.5 4 8.5 8.5 0 1 0 20 13.5Z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10.5 13.5"/><path d="M21 3l-6.5 18-4-8-8-4Z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.4 2"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="7" rx="1.6"/><rect x="4" y="13.5" width="16" height="7" rx="1.6"/><path d="M7.5 7h.01M7.5 17h.01"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3.5 9 4.5-9 4.5L3 8Z"/><path d="m4.5 12.5 7.5 3.8 7.5-3.8M4.5 16.5l7.5 3.8 7.5-3.8"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18.3 11a3.8 3.8 0 0 1-.8 7.5Z"/></symbol>
+</svg>
+
+<div class="nav">
+  <button class="iconbtn" id="btnNav" title="页签：完整样式（点击切换纯图标）"><svg class="ico"><use href="#i-menu"/></svg></button>
+  <div class="brand"><span class="logo"><svg viewBox="0 0 24 24"><rect x="6" y="4.5" width="12" height="3.4" rx="1.7"/><rect x="6" y="10.3" width="7.5" height="3.4" rx="1.7"/><rect x="6" y="16.1" width="12" height="3.4" rx="1.7"/></svg></span>nasdeck</div>
+  <nav class="tabs" id="tabs">
+    <div class="tgroup">
+      <button class="tab on" data-nav="/dash" title="总览"><svg class="ico"><use href="#i-dash"/></svg><span class="lbl">总览</span></button>
+    </div>
+    <div class="tgroup">
+      <button class="tab" data-nav="/storage" title="存储卷"><svg class="ico"><use href="#i-array"/></svg><span class="lbl">存储卷</span></button>
+      <button class="tab" data-nav="/disks" title="硬盘 SMART"><svg class="ico"><use href="#i-drive"/></svg><span class="lbl">硬盘</span><span class="n">6</span></button>
+    </div>
+    <div class="tgroup">
+      <button class="tab" data-nav="/detect" title="硬件检测"><svg class="ico"><use href="#i-cpu"/></svg><span class="lbl">硬件</span></button>
+      <button class="tab" data-nav="/system" title="系统资源"><svg class="ico"><use href="#i-pulse"/></svg><span class="lbl">系统</span></button>
+      <button class="tab" data-nav="/temps" title="温度监控"><svg class="ico"><use href="#i-temp"/></svg><span class="lbl">温度</span></button>
+      <button class="tab" data-nav="/sys-hist" title="历史趋势"><svg class="ico"><use href="#i-hist"/></svg><span class="lbl">趋势</span></button>
+    </div>
+    <div class="tgroup">
+      <button class="tab" data-nav="/docker" title="Docker"><svg class="ico"><use href="#i-docker"/></svg><span class="lbl">Docker</span><span class="n">4</span></button>
+      <button class="tab" data-nav="/ports" title="端口占用"><svg class="ico"><use href="#i-net"/></svg><span class="lbl">端口</span></button>
+      <button class="tab" data-nav="/fan" title="风扇控制"><svg class="ico"><use href="#i-fan"/></svg><span class="lbl">风扇</span></button>
+    </div>
+    <div class="tgroup">
+      <button class="tab" data-nav="/automation" title="控制与自动化"><svg class="ico"><use href="#i-shield"/></svg><span class="lbl">自动化</span><span class="n hot">2</span></button>
+      <button class="tab" data-nav="/manual" title="操作手册"><svg class="ico"><use href="#i-book"/></svg><span class="lbl">手册</span></button>
+      <button class="tab" data-nav="/about" title="关于 nasdeck"><svg class="ico"><use href="#i-info"/></svg><span class="lbl">关于</span></button>
+    </div>
+  </nav>
+  <div class="hd-x">
+    <div class="search"><svg class="ico"><use href="#i-search"/></svg><input id="navSearch" type="text" placeholder="搜索页签"></div>
+    <button class="iconbtn" id="btnBell" title="通知"><svg class="ico"><use href="#i-bell"/></svg><span class="b">2</span></button>
+    <button class="iconbtn" id="btnTheme" title="切换黑/白主题"><svg class="ico t-moon"><use href="#i-moon"/></svg><svg class="ico t-sun" style="display:none"><use href="#i-sun"/></svg></button>
+    <span class="avatar">z</span>
+  </div>
+</div>
+
+<!-- 通知下拉 -->
+<div class="popmenu" id="bellPop">
+  <div class="pm-h">活动告警 · 2</div>
+  <button class="pm-i" data-navjump="/automation"><svg class="ico" style="color:var(--warn);margin-top:2px"><use href="#i-alert"/></svg><span><span class="t">盘位 3 SMART 05 重映射扇区增长（12 → 13）</span><span class="d">10:21 · 建议关注或安排更换</span></span></button>
+  <button class="pm-i" data-navjump="/automation"><svg class="ico" style="color:var(--warn);margin-top:2px"><use href="#i-alert"/></svg><span><span class="t">机箱后部温度 61 °C 超过阈值 60 °C</span><span class="d">10:32 · 已持续 5 分钟</span></span></button>
+  <div class="pm-f"><button data-navjump="/automation">查看全部告警与规则</button></div>
+</div>
+
+<main class="content">
+
+  <!-- ============ /dash 总览（UNRAID Dashboard 式磁贴） ============ -->
+  <section class="view" id="v-dash">
+    <div class="ph">
+      <h1>总览</h1><span class="sub">系统 · 阵列 · 风扇 · 服务</span>
+      <span class="tag ok"><span class="dot"></span>正常</span>
+      <div class="right"><span class="lup num">最后更新 10:32:12</span><label class="switch on"><span class="tr"></span>自动</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+
+    <div class="grid" style="margin-bottom:14px">
+      <div class="wg tile-wg t3"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-cpu"/></svg>CPU 使用率</div>
+        <div class="big num">23<small>%</small></div>
+        <div class="meter" style="margin-top:9px"><i class="c-ok" style="width:23%"></i></div>
+        <div class="cores">
+          <span class="core"><i style="height:31%"></i></span><span class="core"><i style="height:18%"></i></span><span class="core"><i style="height:44%"></i></span><span class="core"><i style="height:12%"></i></span><span class="core"><i style="height:26%"></i></span><span class="core"><i style="height:38%"></i></span><span class="core"><i style="height:9%"></i></span><span class="core"><i style="height:22%"></i></span>
+        </div>
+        <div class="mtxt"><span>4C8T · 负载 <span class="num">0.42</span></span><span class="num">45 °C · 3.49 GHz</span></div>
+      </div></div>
+      <div class="wg tile-wg t3"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-server"/></svg>内存</div>
+        <div class="big num">41<small>%</small></div>
+        <div class="meter" style="margin-top:9px"><i class="c-info" style="width:41%"></i></div>
+        <div class="mtxt"><span>已用 26.2 GB</span><span class="num">共 64 GB · ECC</span></div>
+      </div></div>
+      <div class="wg tile-wg t3"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-net"/></svg>网络吞吐</div>
+        <div class="big num">12.3<small>MB/s ↓</small></div>
+        <div class="num" style="font-size:12px;color:var(--tx2);margin-top:2px">↑ 3.1 MB/s · eth0</div>
+        <div class="spark" data-spark="net" style="height:30px;margin-top:8px"></div>
+      </div></div>
+      <div class="wg tile-wg t3"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-drive"/></svg>磁盘 IO</div>
+        <div class="big num">86<small>MB/s 读</small></div>
+        <div class="num" style="font-size:12px;color:var(--tx2);margin-top:2px">↑ 写 42 MB/s</div>
+        <div class="spark" data-spark="dio" style="height:30px;margin-top:8px"></div>
+      </div></div>
+    </div>
+
+    <div class="grid" style="margin-bottom:14px">
+      <div class="wg tile-wg t3"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-array"/></svg>阵列</div>
+        <div class="big num">21.8<small>TB</small></div>
+        <div class="meter" style="margin-top:9px"><i class="c-ok" style="width:38%"></i></div>
+        <div class="mtxt"><span><span class="st"><span class="dot"></span>运行中</span></span><span class="num">已用 8.2 TB · 38%</span></div>
+        <div class="mtxt" style="margin-top:2px"><span>RAID 6 · 4+0 盘</span><span>校验：无活动</span></div>
+        <button class="btn sm" data-navjump="/storage" style="margin-top:9px;width:100%">管理阵列<svg class="ico"><use href="#i-chev"/></svg></button>
+      </div></div>
+      <div class="wg tile-wg t3"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-pulse"/></svg>GPU 使用率</div>
+        <div class="big num">15<small>%</small></div>
+        <div class="spark" data-spark="gpu" style="height:30px;margin-top:9px"></div>
+        <div class="mtxt"><span>核显 · 温度 44 °C</span><span class="num">显存 0.9 GB</span></div>
+      </div></div>
+      <div class="wg tile-wg t3"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-power"/></svg>整机功耗</div>
+        <div class="big num">40.5<small>W</small></div>
+        <div class="meter" style="margin-top:9px"><i style="width:62%"></i></div>
+        <div class="mtxt"><span>CPU <span class="num">32.1 W</span></span><span>DRAM <span class="num">8.4 W</span></span></div>
+      </div></div>
+      <div class="wg tile-wg t3"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-clock"/></svg>系统</div>
+        <div class="big num">23<small>天 4 小时</small></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0 0;border-bottom:1px solid var(--bd)"><span class="muted small">fnOS</span><span class="small num">0.9.20</span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd)"><span class="muted small">负载 1/5/15m</span><span class="small num">0.42 / 0.38 / 0.35</span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0 0"><span class="muted small">进程数</span><span class="small num">217</span></div>
+      </div></div>
+    </div>
+
+    <div class="wg" style="margin-bottom:14px"><div class="wg-h"><svg class="ico"><use href="#i-pulse"/></svg><h3>GPU 监控 · Intel HD Graphics P530</h3><span class="x"><span class="tag ok"><span class="dot"></span>核显 · 正常</span></span></div>
+      <div class="wg-b" style="display:flex;gap:22px;flex-wrap:wrap">
+        <div style="flex:0 0 270px;min-width:250px">
+          <div class="num" style="font-size:26px;font-weight:700;line-height:1.2">15<span style="font-size:12.5px;color:var(--tx2);font-weight:500;margin-left:2px">%</span></div>
+          <div class="meter" style="margin-top:8px"><i style="width:15%;background:var(--purp)"></i></div>
+          <div style="margin-top:10px">
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd)"><span class="muted small">显存（共享）</span><span class="small num">0.9 / 1.7 GB</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd)"><span class="muted small">引擎占用</span><span class="small num">编码 12% · 解码 3%</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd)"><span class="muted small">GPU 频率</span><span class="small num">850 / 1150 MHz</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd)"><span class="muted small">温度</span><span class="small num t-ok">44 °C</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd)"><span class="muted small">功耗</span><span class="small num">6.8 W</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:5px 0"><span class="muted small">驱动 / 转码</span><span class="small">i915 · QuickSync</span></div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:280px">
+          <div class="chartbox" id="u-gpu" style="height:196px"></div>
+          <div class="legend"><span><i style="background:var(--purp)"></i>GPU 使用率</span><span><i style="background:var(--info)"></i>显存占用</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-bottom:14px">
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-fan"/></svg><h3>风扇转速</h3><span class="x"><span class="tag acc"><span class="dot"></span>接管中 · 3/3 运转</span></span></div>
+        <div class="wg-b">
+          <div class="fans3">
+            <div class="fanb">
+              <div class="fn"><svg class="mini-rotor" viewBox="0 0 24 24" style="--d:3.7s"><path d="M12 12c-.5-3.8-2.2-5.7-4.2-5.1C5.8 7.5 5.4 10 7.3 11.5c1.5 1.1 3.2.7 4.7.5Z"/><path d="M12 12c3.5 1.7 6.1 1.5 6.7-.6.6-2-1.4-3.6-3.8-2.9-1.7.5-2.5 2.1-2.9 3.5Z" transform="rotate(40 12 12)"/><path d="M11.2 13.3c-2.7 2.5-3.4 4.9-2 6.3 1.4 1.4 3.8.7 4.5-1.6.5-1.8-.7-3.3-2.5-4.7Z" transform="rotate(-160 12 12)"/><circle cx="12" cy="12" r="2" fill="var(--sf2)" stroke="none"/></svg>CPU_FAN<span class="chip">PWM</span></div>
+              <div class="fr"><b class="num">1220</b><small> RPM</small></div>
+              <div class="meter thin"><i style="width:46%"></i></div>
+              <div class="fd"><span>占空比 46%</span><span>45 °C</span></div>
+            </div>
+            <div class="fanb">
+              <div class="fn"><svg class="mini-rotor" viewBox="0 0 24 24" style="--d:4.1s"><path d="M12 12c-.5-3.8-2.2-5.7-4.2-5.1C5.8 7.5 5.4 10 7.3 11.5c1.5 1.1 3.2.7 4.7.5Z"/><path d="M12 12c3.5 1.7 6.1 1.5 6.7-.6.6-2-1.4-3.6-3.8-2.9-1.7.5-2.5 2.1-2.9 3.5Z" transform="rotate(40 12 12)"/><path d="M11.2 13.3c-2.7 2.5-3.4 4.9-2 6.3 1.4 1.4 3.8.7 4.5-1.6.5-1.8-.7-3.3-2.5-4.7Z" transform="rotate(-160 12 12)"/><circle cx="12" cy="12" r="2" fill="var(--sf2)" stroke="none"/></svg>前板_FAN<span class="chip">DC</span></div>
+              <div class="fr"><b class="num">980</b><small> RPM</small></div>
+              <div class="meter thin"><i style="width:38%"></i></div>
+              <div class="fd"><span>占空比 38%</span><span>38 °C</span></div>
+            </div>
+            <div class="fanb">
+              <div class="fn"><svg class="mini-rotor" viewBox="0 0 24 24" style="--d:3.4s"><path d="M12 12c-.5-3.8-2.2-5.7-4.2-5.1C5.8 7.5 5.4 10 7.3 11.5c1.5 1.1 3.2.7 4.7.5Z"/><path d="M12 12c3.5 1.7 6.1 1.5 6.7-.6.6-2-1.4-3.6-3.8-2.9-1.7.5-2.5 2.1-2.9 3.5Z" transform="rotate(40 12 12)"/><path d="M11.2 13.3c-2.7 2.5-3.4 4.9-2 6.3 1.4 1.4 3.8.7 4.5-1.6.5-1.8-.7-3.3-2.5-4.7Z" transform="rotate(-160 12 12)"/><circle cx="12" cy="12" r="2" fill="var(--sf2)" stroke="none"/></svg>后板_FAN<span class="chip">PWM</span></div>
+              <div class="fr"><b class="num">1450</b><small> RPM</small></div>
+              <div class="meter thin"><i style="width:52%"></i></div>
+              <div class="fd"><span>占空比 52%</span><span>61 °C</span></div>
+            </div>
+          </div>
+          <button class="btn sm" data-navjump="/fan" style="margin-top:11px;width:100%">风扇控制与曲线编辑<svg class="ico"><use href="#i-chev"/></svg></button>
+        </div>
+      </div>
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-docker"/></svg><h3>Docker</h3><span class="x"><span class="st"><span class="dot"></span>3 运行中 · 1 退出</span></span></div>
+        <div class="wg-b" style="padding-top:8px">
+          <div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px">
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>plex</span><span class="num small">3.4% · 1.2 GB</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span>qBittorrent</span><span class="num small">1.1% · 420 MB</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span>homeassistant</span><span class="num small">0.8% · 660 MB</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted">memcached</span><span class="st bad small"><span class="dot"></span>已退出</span></div>
+          </div>
+          <button class="btn sm" data-navjump="/docker" style="margin-top:11px;width:100%">查看容器</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-bottom:14px">
+      <div class="wg t8"><div class="wg-h"><svg class="ico"><use href="#i-drive"/></svg><h3>硬盘温度</h3><span class="x">6 盘位 · 按阈值着色</span></div>
+        <div class="wg-b">
+          <div class="temps">
+            <div class="temp"><div class="n">盘位 1 · 4 TB</div><div class="v num">34 °C</div></div>
+            <div class="temp"><div class="n">盘位 2 · 4 TB</div><div class="v num">35 °C</div></div>
+            <div class="temp warm"><div class="n">盘位 3 · 8 TB</div><div class="v num">47 °C</div></div>
+            <div class="temp"><div class="n">盘位 4 · 8 TB</div><div class="v num">39 °C</div></div>
+            <div class="temp"><div class="n">盘位 5 · SSD</div><div class="v num">41 °C</div></div>
+            <div class="temp"><div class="n">阵列卡</div><div class="v num">36 °C</div></div>
+          </div>
+          <div class="legend"><span><i style="background:var(--sf3)"></i>&lt; 40 正常</span><span><i style="background:var(--warnbg);border:1px solid var(--warn)"></i>40 – 50 偏高</span><span><i style="background:var(--badbg);border:1px solid var(--bad)"></i>&gt; 50 过热</span></div>
+        </div>
+      </div>
+      <div class="wg t4"><div class="wg-h"><svg class="ico"><use href="#i-cloud"/></svg><h3>缓存与备份</h3><span class="x"><span class="st"><span class="dot"></span>已连接</span></span></div>
+        <div class="wg-b">
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--tx2);margin-bottom:6px"><span>缓存 nvme0n1 · Btrfs</span><span class="num">64%</span></div>
+          <div class="meter thin"><i class="c-info" style="width:64%"></i></div>
+          <div class="mtxt" style="margin-top:5px"><span class="num">308 / 480 GB</span><span>41 °C</span></div>
+          <div style="height:1px;background:var(--bd);margin:11px 0"></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--tx2);margin-bottom:6px"><span>云盘 backup · OSS</span><span class="num">32%</span></div>
+          <div class="meter thin"><i class="c-ok" style="width:32%"></i></div>
+          <div class="mtxt" style="margin-top:5px"><span class="num">6.4 / 20 TB</span><span>今日 04:00 同步</span></div>
+          <button class="btn sm" data-navjump="/storage" style="margin-top:11px;width:100%">查看存储卷</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="wg"><div class="wg-h"><svg class="ico"><use href="#i-shield"/></svg><h3>活动告警</h3><span class="x"><span class="tag warn"><span class="dot"></span>2 条</span></span></div>
+      <div class="wg-b">
+        <div class="alertrow"><span class="lvl warn">WARN</span><span class="txt">盘位 3 SMART 05 <b>重映射扇区数增长</b>（12 → 13），建议关注或安排更换</span><span class="tm num">10:21</span><button class="btn sm" data-navjump="/disks">查看硬盘</button></div>
+        <div class="alertrow" style="margin-bottom:0"><span class="lvl warn">WARN</span><span class="txt">机箱后部温度 <b>61 °C</b> 超过阈值 60 °C，已持续 5 分钟</span><span class="tm num">10:32</span><button class="btn sm" data-navjump="/temps">查看温度</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /storage 存储卷（UNRAID Main / Array Devices 式） ============ -->
+  <section class="view" id="v-storage">
+    <div class="ph">
+      <h1>存储卷</h1><span class="sub">阵列设备 · 卷 · 云盘</span>
+      <span class="tag ok"><span class="dot"></span>运行中</span>
+      <div class="right"><span class="lup num">最后更新 10:32:06</span><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+
+    <div class="wg"><div class="wg-b opcard" style="padding:15px 16px">
+      <span class="odot"></span>
+      <div class="ot"><b>阵列运行中</b><small class="num">md126 · RAID 6 · 总容量 21.8 TB · 成员 4 盘 + 0 热备 · 无重建 / 校验活动</small></div>
+      <div class="oa">
+        <button class="btn"><svg class="ico"><use href="#i-refresh"/></svg>校验 Parity</button>
+        <button class="btn go" disabled><svg class="ico"><use href="#i-play"/></svg>启动阵列</button>
+        <button class="btn stop" data-pop="pStopArr"><svg class="ico"><use href="#i-power"/></svg>停止阵列</button>
+      </div>
+    </div></div>
+
+    <div class="wg">
+      <div class="wg-h"><svg class="ico"><use href="#i-drive"/></svg><h3>阵列设备</h3><span class="x">温度阈值：40 °C 偏高 · 50 °C 过热</span></div>
+      <div class="tscroll m-hide">
+        <table class="u">
+          <thead><tr><th>设备</th><th>盘位</th><th>文件系统</th><th class="r">温度</th><th class="r">读取</th><th class="r">写入</th><th style="min-width:190px">容量</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr><td><span class="cav c1">s</span><b>sda</b> · WDC WD40EFRX</td><td class="num">1</td><td><span class="fsbadge">RAID 成员</span></td><td class="r num t-ok">34 °C</td><td class="r num">↓ 1.2 MB/s</td><td class="r num">↑ 0.3 MB/s</td><td><div class="meter thin" style="max-width:180px"><i class="c-ok" style="width:100%"></i></div><span class="small muted num">4 TB · 100% 成员</span></td><td><span class="st"><span class="dot"></span>正常</span></td></tr>
+            <tr><td><span class="cav c1">s</span><b>sdb</b> · WDC WD40EFRX</td><td class="num">2</td><td><span class="fsbadge">RAID 成员</span></td><td class="r num t-ok">35 °C</td><td class="r num">↓ 0.8 MB/s</td><td class="r num">↑ 0.2 MB/s</td><td><div class="meter thin" style="max-width:180px"><i class="c-ok" style="width:100%"></i></div><span class="small muted num">4 TB · 100% 成员</span></td><td><span class="st"><span class="dot"></span>正常</span></td></tr>
+            <tr><td><span class="cav c1">s</span><b>sdc</b> · Seagate ST8000VN0022</td><td class="num">3</td><td><span class="fsbadge">RAID 成员</span></td><td class="r num t-warn">47 °C</td><td class="r num">↓ 4.1 MB/s</td><td class="r num">↑ 2.6 MB/s</td><td><div class="meter thin" style="max-width:180px"><i class="c-warn" style="width:100%"></i></div><span class="small muted num">8 TB · SMART 05 警告</span></td><td><span class="st warn"><span class="dot"></span>警告 (05)</span></td></tr>
+            <tr><td><span class="cav c1">s</span><b>sdd</b> · Seagate ST8000VN0022</td><td class="num">4</td><td><span class="fsbadge">RAID 成员</span></td><td class="r num t-ok">39 °C</td><td class="r num">↓ 0.4 MB/s</td><td class="r num">↑ 0.1 MB/s</td><td><div class="meter thin" style="max-width:180px"><i class="c-ok" style="width:100%"></i></div><span class="small muted num">8 TB · 100% 成员</span></td><td><span class="st"><span class="dot"></span>正常</span></td></tr>
+            <tr><td><span class="cav c3">n</span><b>nvme0n1</b> · Samsung PM883</td><td class="num">5</td><td><span class="fsbadge">Btrfs · 缓存</span></td><td class="r num t-ok">41 °C</td><td class="r num">↓ 12.0 MB/s</td><td class="r num">↑ 6.4 MB/s</td><td><div class="meter thin" style="max-width:180px"><i class="c-info" style="width:64%"></i></div><span class="small muted num">308 / 480 GB · 64%</span></td><td><span class="st"><span class="dot"></span>正常</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- 移动端卡片 -->
+      <div class="m-cards" style="padding:10px 12px 12px">
+        <div class="sec" style="margin-bottom:9px"><div class="wg-b" style="padding:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><b>sda · WD40EFRX</b><span class="st"><span class="dot"></span>正常</span></div>
+          <div class="small muted num" style="margin-bottom:8px">盘位 1 · RAID 成员 · 34 °C · ↓1.2 ↑0.3 MB/s</div>
+          <div class="meter thin"><i class="c-ok" style="width:100%"></i></div>
+        </div></div>
+        <div class="sec" style="margin-bottom:9px"><div class="wg-b" style="padding:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><b>sdc · ST8000VN0022</b><span class="st warn"><span class="dot"></span>警告 (05)</span></div>
+          <div class="small muted num" style="margin-bottom:8px">盘位 3 · RAID 成员 · 47 °C · ↓4.1 ↑2.6 MB/s</div>
+          <div class="meter thin"><i class="c-warn" style="width:100%"></i></div>
+        </div></div>
+        <div class="sec"><div class="wg-b" style="padding:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><b>nvme0n1 · PM883</b><span class="st"><span class="dot"></span>正常</span></div>
+          <div class="small muted num" style="margin-bottom:8px">盘位 5 · Btrfs 缓存 · 41 °C</div>
+          <div class="meter thin"><i class="c-info" style="width:64%"></i></div>
+          <div class="small muted num" style="margin-top:5px">308 / 480 GB · 64%</div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-layers"/></svg><h3>卷 vol1</h3><span class="x"><span class="st"><span class="dot"></span>已挂载</span></span></div>
+        <div class="wg-b">
+          <div style="display:flex;justify-content:space-between;margin-bottom:7px" class="num"><b>8.2 / 10.9 TB</b><b>75%</b></div>
+          <div class="meter"><i class="c-ok" style="width:75%"></i></div>
+          <div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 22px;margin-top:10px">
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">文件系统</span><span class="small">Btrfs</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">挂载点</span><span class="small num">/vol1</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-cloud"/></svg><h3>云盘 backup</h3><span class="x"><span class="st"><span class="dot"></span>已连接</span></span></div>
+        <div class="wg-b"><div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 22px">
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">类型</span><span class="small">阿里云 OSS</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">用途</span><span class="small">异地备份</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">最近同步</span><span class="small num">今日 04:00</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">云端用量</span><span class="small num">6.4 / 20 TB</span></div>
+        </div>
+        <div class="tree" style="margin-top:10px">
+          <div class="row"><svg class="ico" style="color:var(--acc)"><use href="#i-server"/></svg><span class="nd">md126</span><span class="sub">RAID6 · 21.8 TB</span></div>
+          <ul>
+            <li><div class="row"><svg class="ico" style="color:var(--purp)"><use href="#i-layers"/></svg><span class="nd">vol1</span><span class="sub">Btrfs · 10.9 TB</span></div>
+              <ul>
+                <li><div class="row"><span class="ddot" style="background:var(--ok)"></span>sda<span class="sub">盘位 1 · 4 TB</span></div></li>
+                <li><div class="row"><span class="ddot" style="background:var(--ok)"></span>sdb<span class="sub">盘位 2 · 4 TB</span></div></li>
+                <li><div class="row"><span class="ddot" style="background:var(--warn)"></span>sdc<span class="sub">盘位 3 · 8 TB · 警告</span></div></li>
+                <li><div class="row"><span class="ddot" style="background:var(--ok)"></span>sdd<span class="sub">盘位 4 · 8 TB</span></div></li>
+              </ul>
+            </li>
+            <li><div class="row"><svg class="ico" style="color:var(--info)"><use href="#i-cloud"/></svg><span class="nd">backup</span><span class="sub">OSS · 异地备份</span></div></li>
+          </ul>
+        </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /disks 硬盘 SMART ============ -->
+  <section class="view" id="v-disks">
+    <div class="ph">
+      <h1>硬盘 SMART</h1><span class="sub">健康状态 · 自检 · 定位</span>
+      <span class="tag warn"><span class="dot"></span>1 块警告</span>
+      <div class="right"><span class="lup num">最后更新 10:32:06</span><label class="switch on"><span class="tr"></span>15s</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+
+    <div class="wg m-hide">
+      <div class="tscroll">
+        <table class="u">
+          <thead><tr><th>盘位</th><th>型号</th><th class="r">容量</th><th class="r">转速</th><th class="r">温度</th><th class="r">通电时间</th><th>健康</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td><b>WDC WD40EFRX</b></td><td class="r num">4 TB</td><td class="r num">5400</td><td class="r num t-ok">34 °C</td><td class="r num">18240 h</td><td><span class="st"><span class="dot"></span>正常</span></td>
+                <td><button class="btn sm" data-menu="mSelftest">自检<svg class="ico" style="width:11px;height:11px"><use href="#i-chevd"/></svg></button> <button class="btn sm">改名</button> <button class="btn sm">定位</button></td></tr>
+            <tr><td class="num">2</td><td><b>WDC WD40EFRX</b></td><td class="r num">4 TB</td><td class="r num">5400</td><td class="r num t-ok">35 °C</td><td class="r num">18238 h</td><td><span class="st"><span class="dot"></span>正常</span></td>
+                <td><button class="btn sm" data-menu="mSelftest">自检<svg class="ico" style="width:11px;height:11px"><use href="#i-chevd"/></svg></button> <button class="btn sm">改名</button> <button class="btn sm">定位</button></td></tr>
+            <tr><td class="num">3</td><td><b>Seagate ST8000VN0022</b></td><td class="r num">8 TB</td><td class="r num">7200</td><td class="r num t-warn">47 °C</td><td class="r num">29511 h</td><td><span class="st warn"><span class="dot"></span>警告 (05)</span></td>
+                <td><button class="btn sm" data-menu="mSelftest">自检<svg class="ico" style="width:11px;height:11px"><use href="#i-chevd"/></svg></button> <button class="btn sm">改名</button> <button class="btn sm">定位</button></td></tr>
+            <tr><td class="num">5</td><td><b>Samsung PM883</b></td><td class="r num">480 G</td><td class="r num">SSD</td><td class="r num t-ok">41 °C</td><td class="r num">9310 h</td><td><span class="st"><span class="dot"></span>正常</span></td>
+                <td><button class="btn sm" data-menu="mSelftest">自检<svg class="ico" style="width:11px;height:11px"><use href="#i-chevd"/></svg></button> <button class="btn sm">改名</button> <button class="btn sm">定位</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="m-cards">
+      <div class="wg" style="margin-bottom:10px"><div class="wg-b">
+        <div style="display:flex;justify-content:space-between;margin-bottom:7px"><b>盘位 1 · WD40EFRX</b><span class="st"><span class="dot"></span>正常</span></div>
+        <div class="small muted num">4 TB · 5400 · 34 °C · 18240 h</div>
+        <div class="chips" style="margin-top:10px"><button class="btn sm" data-menu="mSelftest">自检 ▾</button><button class="btn sm">改名</button><button class="btn sm">定位</button></div>
+      </div></div>
+      <div class="wg"><div class="wg-b">
+        <div style="display:flex;justify-content:space-between;margin-bottom:7px"><b>盘位 3 · ST8000VN0022</b><span class="st warn"><span class="dot"></span>警告 (05)</span></div>
+        <div class="small muted num">8 TB · 7200 · 47 °C · 29511 h</div>
+        <div class="chips" style="margin-top:10px"><button class="btn sm" data-menu="mSelftest">自检 ▾</button><button class="btn sm">改名</button><button class="btn sm">定位</button></div>
+      </div></div>
+    </div>
+
+    <div class="wg" style="margin-top:14px">
+      <div class="wg-h"><svg class="ico"><use href="#i-pulse"/></svg><h3>进行中的自检</h3><span class="x"><button class="btn sm stop" data-pop="pStop">停止</button></span></div>
+      <div class="wg-b">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span>盘位 3 · 短自检（B）</span><b class="num">62%</b></div>
+        <div class="bar stripes"><i style="width:62%"></i></div>
+        <div class="small muted" style="margin-top:9px">自检类型：A 短修 / B 短检 / C 长检 · 启停均需二次确认</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /detect 硬件检测 ============ -->
+  <section class="view" id="v-detect">
+    <div class="ph">
+      <h1>硬件检测</h1><span class="sub">系统 · 主板 · CPU · 内存 · 网络 · RAID · 硬盘</span>
+      <span class="tag ok"><span class="dot"></span>正常</span>
+      <div class="right"><span class="lup num">最后更新 10:32:08</span><label class="switch on"><span class="tr"></span>自动刷新</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+
+    <div class="sec open"><button class="sec-h"><span class="sico"><svg class="ico"><use href="#i-info"/></svg></span>系统信息<svg class="ico arr"><use href="#i-chev"/></svg></button>
+      <div class="sec-b"><div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px">
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">操作系统</span><span class="small">fnOS 0.9.20</span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">内核</span><span class="small num">6.1.0-x86_64</span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">运行时长</span><span class="small num">23 天 4 小时</span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">负载 (1/5/15m)</span><span class="small num">0.42 / 0.38 / 0.35</span></div>
+      </div></div>
+    </div>
+
+    <div class="sec open"><button class="sec-h"><span class="sico"><svg class="ico"><use href="#i-server"/></svg></span>主板<svg class="ico arr"><use href="#i-chev"/></svg></button>
+      <div class="sec-b"><div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px">
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">厂商</span><span class="small">Supermicro</span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">型号</span><span class="small">X11SSH-LN4F</span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">BIOS</span><span class="small num">2.4 · 2023-06-01</span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">主板温度</span><span class="small num t-ok">38 °C</span></div>
+      </div></div>
+    </div>
+
+    <div class="sec open"><button class="sec-h"><span class="sico"><svg class="ico"><use href="#i-cpu"/></svg></span>CPU<svg class="ico arr"><use href="#i-chev"/></svg></button>
+      <div class="sec-b">
+        <div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px;margin-bottom:12px">
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">型号</span><span class="small">Xeon E3-1245 v5</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">核心 / 线程</span><span class="small num">4 核 8 线程</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">实时频率</span><span class="small num t-ok">3.49 GHz</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">温度 / 使用率</span><span class="small num">45 °C · 23%</span></div>
+        </div>
+        <div class="cores" style="max-width:420px">
+          <span class="core"><i style="height:31%"></i></span><span class="core"><i style="height:18%"></i></span><span class="core"><i style="height:44%"></i></span><span class="core"><i style="height:12%"></i></span><span class="core"><i style="height:26%"></i></span><span class="core"><i style="height:38%"></i></span><span class="core"><i style="height:9%"></i></span><span class="core"><i style="height:22%"></i></span>
+        </div>
+        <div class="small muted" style="margin-top:6px">每核实时占用</div>
+      </div>
+    </div>
+
+    <div class="sec open"><button class="sec-h"><span class="sico"><svg class="ico"><use href="#i-layers"/></svg></span>内存<span class="small muted" style="font-weight:400">点击格子看详情</span><svg class="ico arr"><use href="#i-chev"/></svg></button>
+      <div class="sec-b">
+        <div class="slots">
+          <button class="slot" data-modal="mDimm" data-slot="DIMM_A1"><div class="sn">DIMM_A1</div><div class="sv">16 GB</div><div class="sd">DDR4-2400 · 正常</div></button>
+          <button class="slot" data-modal="mDimm" data-slot="DIMM_A2"><div class="sn">DIMM_A2</div><div class="sv">16 GB</div><div class="sd">DDR4-2400 · 正常</div></button>
+          <button class="slot" data-modal="mDimm" data-slot="DIMM_B1"><div class="sn">DIMM_B1</div><div class="sv">16 GB</div><div class="sd">DDR4-2400 · 正常</div></button>
+          <button class="slot empty"><div class="sn">DIMM_B2</div><div class="sv">空</div><div class="sd">—</div></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec open"><button class="sec-h"><span class="sico"><svg class="ico"><use href="#i-net"/></svg></span>网络<svg class="ico arr"><use href="#i-chev"/></svg></button>
+      <div class="sec-b"><div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px">
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">eth0</span><span class="small"><span class="st"><span class="dot"></span><span class="num">1000 Mb · 192.168.1.10</span></span></span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">eth1</span><span class="small"><span class="st mute off"><span class="dot"></span>未连接</span></span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">eth2</span><span class="small"><span class="st mute off"><span class="dot"></span>未连接</span></span></div>
+        <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">eth3</span><span class="small"><span class="st mute off"><span class="dot"></span>未连接</span></span></div>
+      </div></div>
+    </div>
+
+    <div class="sec open"><button class="sec-h"><span class="sico"><svg class="ico"><use href="#i-array"/></svg></span>RAID 阵列卡<svg class="ico arr"><use href="#i-chev"/></svg></button>
+      <div class="sec-b">
+        <div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px;margin-bottom:12px">
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">型号</span><span class="small">LSI 9361-8i</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">固件</span><span class="small num">4.680.00</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">BBU</span><span class="small st"><span class="dot"></span>正常</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">温度</span><span class="small num">36 °C</span></div>
+        </div>
+        <div class="chips">
+          <button class="btn sm">CC 调度：关</button>
+          <button class="btn sm">热备：无</button>
+          <button class="btn sm">CopyBack：开</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec open"><button class="sec-h"><span class="sico"><svg class="ico"><use href="#i-drive"/></svg></span>硬盘概览<span class="small muted" style="font-weight:400">6 盘位</span><svg class="ico arr"><use href="#i-chev"/></svg></button>
+      <div class="sec-b">
+        <div class="slots" style="margin-bottom:12px">
+          <div class="slot" style="cursor:default"><div class="sn">盘位 1</div><div class="sv">4 TB</div><div class="sd">正常 · 34 °C</div></div>
+          <div class="slot" style="cursor:default"><div class="sn">盘位 2</div><div class="sv">4 TB</div><div class="sd">正常 · 35 °C</div></div>
+          <div class="slot warn" style="cursor:default"><div class="sn">盘位 3</div><div class="sv">8 TB</div><div class="sd">警告 · 47 °C</div></div>
+          <div class="slot" style="cursor:default"><div class="sn">盘位 4</div><div class="sv">8 TB</div><div class="sd">正常 · 39 °C</div></div>
+          <div class="slot" style="cursor:default"><div class="sn">盘位 5</div><div class="sv">SSD 480G</div><div class="sd">正常 · 41 °C</div></div>
+          <div class="slot empty"><div class="sn">盘位 6</div><div class="sv">空</div><div class="sd">—</div></div>
+        </div>
+        <div class="chips">
+          <button class="btn sm">网络唤醒 WoL：开</button>
+          <button class="btn sm">盘定位：关</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /system 系统资源 ============ -->
+  <section class="view" id="v-system">
+    <div class="ph">
+      <h1>系统资源</h1><span class="sub">CPU · 内存 · 网络 · 磁盘 IO · GPU</span>
+      <span class="tag ok"><span class="dot"></span>正常</span>
+      <div class="right"><span class="lup num">最后更新 10:32:11</span><label class="switch on"><span class="tr"></span>1s</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+    <div class="grid" style="margin-bottom:14px">
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-cpu"/></svg><h3>CPU 使用率</h3><span class="x num">23% · 60s 窗口</span></div>
+        <div class="wg-b"><div class="meter" style="margin-bottom:10px"><i class="c-ok" style="width:23%"></i></div><div class="chartbox" id="u-sys-cpu" style="height:170px"></div></div>
+      </div>
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-server"/></svg><h3>内存</h3><span class="x num">41% · 26.2/64 GB</span></div>
+        <div class="wg-b"><div class="meter" style="margin-bottom:10px"><i class="c-info" style="width:41%"></i></div><div class="chartbox" id="u-sys-mem" style="height:170px"></div></div>
+      </div>
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-net"/></svg><h3>网络</h3><span class="x seg" data-tabs="nic"><button class="on" data-tab="eth0">eth0</button><button data-tab="eth1">eth1</button></span></div>
+        <div class="wg-b">
+          <div class="chartbox" id="u-sys-net0" data-panel="nic-eth0" style="height:170px"></div>
+          <div class="chartbox" id="u-sys-net1" data-panel="nic-eth1" style="display:none;height:170px"></div>
+        </div>
+      </div>
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-drive"/></svg><h3>磁盘 IO</h3><span class="x num">读 86 · 写 42 MB/s</span></div>
+        <div class="wg-b"><div class="chartbox" id="u-sys-disk" style="height:170px"></div></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="wg t4 tile-wg"><div class="wg-b">
+        <div class="cap"><svg class="ico"><use href="#i-pulse"/></svg>GPU 使用率</div>
+        <div class="big num">15<small>%</small></div>
+        <div class="spark" data-spark="gpu" style="height:30px;margin-top:8px"></div>
+      </div></div>
+      <div class="wg t8"><div class="wg-h"><svg class="ico"><use href="#i-power"/></svg><h3>RAPL 功耗</h3><span class="x">Running Average Power Limit</span></div>
+        <div class="wg-b"><div class="kv2" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 26px">
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">CPU Package</span><span class="small num">32.1 W</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">DRAM</span><span class="small num">8.4 W</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">合计</span><span class="small num" style="color:var(--acc);font-weight:700">40.5 W</span></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /temps 温度监控 ============ -->
+  <section class="view" id="v-temps">
+    <div class="ph">
+      <h1>温度监控</h1><span class="sub">关键传感器速览 · 温度墙</span>
+      <span class="tag ok"><span class="dot"></span>正常</span>
+      <div class="right"><span class="lup num">最后更新 10:32:10</span><label class="switch on"><span class="tr"></span>5s</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+    <div class="grid" style="margin-bottom:14px">
+      <div class="wg tile-wg t3"><div class="wg-b"><div class="cap"><svg class="ico"><use href="#i-cpu"/></svg>CPU</div><div class="big num">45<small>°C</small></div><div class="spark" data-spark="tcpu" style="height:26px;margin-top:8px"></div></div></div>
+      <div class="wg tile-wg t3"><div class="wg-b"><div class="cap"><svg class="ico"><use href="#i-server"/></svg>主板</div><div class="big num">38<small>°C</small></div><div class="spark" data-spark="tboard" style="height:26px;margin-top:8px"></div></div></div>
+      <div class="wg tile-wg t3"><div class="wg-b"><div class="cap"><svg class="ico"><use href="#i-drive"/></svg>NVMe</div><div class="big num">41<small>°C</small></div><div class="spark" data-spark="tnvme" style="height:26px;margin-top:8px"></div></div></div>
+      <div class="wg tile-wg t3"><div class="wg-b"><div class="cap"><svg class="ico"><use href="#i-array"/></svg>阵列卡</div><div class="big num">36<small>°C</small></div><div class="spark" data-spark="traid" style="height:26px;margin-top:8px"></div></div></div>
+    </div>
+    <div class="wg">
+      <div class="wg-h"><svg class="ico"><use href="#i-temp"/></svg><h3>温度墙</h3><span class="x">全部传感器 · 按温度分档着色</span></div>
+      <div class="wg-b">
+        <div class="temps" style="grid-template-columns:repeat(auto-fill,minmax(126px,1fr))">
+          <div class="temp"><div class="n">CPU Package</div><div class="v num">45 °C</div></div>
+          <div class="temp"><div class="n">CPU Core 1</div><div class="v num">44 °C</div></div>
+          <div class="temp warm"><div class="n">CPU Core 3</div><div class="v num">52 °C</div></div>
+          <div class="temp"><div class="n">主板</div><div class="v num">38 °C</div></div>
+          <div class="temp"><div class="n">PCH</div><div class="v num">41 °C</div></div>
+          <div class="temp"><div class="n">NVMe 盘 5</div><div class="v num">41 °C</div></div>
+          <div class="temp"><div class="n">阵列卡</div><div class="v num">36 °C</div></div>
+          <div class="temp"><div class="n">盘 1</div><div class="v num">34 °C</div></div>
+          <div class="temp warm"><div class="n">盘 3</div><div class="v num">47 °C</div></div>
+          <div class="temp hot"><div class="n">机箱后部</div><div class="v num">61 °C</div></div>
+          <div class="temp"><div class="n">进风</div><div class="v num">28 °C</div></div>
+          <div class="temp"><div class="n">PSU</div><div class="v num">33 °C</div></div>
+        </div>
+        <div class="legend">
+          <span><i style="background:var(--sf3)"></i>&lt; 45 正常</span>
+          <span><i style="background:var(--warnbg);border:1px solid var(--warn)"></i>45 – 60 偏高</span>
+          <span><i style="background:var(--badbg);border:1px solid var(--bad)"></i>&gt; 60 过热</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /sys-hist 历史趋势 ============ -->
+  <section class="view" id="v-sys-hist">
+    <div class="ph">
+      <h1>历史趋势</h1><span class="sub">六维度历史数据回看 · 报告导出</span>
+      <div class="right">
+        <div class="seg" data-tabs="rng" id="histRng"><button data-tab="24h">24h</button><button class="on" data-tab="7d">7d</button><button data-tab="30d">30d</button></div>
+        <button class="btn" data-menu="mExport"><svg class="ico"><use href="#i-dl"/></svg>报告导出<svg class="ico" style="width:11px;height:11px"><use href="#i-chevd"/></svg></button>
+      </div>
+    </div>
+    <div class="wg">
+      <div class="wg-b">
+        <div class="chips" style="margin-bottom:13px" data-tabs="dim" id="histDim">
+          <button class="on" data-tab="cpu"><span class="cdot" style="background:var(--acc)"></span>CPU</button>
+          <button data-tab="mem"><span class="cdot" style="background:var(--purp)"></span>内存</button>
+          <button data-tab="temp"><span class="cdot" style="background:#E8734B"></span>温度</button>
+          <button data-tab="net"><span class="cdot" style="background:var(--ok)"></span>网络</button>
+          <button data-tab="disk"><span class="cdot" style="background:var(--info)"></span>磁盘 IO</button>
+          <button data-tab="gpu"><span class="cdot" style="background:#C291F0"></span>GPU</button>
+        </div>
+        <div class="chartbox" id="u-hist"></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="wg t4"><div class="wg-h"><svg class="ico"><use href="#i-hist"/></svg><h3>区间统计</h3></div>
+        <div class="wg-b"><div class="kv2" style="display:grid;grid-template-columns:1fr;gap:0">
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">均值</span><span class="small num" id="histAvg">—</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">峰值</span><span class="small num" id="histMax">—</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0"><span class="muted small">采样点</span><span class="small num" id="histN">—</span></div>
+        </div></div>
+      </div>
+      <div class="wg t8"><div class="wg-h"><svg class="ico"><use href="#i-dl"/></svg><h3>导出格式</h3></div>
+        <div class="wg-b">
+          <div class="chips">
+            <button class="btn sm" data-menu="mExportFmt">Markdown</button>
+            <button class="btn sm" data-menu="mExportFmt">HTML</button>
+            <button class="btn sm" data-menu="mExportFmt">CSV</button>
+          </div>
+          <div class="small muted" style="margin-top:10px">导出为当前维度 × 当前区间的历史健康报告</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /fan 风扇控制 ============ -->
+  <section class="view" id="v-fan">
+    <div class="ph">
+      <h1>风扇控制</h1><span class="sub">接管 · 手动调速 · 温控规则 · 曲线编辑</span>
+      <span class="tag acc" id="fanTag"><span class="dot"></span>接管中</span>
+      <div class="right"><span class="lup num">最后更新 10:32:09</span><label class="switch on"><span class="tr"></span>2s</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+
+    <div class="wg"><div class="wg-b opcard" style="padding:14px 16px">
+      <label class="switch on" id="takeover"><span class="tr"></span></label>
+      <div class="ot" style="flex:1;min-width:220px"><b>风扇接管总开关</b><small>开启后由 nasdeck 接管全部风扇（自动停止 FCS / 关闭时恢复）；启停均需二次确认</small></div>
+      <div class="oa"><button class="btn sm" data-pop="pTakeover">停用接管</button></div>
+    </div></div>
+
+    <div class="grid" style="margin-bottom:14px">
+      <div class="wg t4 fan-card"><div class="wg-h"><svg class="ico"><use href="#i-fan"/></svg><h3>CPU_FAN</h3><span class="x"><button class="btn sm">重命名</button><button class="btn sm">隐藏</button></span></div>
+        <div class="wg-b">
+          <div class="fanrow">
+            <svg class="fan-ic" viewBox="0 0 24 24"><g class="rotor"><path d="M12 12c-.5-3.8-2.2-5.7-4.2-5.1C5.8 7.5 5.4 10 7.3 11.5c1.5 1.1 3.2.7 4.7.5Z" transform="rotate(0 12 12)"/><path d="M12 12c3.5 1.7 6.1 1.5 6.7-.6.6-2-1.4-3.6-3.8-2.9-1.7.5-2.5 2.1-2.9 3.5Z" transform="rotate(40 12 12)"/><path d="M11.2 13.3c-2.7 2.5-3.4 4.9-2 6.3 1.4 1.4 3.8.7 4.5-1.6.5-1.8-.7-3.3-2.5-4.7Z" transform="rotate(-160 12 12)"/></g><circle cx="12" cy="12" r="2" fill="var(--sf)" stroke="none"/></svg>
+            <span class="big num rpm">1220<small> RPM</small></span>
+            <span class="num duty-lb">占空比 46%</span>
+          </div>
+          <input type="range" min="0" max="100" value="46" class="duty">
+          <div class="dutyrow"><label class="switch on"><span class="tr"></span>PWM</label><span>DC 12V</span></div>
+        </div>
+      </div>
+      <div class="wg t4 fan-card"><div class="wg-h"><svg class="ico"><use href="#i-fan"/></svg><h3>前板_FAN</h3><span class="x"><button class="btn sm">重命名</button><button class="btn sm">隐藏</button></span></div>
+        <div class="wg-b">
+          <div class="fanrow">
+            <svg class="fan-ic" viewBox="0 0 24 24"><g class="rotor"><path d="M12 12c-.5-3.8-2.2-5.7-4.2-5.1C5.8 7.5 5.4 10 7.3 11.5c1.5 1.1 3.2.7 4.7.5Z"/><path d="M12 12c3.5 1.7 6.1 1.5 6.7-.6.6-2-1.4-3.6-3.8-2.9-1.7.5-2.5 2.1-2.9 3.5Z" transform="rotate(40 12 12)"/><path d="M11.2 13.3c-2.7 2.5-3.4 4.9-2 6.3 1.4 1.4 3.8.7 4.5-1.6.5-1.8-.7-3.3-2.5-4.7Z" transform="rotate(-160 12 12)"/></g><circle cx="12" cy="12" r="2" fill="var(--sf)" stroke="none"/></svg>
+            <span class="big num rpm">980<small> RPM</small></span>
+            <span class="num duty-lb">占空比 38%</span>
+          </div>
+          <input type="range" min="0" max="100" value="38" class="duty">
+          <div class="dutyrow"><label class="switch"><span class="tr"></span>PWM</label><span>DC 12V</span></div>
+        </div>
+      </div>
+      <div class="wg t4 fan-card"><div class="wg-h"><svg class="ico"><use href="#i-fan"/></svg><h3>后板_FAN</h3><span class="x"><button class="btn sm">重命名</button><button class="btn sm">隐藏</button></span></div>
+        <div class="wg-b">
+          <div class="fanrow">
+            <svg class="fan-ic" viewBox="0 0 24 24"><g class="rotor"><path d="M12 12c-.5-3.8-2.2-5.7-4.2-5.1C5.8 7.5 5.4 10 7.3 11.5c1.5 1.1 3.2.7 4.7.5Z"/><path d="M12 12c3.5 1.7 6.1 1.5 6.7-.6.6-2-1.4-3.6-3.8-2.9-1.7.5-2.5 2.1-2.9 3.5Z" transform="rotate(40 12 12)"/><path d="M11.2 13.3c-2.7 2.5-3.4 4.9-2 6.3 1.4 1.4 3.8.7 4.5-1.6.5-1.8-.7-3.3-2.5-4.7Z" transform="rotate(-160 12 12)"/></g><circle cx="12" cy="12" r="2" fill="var(--sf)" stroke="none"/></svg>
+            <span class="big num rpm">1450<small> RPM</small></span>
+            <span class="num duty-lb">占空比 52%</span>
+          </div>
+          <input type="range" min="0" max="100" value="52" class="duty">
+          <div class="dutyrow"><label class="switch on"><span class="tr"></span>PWM</label><span>DC 12V</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="wg t8"><div class="wg-h"><svg class="ico"><use href="#i-pulse"/></svg><h3>风扇曲线编辑器</h3><span class="x">
+        <span class="readout num" id="curvePos">拖拽圆点调整</span>
+        <button class="btn sm" id="curveAdd"><svg class="ico"><use href="#i-plus"/></svg>添加点</button>
+        <button class="btn sm" id="curveReset">重置</button>
+      </span></div>
+        <div class="wg-b curve-wrap"><div class="chartbox" id="u-curve"></div></div>
+      </div>
+      <div class="wg t4"><div class="wg-h"><svg class="ico"><use href="#i-shield"/></svg><h3>温控规则</h3></div>
+        <div class="wg-b">
+          <div class="small" style="font-weight:600;margin-bottom:8px">规则 A（CPU 传感器）</div>
+          <div class="frm" style="margin-bottom:15px">
+            <label>传感器</label><select><option>CPU Package</option></select>
+            <label>曲线</label><select><option>曲线 1（静音优先）</option></select>
+            <label>迟滞</label><input type="text" value="3 °C">
+          </div>
+          <div class="small" style="font-weight:600;margin-bottom:8px">规则 B（硬盘传感器）</div>
+          <div class="frm">
+            <label>传感器</label><select><option>盘位 3</option></select>
+            <label>曲线</label><select><option>曲线 2（散热优先）</option></select>
+            <label>迟滞</label><input type="text" value="4 °C">
+          </div>
+          <button class="btn pri" style="margin-top:15px"><svg class="ico"><use href="#i-check"/></svg>保存规则</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /docker Docker ============ -->
+  <section class="view" id="v-docker">
+    <div class="ph">
+      <h1>Docker</h1><span class="sub">容器运行状态 · 资源占用</span>
+      <span class="tag ok"><span class="dot"></span>3 个运行中 · 1 已退出</span>
+      <div class="right"><span class="lup num">最后更新 10:32:10</span><label class="switch on"><span class="tr"></span>8s</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+    <div class="wg">
+      <div class="tscroll">
+        <table class="u">
+          <thead><tr><th>容器</th><th>状态</th><th class="r">内存</th><th class="r">CPU</th><th class="r">网速</th><th class="r">端口映射</th><th class="r">运行时长</th></tr></thead>
+          <tbody>
+            <tr><td><span class="cav c4">P</span><b>plex</b></td><td><span class="st"><span class="dot"></span>运行中</span></td><td class="r num">1.2 GB</td><td class="r num">3.4%</td><td class="r num">↓2.1 ↑0.4 MB/s</td><td class="r num">32400→32400</td><td class="r num">6 天</td></tr>
+            <tr><td><span class="cav c1">q</span><b>qBittorrent</b></td><td><span class="st"><span class="dot"></span>运行中</span></td><td class="r num">420 MB</td><td class="r num">1.1%</td><td class="r num">↓8.9 ↑1.2 MB/s</td><td class="r num">6881→6881</td><td class="r num">2 天</td></tr>
+            <tr><td><span class="cav c3">h</span><b>homeassistant</b></td><td><span class="st"><span class="dot"></span>运行中</span></td><td class="r num">660 MB</td><td class="r num">0.8%</td><td class="r num">↓0.1 ↑0.1 MB/s</td><td class="r num">8123→8123</td><td class="r num">23 天</td></tr>
+            <tr><td><span class="cav c2">m</span><b>memcached</b></td><td><span class="st bad"><span class="dot"></span>已退出</span></td><td class="r num muted">—</td><td class="r num muted">—</td><td class="r num muted">—</td><td class="r num muted">—</td><td class="r num muted">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="wg-b small muted" style="border-top:1px solid var(--bd)">移动端：表格横向滚动（卡片化列入迭代评估）</div>
+    </div>
+  </section>
+
+  <!-- ============ /ports 端口占用 ============ -->
+  <section class="view" id="v-ports">
+    <div class="ph">
+      <h1>端口占用</h1><span class="sub">监听端口 · 进程 · 可达性</span>
+      <div class="right"><span class="lup num">最后更新 10:32:05</span><label class="switch on"><span class="tr"></span>10s</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+    <div class="wg">
+      <div class="wg-b" style="display:flex;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--bd)">
+        <input type="text" id="portSearch" placeholder="搜索端口 / 进程 / 应用" style="flex:1;min-width:180px">
+        <select id="portReach"><option value="">全部可达性</option><option value="ok">可达</option><option value="warn">受限</option><option value="err">不可达</option></select>
+      </div>
+      <div class="tscroll">
+        <table class="u">
+          <thead><tr><th>应用</th><th class="r">端口</th><th>协议</th><th>进程 (PID)</th><th>可达性</th><th>操作</th></tr></thead>
+          <tbody id="portRows">
+            <tr class="port-row" data-reach="ok" data-text="nasdeck 面板 9821 uvicorn 2103 tcp 可达"><td><span class="cav c1">n</span><b>nasdeck 面板</b></td><td class="r num">9821</td><td>TCP</td><td class="num">uvicorn (2103)</td><td><span class="st"><span class="dot"></span>可达</span></td>
+                <td><button class="btn sm" data-pop="pRel1">释放</button></td></tr>
+            <tr class="port-row" data-reach="ok" data-text="plex 32400 plex media server 2210 tcp 可达"><td><span class="cav c4">P</span><b>Plex</b></td><td class="r num">32400</td><td>TCP</td><td class="num">Plex Media Server (2210)</td><td><span class="st"><span class="dot"></span>可达</span></td>
+                <td><button class="btn sm" data-pop="pRel2">释放</button></td></tr>
+            <tr class="port-row" data-reach="warn" data-text="smb 445 smbd 1201 tcp 受限 仅局域网"><td><span class="cav c2">S</span><b>SMB</b></td><td class="r num">445</td><td>TCP</td><td class="num">smbd (1201)</td><td><span class="st warn"><span class="dot"></span>受限（仅局域网）</span></td>
+                <td><button class="btn sm" data-pop="pRel3">释放</button></td></tr>
+            <tr class="port-row" data-reach="err" data-text="未知 9090 python3 3321 tcp 不可达"><td><span class="cav c1">?</span><b>未知</b></td><td class="r num">9090</td><td>TCP</td><td class="num">python3 (3321)</td><td><span class="st bad"><span class="dot"></span>不可达</span></td>
+                <td><button class="btn sm" data-pop="pRel4">释放</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ /automation 控制与自动化 ============ -->
+  <section class="view" id="v-automation">
+    <div class="ph">
+      <h1>控制与自动化</h1><span class="sub">告警 · 通知 · 报告 · 日志</span>
+      <span class="tag warn"><span class="dot"></span>2 条活动告警</span>
+      <div class="right"><span class="lup num">最后更新 10:32:00</span><label class="switch on"><span class="tr"></span>15s</label><button class="btn sm btn-refresh"><svg class="ico ri"><use href="#i-refresh"/></svg>立即刷新</button></div>
+    </div>
+
+    <div class="wg">
+      <div class="wg-b" style="padding-bottom:0">
+        <div class="tabs2" data-tabs="auto">
+          <button class="on" data-tab="t1">活动告警</button>
+          <button data-tab="t2">告警规则与通知</button>
+          <button data-tab="t3">报告导出</button>
+        </div>
+        <div data-panel="auto-t1" style="padding:15px 0">
+          <div class="alertrow"><span class="lvl warn">WARN</span><span class="txt">盘位 3 SMART 05 <b>重映射扇区数增长</b>（12 → 13），建议关注或安排更换</span><span class="tm num">10:21</span><button class="btn sm" data-navjump="/disks">查看硬盘</button></div>
+          <div class="alertrow" style="margin-bottom:0"><span class="lvl warn">WARN</span><span class="txt">机箱后部温度 <b>61 °C</b> 超过阈值 60 °C，已持续 5 分钟</span><span class="tm num">10:32</span><button class="btn sm" data-navjump="/temps">查看温度</button></div>
+        </div>
+        <div data-panel="auto-t2" style="display:none;padding:15px 0">
+          <div class="frm">
+            <label>监控指标</label><select><option>温度</option><option>SMART 属性</option><option>负载</option></select>
+            <label>比较</label><select><option>&gt; 高于</option><option>&lt; 低于</option></select>
+            <label>阈值</label><input type="text" value="60">
+            <label>持续时间</label><input type="text" value="60 s">
+            <label>通知渠道</label><span class="chips" data-tabs="chn"><button class="on">飞牛通知</button><button>Webhook</button></span>
+            <label></label><span><button class="btn sm"><svg class="ico"><use href="#i-send"/></svg>发送测试通知</button></span>
+          </div>
+          <button class="btn pri" style="margin-top:15px"><svg class="ico"><use href="#i-check"/></svg>保存规则</button>
+        </div>
+        <div data-panel="auto-t3" style="display:none;padding:15px 0">
+          <div class="frm">
+            <label>导出周期</label><select><option>每日 08:00</option><option>每周一 08:00</option><option>关闭</option></select>
+            <label>格式</label><span class="chips" data-tabs="fmt"><button class="on">MD</button><button class="on">HTML</button><button>CSV</button></span>
+            <label></label><span><button class="btn"><svg class="ico"><use href="#i-dl"/></svg>立即导出</button></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wg">
+      <div class="wg-h"><svg class="ico"><use href="#i-hist"/></svg><h3>日志与错误历史</h3><span class="x"><button class="btn sm" data-modal="mLog">查看日志</button><button class="btn sm" data-modal="mLog">错误历史</button></span></div>
+      <div class="wg-b small muted">点击右上角按钮弹出日志流弹窗（含「清空错误记录」二次确认）</div>
+    </div>
+  </section>
+
+  <!-- ============ /manual 操作手册 ============ -->
+  <section class="view" id="v-manual">
+    <div class="ph">
+      <h1>操作手册</h1><span class="sub">快速上手 · 页面说明 · 常见问题</span>
+      <div class="right"><button class="btn" data-drawer="drToc"><svg class="ico"><use href="#i-menu"/></svg>目录</button></div>
+    </div>
+    <div class="wg"><div class="wg-b prose">
+      <h2>快速上手</h2>
+      <p>nasdeck 安装后自动开始采集硬件数据，无需额外配置。打开面板即见「总览」；顶部页签按「阵列 / 监控 / 服务 / 系统」组织 13 个页面。</p>
+      <div class="note"><svg class="ico"><use href="#i-info"/></svg><span>数据管道保持后端 <code>/manual?embed=1</code> 不变，仅外壳与排版套用本稿令牌（prose 类）；原型中以示意文案占位。</span></div>
+      <h2>页面说明</h2>
+      <p>「系统 / 温度」提供秒级实时刷新与温度墙分档着色；「趋势」支持 24h / 7d / 30d 回看、六维度切换与框选缩放，并可导出 Markdown / HTML / CSV 健康报告。</p>
+      <p>「硬盘」提供健康分级、在线自检与盘定位灯；「存储卷」展示阵列设备与卷映射拓扑；「风扇」需先开启接管总开关，再按传感器绑定温控曲线。</p>
+      <h2>常见问题</h2>
+      <p><b>风扇接管后声音变大？</b>接管瞬间会按当前温度重新计算占空比，可在曲线编辑器里把低温段压低，或将规则切换到「静音优先」曲线。</p>
+      <p><b>反代后部分图标 302？</b>静态资源由 FastAPI 直出，无旧路径 302 问题；若使用第三方反代请关闭对 <code>/static</code> 的改写。</p>
+    </div></div>
+  </section>
+
+  <!-- ============ /about 关于 ============ -->
+  <section class="view" id="v-about">
+    <div class="ph">
+      <h1>关于 nasdeck</h1><span class="sub">版本 · 更新 · 构建信息</span>
+    </div>
+    <div class="grid">
+      <div class="wg t6"><div class="wg-b brandhero">
+        <span class="mark"><svg viewBox="0 0 24 24"><rect x="6" y="4.5" width="12" height="3.4" rx="1.7"/><rect x="6" y="10.3" width="7.5" height="3.4" rx="1.7"/><rect x="6" y="16.1" width="12" height="3.4" rx="1.7"/></svg></span>
+        <div>
+          <div class="nm">nasdeck<span class="ver">v2.3.3</span></div>
+          <div class="ds">飞牛 fnOS 硬件监控面板 · UNRAID 风格概念稿</div>
+          <div class="num muted small" style="margin-top:5px">把要 SSH 才能看的硬件状态，装进一块面板</div>
+        </div>
+      </div></div>
+      <div class="wg t6"><div class="wg-h"><svg class="ico"><use href="#i-refresh"/></svg><h3>检查更新</h3></div>
+        <div class="wg-b">
+          <div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 22px">
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">当前版本</span><span class="small num">v2.3.3</span></div>
+            <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">最新版本</span><span class="small st"><span class="dot"></span>v2.3.3（已是最新）</span></div>
+          </div>
+          <div class="chips" style="margin-top:12px"><button class="btn sm pri">检查更新</button><button class="btn sm">更新日志</button></div>
+        </div>
+      </div>
+      <div class="wg t12"><div class="wg-h"><svg class="ico"><use href="#i-info"/></svg><h3>构建信息</h3></div>
+        <div class="wg-b"><div class="kv2" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0 26px">
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">构建时间</span><span class="small num">2026-09-29 08:00</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">Git 提交</span><span class="small num">03f4846</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">许可</span><span class="small">MIT</span></div>
+          <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">反馈渠道</span><span class="small" style="color:var(--acc)">GitHub Issues</span></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ===== 弹窗：内存详情 ===== -->
+<div class="mask" id="maskModal"></div>
+<div class="modal" id="mDimm">
+  <div class="wg-h"><svg class="ico"><use href="#i-layers"/></svg><h3>内存详情 · <span id="dimmSlot">DIMM_A1</span></h3><span class="x"><button class="iconbtn" data-close><svg class="ico"><use href="#i-x"/></svg></button></span></div>
+  <div class="wg-b"><div class="kv2" style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px">
+    <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">容量</span><span class="small num">16 GB</span></div>
+    <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">类型</span><span class="small">DDR4 ECC</span></div>
+    <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">频率</span><span class="small num">2400 MT/s</span></div>
+    <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">通道</span><span class="small">A</span></div>
+    <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">厂商</span><span class="small">Samsung</span></div>
+    <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">序列号</span><span class="small num">31D8C4A0</span></div>
+    <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">状态</span><span class="small st"><span class="dot"></span>正常</span></div>
+    <div class="kvrow" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)"><span class="muted small">可校正错误</span><span class="small num">0</span></div>
+  </div></div>
+</div>
+
+<!-- ===== 弹窗：日志流 ===== -->
+<div class="modal" id="mLog">
+  <div class="wg-h"><svg class="ico"><use href="#i-hist"/></svg><h3>日志与错误历史</h3><span class="x"><button class="iconbtn" data-close><svg class="ico"><use href="#i-x"/></svg></button></span></div>
+  <div class="wg-b">
+    <div class="logbox num">
+      <div class="log-line lv-warn"><span class="lt">10:21:04</span>WARN  disk3 smart_attr 05 递增 (12 → 13)</div>
+      <div class="log-line"><span class="lt">10:32:11</span>INFO  poll system ok (1s)</div>
+      <div class="log-line lv-warn"><span class="lt">10:32:10</span>WARN  temp rear 61°C &gt; 60°C</div>
+      <div class="log-line"><span class="lt">10:30:00</span>INFO  report daily exported md/html</div>
+      <div class="log-line lv-bad"><span class="lt">09:58:41</span>ERR   fan api timeout → 已重试成功</div>
+      <div class="log-line"><span class="lt">09:41:02</span>INFO  detect refresh ok (smartctl × 6)</div>
+      <div class="log-line"><span class="lt">09:40:11</span>INFO  fan takeover on → policy: curve1</div>
+      <div class="log-line lv-bad"><span class="lt">08:22:47</span>ERR   storcli timeout (bbu query) → skip</div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+      <button class="btn sm" data-pop="pClear">清空错误记录</button>
+      <button class="btn sm pri" data-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 抽屉：手册目录 ===== -->
+<div class="mask" id="maskDrawer"></div>
+<div class="drawer" id="drToc">
+  <div class="wg-h"><svg class="ico"><use href="#i-book"/></svg><h3>目录</h3><span class="x"><button class="iconbtn" data-close><svg class="ico"><use href="#i-x"/></svg></button></span></div>
+  <div class="toc-item">1. 快速上手</div>
+  <div class="toc-item lv2">1.1 安装与首次配置</div>
+  <div class="toc-item lv2">1.2 数据源说明</div>
+  <div class="toc-item">2. 页面说明</div>
+  <div class="toc-item lv2">2.1 硬件检测</div>
+  <div class="toc-item lv2">2.2 系统资源 / 温度</div>
+  <div class="toc-item lv2">2.3 硬盘 / 存储卷</div>
+  <div class="toc-item lv2">2.4 风扇控制</div>
+  <div class="toc-item">3. 常见问题</div>
+  <div class="toc-item">4. 版本与更新</div>
+</div>
+
+<!-- ===== 下拉菜单 ===== -->
+<div class="menu" id="mSelftest">
+  <button><svg class="ico"><use href="#i-pulse"/></svg>短自检（B · 约 2 分钟）</button>
+  <button><svg class="ico"><use href="#i-clock"/></svg>长自检（C · 约 4 小时）</button>
+  <button><svg class="ico"><use href="#i-refresh"/></svg>短修复（A · 离线）</button>
+  <hr>
+  <button class="danger"><svg class="ico"><use href="#i-x"/></svg>中止当前自检</button>
+</div>
+<div class="menu" id="mExport">
+  <button><svg class="ico"><use href="#i-dl"/></svg>Markdown 报告</button>
+  <button><svg class="ico"><use href="#i-dl"/></svg>HTML 报告</button>
+  <button><svg class="ico"><use href="#i-dl"/></svg>CSV 数据</button>
+</div>
+<div class="menu" id="mExportFmt"><button><svg class="ico"><use href="#i-dl"/></svg>立即下载</button></div>
+
+<!-- ===== 确认气泡 ===== -->
+<div class="pop" id="pRel1">确认释放端口 9821？将向进程 uvicorn 发送 SIGTERM。<div class="acts"><button class="btn sm pop-cancel">取消</button><button class="btn sm pri pop-ok">确认</button></div></div>
+<div class="pop" id="pRel2">确认释放端口 32400？将向进程 Plex Media Server 发送 SIGTERM。<div class="acts"><button class="btn sm pop-cancel">取消</button><button class="btn sm pri pop-ok">确认</button></div></div>
+<div class="pop" id="pRel3">确认释放端口 445？系统服务释放前需特别确认。<div class="acts"><button class="btn sm pop-cancel">取消</button><button class="btn sm stop pop-ok">确认释放</button></div></div>
+<div class="pop" id="pRel4">确认释放端口 9090？<div class="acts"><button class="btn sm pop-cancel">取消</button><button class="btn sm pri pop-ok">确认</button></div></div>
+<div class="pop" id="pStop">确认中止盘位 3 的进行中自检？<div class="acts"><button class="btn sm pop-cancel">取消</button><button class="btn sm stop pop-ok">中止</button></div></div>
+<div class="pop" id="pStopArr">确认停止阵列？将卸载所有卷并停止 md126。<div class="acts"><button class="btn sm pop-cancel">取消</button><button class="btn sm stop pop-ok">停止阵列</button></div></div>
+<div class="pop" id="pTakeover">确认停用风扇接管？将交还主板 BIOS 控制（FCS 恢复）。<div class="acts"><button class="btn sm pop-cancel">取消</button><button class="btn sm stop pop-ok">停用</button></div></div>
+<div class="pop" id="pClear">确认清空全部错误记录？该操作不可撤销。<div class="acts"><button class="btn sm pop-cancel">取消</button><button class="btn sm stop pop-ok">清空</button></div></div>
+
+<div class="vp-ind" id="vpInd">UNRAID 风格概念稿 · 视口：桌面</div>
+
+<script>
+"use strict";
+/* ============ 工具 ============ */
+function $(s,r){return (r||document).querySelector(s)}
+function $$(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))}
+function pad(n){return (n<10?"0":"")+n}
+function nowHMS(){var d=new Date();return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds())}
+function rng(seed){var s=seed>>>0;return function(){s=(s+0x6D2B79F5)>>>0;var t=Math.imul(s^(s>>>15),1|s);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296}}
+function walk(n,seed,base,vol,min,max){
+  var r=rng(seed),v=base,out=[],i;
+  for(i=0;i<n;i++){v+=(r()-.5)*vol;if(v<min)v=min+(r()*(max-min)*.05);if(v>max)v=max-(r()*(max-min)*.05);out.push(Math.round(v*10)/10)}
+  return out;
+}
+function timeLabels(count,stepSec,withDate){
+  var out=[],d=new Date(),i,t;
+  for(i=count-1;i>=0;i--){
+    t=new Date(d.getTime()-i*stepSec*1000);
+    out.push(withDate?pad(t.getMonth()+1)+"-"+pad(t.getDate())+" "+pad(t.getHours())+":"+pad(t.getMinutes())
+      :pad(t.getHours())+":"+pad(t.getMinutes())+":"+pad(t.getSeconds()));
+  }
+  return out;
+}
+
+/* ============ 主题（黑 / 白，默认黑） ============ */
+var THEME_KEY="unraid_proto_theme";
+var themeBtn=$("#btnTheme");
+function applyTheme(){
+  var t=localStorage.getItem(THEME_KEY)==="light"?"light":"dark";
+  document.documentElement.setAttribute("data-theme",t);
+  $(".t-moon",themeBtn).style.display=t==="dark"?"":"none";
+  $(".t-sun",themeBtn).style.display=t==="light"?"":"none";
+  themeBtn.title=t==="dark"?"切换到白主题":"切换到黑主题";
+}
+themeBtn.addEventListener("click",function(){
+  localStorage.setItem(THEME_KEY,localStorage.getItem(THEME_KEY)==="light"?"dark":"light");
+  applyTheme();
+});
+applyTheme();
+
+/* ============ hash 路由（13 视图） ============ */
+var ROUTES=["/dash","/storage","/disks","/detect","/system","/temps","/sys-hist","/docker","/ports","/fan","/automation","/manual","/about"];
+var META={
+  "/dash":["总览","系统 · 阵列 · 风扇 · 服务"],
+  "/storage":["存储卷","阵列设备 · 卷 · 云盘"],
+  "/disks":["硬盘 SMART","健康状态 · 自检 · 定位"],
+  "/detect":["硬件检测","系统 · 主板 · CPU · 内存 · 网络 · RAID · 硬盘"],
+  "/system":["系统资源","CPU · 内存 · 网络 · 磁盘 IO · GPU"],
+  "/temps":["温度监控","关键传感器速览 · 温度墙"],
+  "/sys-hist":["历史趋势","六维度回看 · 报告导出"],
+  "/docker":["Docker","容器运行状态 · 资源占用"],
+  "/ports":["端口占用","监听端口 · 进程 · 可达性"],
+  "/fan":["风扇控制","接管 · 调速 · 温控规则 · 曲线"],
+  "/automation":["控制与自动化","告警 · 通知 · 报告 · 日志"],
+  "/manual":["操作手册","快速上手 · 页面说明 · 常见问题"],
+  "/about":["关于 nasdeck","版本 · 更新 · 构建信息"]
+};
+function curPath(){var h=location.hash.replace(/^#/,"")||"/dash";return ROUTES.indexOf(h)>=0?h:"/dash"}
+function render(){
+  var p=curPath();
+  ROUTES.forEach(function(x){ $("#v"+x.replace("/","-")).classList.toggle("on",x===p); });
+  $$("[data-nav]").forEach(function(b){ b.classList.toggle("on",b.getAttribute("data-nav")===p); });
+  window.scrollTo(0,0);
+  enterPage(p);
+}
+window.addEventListener("hashchange",render);
+$$("[data-nav]").forEach(function(b){ b.addEventListener("click",function(){ location.hash="#"+b.getAttribute("data-nav"); }); });
+$$("[data-navjump]").forEach(function(b){ b.addEventListener("click",function(){ closeFloat(); location.hash="#"+b.getAttribute("data-navjump"); }); });
+
+/* 页签搜索：过滤页签，回车跳首个命中 */
+var searchBox=$("#navSearch");
+searchBox.addEventListener("input",function(){
+  var q=this.value.trim().toLowerCase();
+  $$("#tabs .tab").forEach(function(b){ b.style.display=(!q||b.textContent.toLowerCase().indexOf(q)>=0)?"":"none"; });
+});
+searchBox.addEventListener("keydown",function(e){
+  if(e.key!=="Enter")return;
+  var first=$$("#tabs .tab").filter(function(b){return b.style.display!=="none"})[0];
+  if(first) location.hash="#"+first.getAttribute("data-nav");
+  this.value="";this.dispatchEvent(new Event("input"));
+});
+document.addEventListener("keydown",function(e){
+  if(e.key==="/"&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){e.preventDefault();searchBox.focus()}
+});
+
+/* 左上角菜单按钮：仅切换页签样式（纯图标 ↔ 完整样式），localStorage 持久化 */
+var NAV_KEY="unraid_proto_navicons";
+function applyNavIcons(){
+  var on=localStorage.getItem(NAV_KEY)==="1";
+  document.querySelector(".nav").classList.toggle("icons",on);
+  $("#btnNav").title=on?"页签：纯图标（点击切换完整样式）":"页签：完整样式（点击切换纯图标）";
+}
+$("#btnNav").addEventListener("click",function(){
+  localStorage.setItem(NAV_KEY,localStorage.getItem(NAV_KEY)==="1"?"0":"1");
+  applyNavIcons();
+});
+applyNavIcons();
+
+/* 通知下拉 */
+var bellPop=$("#bellPop");
+$("#btnBell").addEventListener("click",function(e){
+  e.stopPropagation();
+  var showing=bellPop.classList.contains("show");
+  closeFloat();
+  if(!showing){
+    var r=this.getBoundingClientRect();
+    bellPop.classList.add("show");
+    var left=Math.min(r.right-bellPop.offsetWidth,window.innerWidth-bellPop.offsetWidth-10);
+    bellPop.style.left=Math.max(10,left)+"px";bellPop.style.top=(r.bottom+8)+"px";
+  }
+});
+document.addEventListener("click",function(e){ if(!e.target.closest("#bellPop")&&!e.target.closest("#btnBell")) bellPop.classList.remove("show"); });
+
+/* ============ 通用控件 ============ */
+$$("[data-tabs]").forEach(function(group){
+  group.querySelectorAll("button").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var name=group.getAttribute("data-tabs");
+      var key=btn.getAttribute("data-tab")||btn.textContent.trim();
+      group.querySelectorAll("button").forEach(function(b){ b.classList.toggle("on",b===btn); });
+      $$('[data-panel^="'+name+'-"]').forEach(function(pn){
+        pn.style.display=pn.getAttribute("data-panel")===name+"-"+key?"":"none";
+      });
+      if(group.id==="histDim"||group.id==="histRng") renderHist();
+      if(name==="nic") renderSystem();
+    });
+  });
+});
+function closeFloat(){
+  $$(".modal,.drawer").forEach(function(m){ m.classList.remove("show"); });
+  $("#maskModal").classList.remove("show");$("#maskDrawer").classList.remove("show");
+  $$(".pop,.menu,.popmenu").forEach(function(p){ p.classList.remove("show"); });
+}
+document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeFloat(); });
+$$("[data-close]").forEach(function(b){ b.addEventListener("click",closeFloat); });
+$("#maskModal").addEventListener("click",closeFloat);
+$("#maskDrawer").addEventListener("click",closeFloat);
+
+/* 弹窗 */
+$$("[data-modal]").forEach(function(b){
+  b.addEventListener("click",function(){
+    closeFloat();
+    if(b.getAttribute("data-slot")) $("#dimmSlot").textContent=b.getAttribute("data-slot");
+    $("#"+b.getAttribute("data-modal")).classList.add("show");
+    $("#maskModal").classList.add("show");
+  });
+});
+/* 抽屉 */
+$$("[data-drawer]").forEach(function(b){
+  b.addEventListener("click",function(){
+    closeFloat();
+    $("#"+b.getAttribute("data-drawer")).classList.add("show");
+    $("#maskDrawer").classList.add("show");
+  });
+});
+$$("#drToc .toc-item").forEach(function(t){ t.addEventListener("click",closeFloat); });
+
+/* 确认气泡（fixed 定位；弹窗/抽屉内打开时保留宿主） */
+$$("[data-pop]").forEach(function(b){
+  b.addEventListener("click",function(e){
+    e.stopPropagation();
+    var pop=document.getElementById(b.getAttribute("data-pop")),showing=pop.classList.contains("show");
+    var host=b.closest(".modal,.drawer");
+    closeFloat();
+    if(host){ host.classList.add("show"); if(host.id==="mDimm"||host.id==="mLog") $("#maskModal").classList.add("show"); else $("#maskDrawer").classList.add("show"); }
+    if(!showing){
+      var r=b.getBoundingClientRect();
+      pop.classList.add("show");
+      var pw=pop.offsetWidth,ph=pop.offsetHeight;
+      pop.style.left=Math.min(Math.max(8,r.right-pw),window.innerWidth-pw-8)+"px";
+      pop.style.top=(r.bottom+8+ph>window.innerHeight?r.top-ph-8:r.bottom+8)+"px";
+    }
+  });
+});
+$$(".pop-cancel,.pop-ok").forEach(function(b){ b.addEventListener("click",closeFloat); });
+document.addEventListener("click",function(e){
+  if(!e.target.closest(".pop")&&!e.target.closest("[data-pop]")) $$(".pop").forEach(function(p){ p.classList.remove("show"); });
+});
+
+/* 下拉菜单 */
+$$("[data-menu]").forEach(function(b){
+  b.addEventListener("click",function(e){
+    e.stopPropagation();
+    var m=document.getElementById(b.getAttribute("data-menu")),showing=m.classList.contains("show");
+    closeFloat();
+    if(!showing){
+      var r=b.getBoundingClientRect();
+      m.classList.add("show");
+      m.style.left=Math.max(8,Math.min(r.left,window.innerWidth-m.offsetWidth-8))+"px";
+      m.style.top=(r.bottom+6)+"px";
+    }
+  });
+});
+$$(".menu button").forEach(function(b){ b.addEventListener("click",closeFloat); });
+document.addEventListener("click",function(e){
+  if(!e.target.closest(".menu")&&!e.target.closest("[data-menu]")) $$(".menu").forEach(function(m){ m.classList.remove("show"); });
+});
+
+/* 分区折叠 / 开关 */
+$$(".sec-h").forEach(function(h){ h.addEventListener("click",function(){ h.parentElement.classList.toggle("open"); }); });
+$$(".switch").forEach(function(s){ s.addEventListener("click",function(){ s.classList.toggle("on"); }); });
+
+/* 风扇滑杆联动 */
+$$(".fan-card").forEach(function(card){
+  var slider=$(".duty",card),lb=$(".duty-lb",card),rpm=$(".rpm",card),rotor=$(".rotor",card);
+  function sync(v){
+    lb.textContent="占空比 "+v+"%";
+    rpm.innerHTML=Math.round(v*26.5)+"<small> RPM</small>";
+    rotor.style.animationDuration=Math.max(.35,6-v*.05)+"s";
+    rotor.style.animationPlayState=v===0?"paused":"running";
+  }
+  slider.addEventListener("input",function(){ sync(+this.value); });
+  sync(+slider.value);
+});
+
+/* 接管开关联动页头徽章 */
+(function(){
+  var sw=$("#takeover");if(!sw)return;
+  var tag=$("#fanTag");
+  sw.addEventListener("click",function(){
+    var on=sw.classList.contains("on");
+    tag.className="tag"+(on?" acc":" warn");
+    tag.innerHTML='<span class="dot"></span>'+(on?"接管中":"已交还");
+  });
+})();
+
+/* 刷新按钮 */
+$$(".btn-refresh").forEach(function(b){
+  b.addEventListener("click",function(){
+    var ic=$(".ri",b);
+    if(ic.classList.contains("spin"))return;
+    ic.classList.add("spin");
+    setTimeout(function(){
+      ic.classList.remove("spin");
+      var ph=b.closest(".ph");
+      if(ph){ var lu=$(".lup",ph); if(lu) lu.textContent="最后更新 "+nowHMS(); }
+    },650);
+  });
+});
+
+/* 端口筛选 */
+(function(){
+  var si=$("#portSearch"),rs=$("#portReach");if(!si)return;
+  function f(){
+    var q=si.value.trim().toLowerCase(),rc=rs.value;
+    $$(".port-row").forEach(function(tr){
+      tr.style.display=(!q||tr.getAttribute("data-text").indexOf(q)>=0)&&(!rc||tr.getAttribute("data-reach")===rc)?"":"none";
+    });
+  }
+  si.addEventListener("input",f);rs.addEventListener("change",f);
+})();
+
+/* 视口指示 */
+function vp(){ $("#vpInd").textContent="UNRAID 风格概念稿 · 视口："+(window.innerWidth<900?"移动（页签横向滑动）":"桌面（顶部页签）"); }
+window.addEventListener("resize",function(){ vp(); scheduleResize(); });vp();
+
+/* ============ 图表引擎（本稿自用，UNRAID 配色） ============ */
+function niceScale(min,max,n){
+  if(min===Infinity||min===undefined){min=0;max=1}
+  if(max-min<1e-9){max=min+1}
+  var span=max-min,step0=span/n,mag=Math.pow(10,Math.floor(Math.log(step0)/Math.LN10)),norm=step0/mag;
+  var step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  var lo=Math.floor(min/step)*step,hi=Math.ceil(max/step)*step,ticks=[],v;
+  for(v=lo;v<=hi+step*1e-6;v+=step)ticks.push(Math.round(v*1e6)/1e6);
+  return {lo:lo,hi:hi,ticks:ticks};
+}
+function mkline(host,cfg){
+  host.classList.add("chartbox");
+  host.innerHTML="";
+  var W=host.clientWidth||640,H=cfg.height||170;
+  var pl=46,pr=14,pt=12,pb=24,iw=W-pl-pr,ih=H-pt-pb;
+  var n=cfg.labels.length,i0=0,i1=n-1,zoomEls=null;
+  var tip=document.createElement("div");tip.className="chart-tip";host.appendChild(tip);
+  function data(){return cfg.series.map(function(s){return {name:s.name,color:s.color,dash:s.dash,data:s.data.slice(i0,i1+1),area:s.area}})}
+  function draw(){
+    host.querySelectorAll("svg.plot,.zoombar").forEach(function(e){e.remove()});
+    var ds=data(),m=ds[0].data.length,mn=Infinity,mx=-Infinity;
+    ds.forEach(function(s){s.data.forEach(function(v){if(v<mn)mn=v;if(v>mx)mx=v})});
+    if(mn===Infinity){mn=0;mx=1}
+    var padY=(mx-mn)*.15||1;
+    var sc=niceScale(Math.max(0,mn-padY),mx+padY,4),lo=sc.lo,hi=sc.hi;
+    function X(i){return pl+iw*(m===1?.5:i/(m-1))}
+    function Y(v){return pt+ih*(1-(v-lo)/(hi-lo))}
+    var svg=['<svg class="plot" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">'];
+    svg.push("<defs>");
+    ds.forEach(function(s,si){
+      svg.push('<linearGradient id="ug-'+host.id+"-"+si+'" x1="0" y1="0" x2="0" y2="1">'
+        +'<stop offset="0" stop-color="'+s.color+'" stop-opacity=".24"/>'
+        +'<stop offset="1" stop-color="'+s.color+'" stop-opacity="0"/></linearGradient>');
+    });
+    svg.push("</defs>");
+    sc.ticks.forEach(function(tv){
+      var y=Y(tv);
+      svg.push('<line x1="'+pl+'" y1="'+y+'" x2="'+(W-pr)+'" y2="'+y+'" stroke="var(--grid)"/>');
+      svg.push('<text x="'+(pl-8)+'" y="'+(y+3.5)+'" text-anchor="end" font-size="10" fill="var(--axis)">'+(cfg.yTickFmt?cfg.yTickFmt(tv):tv)+"</text>");
+    });
+    var xl=Math.min(6,m);
+    for(var k=0;k<xl;k++){
+      var idx=Math.round(k*(m-1)/(xl-1||1));
+      svg.push('<text x="'+X(idx)+'" y="'+(H-6)+'" text-anchor="middle" font-size="10" fill="var(--axis)">'+cfg.labels[i0+idx]+"</text>");
+    }
+    ds.forEach(function(s,si){
+      var pts=s.data.map(function(v,i){return X(i).toFixed(1)+","+Y(v).toFixed(1)}).join(" ");
+      if(s.area!==false){
+        svg.push('<path d="M'+X(0).toFixed(1)+","+Y(lo).toFixed(1)+" L"+pts.replace(/ /g," L")+" L"+X(m-1).toFixed(1)+","+Y(lo).toFixed(1)+' Z" fill="url(#ug-'+host.id+"-"+si+')"/>');
+      }
+      svg.push('<path d="M'+pts.replace(/ /g," L")+'" fill="none" stroke="'+s.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"'+(s.dash?' stroke-dasharray="5 4"':"")+"/>");
+    });
+    svg.push('<line class="xh" x1="0" y1="'+pt+'" x2="0" y2="'+(pt+ih)+'" stroke="var(--axis)" stroke-dasharray="3 3" visibility="hidden"/>');
+    ds.forEach(function(s){ svg.push('<circle class="xd" r="3.5" fill="'+s.color+'" stroke="var(--sf)" stroke-width="1.5" visibility="hidden"/>'); });
+    svg.push("</svg>");
+    host.insertAdjacentHTML("beforeend",svg.join(""));
+    if(cfg.zoom){
+      var zb=document.createElement("div");zb.className="zoombar";
+      zb.innerHTML='<div class="zb-track"><div class="zb-win"><span class="zb-h l"></span><span class="zb-h r"></span></div></div>';
+      host.appendChild(zb);
+      zoomEls={win:$(".zb-win",zb)};
+      paintZoom();bindZoom();
+    }
+    bindHover(X,Y);
+  }
+  function paintZoom(){
+    if(!zoomEls)return;
+    zoomEls.win.style.left=(i0/(n-1)*100)+"%";
+    zoomEls.win.style.width=((i1-i0)/(n-1)*100)+"%";
+  }
+  function bindHover(X,Y){
+    var svg=$("svg.plot",host),xh=$(".xh",svg),dots=$$(".xd",svg),ds=data();
+    svg.addEventListener("mousemove",function(e){
+      var r=svg.getBoundingClientRect(),mx=e.clientX-r.left,m=ds[0].data.length;
+      var i=Math.max(0,Math.min(m-1,Math.round((mx-pl)/(iw/(m-1||1)))));
+      var px=pl+iw*(m===1?.5:i/(m-1));
+      xh.setAttribute("x1",px);xh.setAttribute("x2",px);xh.setAttribute("visibility","visible");
+      var rows="";
+      dots.forEach(function(d,si){
+        var v=ds[si].data[i];
+        d.setAttribute("cx",px);d.setAttribute("cy",Y(v));d.setAttribute("visibility","visible");
+        rows+='<div class="tt-r"><span class="tt-d" style="background:'+ds[si].color+'"></span>'+ds[si].name+"<b>"+(cfg.tipFmt?cfg.tipFmt(v):v)+"</b></div>";
+      });
+      tip.innerHTML='<div class="tt-t">'+cfg.labels[i0+i]+"</div>"+rows;
+      tip.style.display="block";
+      var tw=tip.offsetWidth;
+      tip.style.left=(px+12+tw>r.width?px-tw-12:px+12)+"px";tip.style.top="8px";
+    });
+    svg.addEventListener("mouseleave",function(){
+      tip.style.display="none";xh.setAttribute("visibility","hidden");
+      dots.forEach(function(d){d.setAttribute("visibility","hidden")});
+    });
+  }
+  function bindZoom(){
+    if(!zoomEls)return;
+    var zb=zoomEls.win.parentNode;
+    zb.addEventListener("pointerdown",function(e){
+      e.preventDefault();
+      var rect=zb.getBoundingClientRect();
+      var mode=e.target.classList.contains("zb-h")?(e.target.classList.contains("l")?"l":"r"):"m";
+      var sx=e.clientX,oi0=i0,oi1=i1,spanPx=rect.width/(n-1);
+      function mv(ev){
+        var d=(ev.clientX-sx)/spanPx;
+        if(mode==="m"){var len=oi1-oi0,s=Math.max(0,Math.min(n-1-len,Math.round(oi0+d)));i0=s;i1=s+len}
+        else if(mode==="l"){i0=Math.max(0,Math.min(oi1-2,Math.round(oi0+d)))}
+        else{i1=Math.min(n-1,Math.max(oi0+2,Math.round(oi1+d)))}
+        paintZoom();draw();
+      }
+      function up(){document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up)}
+      document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);
+    });
+  }
+  draw();
+}
+function spark(host,data,color){
+  var W=(host.clientWidth||120),Hh=host.clientHeight||26,n=data.length;
+  var mn=Math.min.apply(null,data),mx=Math.max.apply(null,data);
+  if(mx-mn<1e-9)mx=mn+1;
+  var pts=data.map(function(v,i){return (i/(n-1)*W).toFixed(1)+","+(Hh-2-(v-mn)/(mx-mn)*(Hh-5)).toFixed(1)}).join(" ");
+  host.innerHTML='<svg viewBox="0 0 '+W+" "+Hh+'" preserveAspectRatio="none" style="width:100%;height:100%;display:block"><path d="M'+pts.replace(/ /g," L")+'" fill="none" stroke="'+color+'" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+
+/* ============ 各视图图表 ============ */
+var C={acc:"#F15A2C",ok:"#3FB68B",info:"#5B9CF6",purp:"#A077E8",warn:"#ECA43C",temp:"#E8734B",gpu:"#C291F0"};
+var HIST_CFG={
+  cpu:{color:C.acc,base:25,vol:14,min:2,max:96,unit:"%"},
+  mem:{color:C.purp,base:44,vol:7,min:30,max:70,unit:"%"},
+  temp:{color:C.temp,base:42,vol:5,min:28,max:74,unit:"°C"},
+  net:{color:C.ok,base:9,vol:8,min:0,max:60,unit:" MB/s"},
+  disk:{color:C.info,base:55,vol:34,min:0,max:180,unit:" MB/s"},
+  gpu:{color:C.gpu,base:18,vol:11,min:0,max:90,unit:"%"}
+};
+var HIST_RANGE={"24h":{n:144,step:600,seed:11},"7d":{n:168,step:3600,seed:22},"30d":{n:360,step:7200,seed:33}};
+function renderHist(){
+  var host=$("#u-hist");if(!host||!host.offsetParent)return;
+  var dim=$$("#histDim button").filter(function(b){return b.classList.contains("on")})[0].getAttribute("data-tab");
+  var rk=$$("#histRng button").filter(function(b){return b.classList.contains("on")})[0].getAttribute("data-tab");
+  var c=HIST_CFG[dim],r=HIST_RANGE[rk];
+  var data=walk(r.n,r.seed*7+dim.length*131,c.base,c.vol,c.min,c.max);
+  mkline(host,{
+    series:[{name:{cpu:"CPU",mem:"内存",temp:"温度",net:"网络",disk:"磁盘 IO",gpu:"GPU"}[dim],color:c.color,data:data}],
+    labels:timeLabels(r.n,r.step,true),height:300,zoom:true,
+    tipFmt:function(v){return v.toFixed(1)+c.unit}
+  });
+  var avg=data.reduce(function(a,b){return a+b},0)/data.length;
+  $("#histAvg").textContent=avg.toFixed(1)+c.unit;
+  $("#histMax").textContent=Math.max.apply(null,data).toFixed(1)+c.unit;
+  $("#histN").textContent=data.length;
+}
+var sysLabels60=timeLabels(60,1);
+function renderSystem(){
+  var mk=function(id,cfg){var h=$(id);if(h&&h.offsetParent)mkline(h,cfg)};
+  mk("#u-sys-cpu",{series:[{name:"CPU",color:C.acc,data:walk(60,5,23,7,5,60)}],labels:sysLabels60,height:170,tipFmt:function(v){return v.toFixed(1)+"%"},yTickFmt:function(v){return v+"%"}});
+  mk("#u-sys-mem",{series:[{name:"内存",color:C.info,data:walk(60,6,41,2.5,35,50)}],labels:sysLabels60,height:170,tipFmt:function(v){return v.toFixed(1)+"%"},yTickFmt:function(v){return v+"%"}});
+  mk("#u-sys-net0",{series:[{name:"下行",color:C.ok,data:walk(60,7,12.3,4,1,40)},{name:"上行",color:C.warn,data:walk(60,8,3.1,1.5,.2,15),dash:true}],labels:sysLabels60,height:170,tipFmt:function(v){return v.toFixed(1)+" MB/s"}});
+  mk("#u-sys-net1",{series:[{name:"下行",color:C.ok,data:walk(60,9,.4,.3,0,3)},{name:"上行",color:C.warn,data:walk(60,10,.2,.2,0,2),dash:true}],labels:sysLabels60,height:170,tipFmt:function(v){return v.toFixed(1)+" MB/s"}});
+  mk("#u-sys-disk",{series:[{name:"读",color:C.acc,data:walk(60,11,86,26,5,220)},{name:"写",color:C.purp,data:walk(60,12,42,16,2,140)}],labels:sysLabels60,height:170,tipFmt:function(v){return v.toFixed(0)+" MB/s"}});
+}
+function renderGpu(){
+  var h=$("#u-gpu");if(!h||!h.offsetParent)return;
+  mkline(h,{series:[
+    {name:"GPU 使用率",color:C.gpu,data:walk(60,13,15,8,2,60)},
+    {name:"显存占用",color:C.info,data:walk(60,14,53,5,40,72),dash:true}],
+    labels:sysLabels60,height:196,tipFmt:function(v){return v.toFixed(0)+"%"},yTickFmt:function(v){return v+"%"}});
+}
+function renderSparks(root){
+  var MAP={
+    net:[C.ok,7,12,4],dio:[C.purp,11,86,26],gpu:[C.gpu,12,15,8],
+    tcpu:[C.temp,21,45,1.5],tboard:[C.temp,22,38,1],tnvme:[C.temp,23,41,1.2],traid:[C.temp,24,36,.9]
+  };
+  $$("[data-spark]",root).forEach(function(el){
+    var m=MAP[el.getAttribute("data-spark")];
+    if(m) spark(el,walk(40,m[1],m[2],m[3],m[2]*.6,m[2]*1.6),m[0]);
+  });
+}
+/* 风扇曲线编辑器 */
+var curvePts=[[30,22],[38,35],[46,50],[55,68],[62,85]];
+var CURVE_DEFAULT=curvePts.slice();
+function renderCurve(){
+  var host=$("#u-curve");if(!host||!host.offsetParent)return;
+  host.innerHTML="";
+  var W=host.clientWidth||560,H=300,pl=44,pr=16,pt=14,pb=30,iw=W-pl-pr,ih=H-pt-pb;
+  var X0=25,X1=70,Y0=0,Y1=100;
+  function X(t){return pl+iw*(t-X0)/(X1-X0)}
+  function Y(d){return pt+ih*(1-(d-Y0)/(Y1-Y0))}
+  function inv(px,py){return [Math.round(X0+(px-pl)/iw*(X1-X0)),Math.round(Y0+(1-(py-pt)/ih)*(Y1-Y0))]}
+  function svgEl(){
+    var s=['<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+" "+H+'">'];
+    s.push('<defs><linearGradient id="ucg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F15A2C" stop-opacity=".22"/><stop offset="1" stop-color="#F15A2C" stop-opacity="0"/></linearGradient></defs>');
+    s.push('<rect x="'+X(X0)+'" y="'+Y(100)+'" width="'+(X(45)-X(X0))+'" height="'+(Y(0)-Y(100))+'" fill="var(--okbg)" opacity=".5"/>');
+    s.push('<rect x="'+X(45)+'" y="'+Y(100)+'" width="'+(X(60)-X(45))+'" height="'+(Y(0)-Y(100))+'" fill="var(--warnbg)" opacity=".55"/>');
+    s.push('<rect x="'+X(60)+'" y="'+Y(100)+'" width="'+(X(X1)-X(60))+'" height="'+(Y(0)-Y(100))+'" fill="var(--badbg)" opacity=".55"/>');
+    for(var d=0;d<=100;d+=25){
+      s.push('<line x1="'+pl+'" y1="'+Y(d)+'" x2="'+(W-pr)+'" y2="'+Y(d)+'" stroke="var(--grid)"/>');
+      s.push('<text x="'+(pl-8)+'" y="'+(Y(d)+3.5)+'" text-anchor="end" font-size="10" fill="var(--axis)">'+d+'%</text>');
+    }
+    for(var t=X0;t<=X1;t+=5){
+      s.push('<line x1="'+X(t)+'" y1="'+pt+'" x2="'+X(t)+'" y2="'+(pt+ih)+'" stroke="var(--grid)" opacity=".55"/>');
+      s.push('<text x="'+X(t)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="var(--axis)">'+t+"°</text>");
+    }
+    var pts=curvePts.map(function(p){return X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1)});
+    s.push('<path d="M'+X(curvePts[0][0]).toFixed(1)+","+Y(0)+" L"+pts.join(" L")+" L"+X(curvePts[curvePts.length-1][0]).toFixed(1)+","+Y(0)+' Z" fill="url(#ucg)"/>');
+    s.push('<path d="M'+pts.join(" L")+'" fill="none" stroke="var(--acc)" stroke-width="2.2" stroke-linejoin="round"/>');
+    curvePts.forEach(function(p,i){
+      s.push('<circle class="pt" data-i="'+i+'" cx="'+X(p[0]).toFixed(1)+'" cy="'+Y(p[1]).toFixed(1)+'" r="6"/>');
+    });
+    s.push("</svg>");
+    return s.join("");
+  }
+  function paint(){
+    host.innerHTML=svgEl();
+    $$(".pt",host).forEach(function(c){
+      c.addEventListener("pointerdown",function(e){
+        e.preventDefault();
+        var i=+c.getAttribute("data-i");
+        function mv(ev){
+          var r=host.querySelector("svg").getBoundingClientRect();
+          var p=inv(ev.clientX-r.left,ev.clientY-r.top);
+          var lo=i===0?X0:curvePts[i-1][0]+1,hi=i===curvePts.length-1?X1:curvePts[i+1][0]-1;
+          p[0]=Math.max(lo,Math.min(hi,p[0]));p[1]=Math.max(0,Math.min(100,p[1]));
+          p[0]=Math.round(p[0]);p[1]=Math.round(p[1]);
+          curvePts[i]=p;paint();
+          var ro=$("#curvePos");if(ro) ro.innerHTML="温度 <b>"+p[0]+" °C</b> → 占空比 <b>"+p[1]+"%</b>";
+        }
+        function up(){document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up)}
+        document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);
+      });
+    });
+  }
+  paint();
+}
+$("#curveAdd").addEventListener("click",function(){
+  var bi=0,bw=-1,i;
+  for(i=0;i<curvePts.length-1;i++){var w=curvePts[i+1][0]-curvePts[i][0];if(w>bw){bw=w;bi=i}}
+  curvePts.splice(bi+1,0,[Math.round((curvePts[bi][0]+curvePts[bi+1][0])/2),Math.round((curvePts[bi][1]+curvePts[bi+1][1])/2)]);
+  renderCurve();
+});
+$("#curveReset").addEventListener("click",function(){
+  curvePts=CURVE_DEFAULT.slice();$("#curvePos").textContent="拖拽圆点调整";renderCurve();
+});
+
+/* 视图进入注册（键 = 带斜杠 hash，避免键值错位） */
+var PAGE_ENTER={
+  "/dash":function(){ renderSparks($("#v-dash")); renderGpu(); },
+  "/system":function(){ renderSparks($("#v-system")); renderSystem(); },
+  "/temps":function(){ renderSparks($("#v-temps")); },
+  "/sys-hist":function(){ renderHist(); },
+  "/fan":function(){ renderCurve(); }
+};
+function enterPage(p){ if(PAGE_ENTER[p]) PAGE_ENTER[p](); }
+var rzTimer=null;
+function scheduleResize(){ clearTimeout(rzTimer); rzTimer=setTimeout(function(){ enterPage(curPath()); },160); }
+
+/* 初始渲染 */
+if(!location.hash) location.hash="#/dash";
+render();
+</script>
+</body>
+</html>

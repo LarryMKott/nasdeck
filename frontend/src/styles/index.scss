@@ -1,0 +1,22 @@
+// 全局样式入口
+// variables.scss 已由 vite additionalData 注入，此处无需（也不可）重复 @use
+@use './reset';
+@use './transition';
+@use './element-plus';
+@use './unraid';
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  color: $color-text-primary;
+  background-color: $bg-page;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

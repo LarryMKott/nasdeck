@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# 仅当本次提交包含本工程（vue-admin）内的暂存文件时才校验 commit message，
+# 不影响仓库其他目录的提交流程。
+cd -- "$(dirname -- "$0")/.." || exit 1
+
+if git diff --cached --name-only -- . | grep -q .; then
+  npx --no -- commitlint --edit "$1"
+fi

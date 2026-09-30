@@ -1,0 +1,14 @@
+
+DG/VD: 0/0  Virtual Drive Information :
+======================================
+
+VD0 Name = data
+State = Optl
+Default Cache Policy: WriteBack, ReadAhead, Direct, No Write Cache if Bad BBU
+
+DG/VD: 0/1  Virtual Drive Information :
+======================================
+
+VD1 Name = system
+State = Optl
+Default Cache Policy: WriteThrough, No Read Ahead, Direct, No Write Cache if Bad BBU

@@ -1,0 +1,141 @@
+#!/bin/bash
+# 安装后回调：系统工具自举 + 可执行位兜底 + 用户配置还原。
+# 幂等可重复执行（安装/升级都可能重跑）。
+#
+# - 系统工具：smartmontools / lm-sensors / mdadm / dmidecode / i2c-tools / ethtool
+#   （缺啥装啥；无外网时安装失败不阻塞装机，对应功能自动降级）
+# - storcli 随包内置（server/bin/storcli64，config/resource 的 usr-local-linker 负责软链
+#   到 /usr/local/bin，此处兜底处理软链未生效的极少数环境）
+# - Python 解释器来自应用中心 python312 运行时（manifest install_dep_apps 已声明），
+#   全部 Python 依赖已离线打进 server/site-packages：装机无需 pip、无需外网、
+#   不污染系统 Python（旧版 --break-system-packages 方案已废弃）
+LOG="${TRIM_TEMP_LOGFILE}"
+
+# APP_DIR 由本脚本位置反推（install_callback 在 <APP_DIR>/cmd/ 下），不依赖 TRIM_APPDEST 是否注入
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)"
+_APP_DIR="$(cd "$_SCRIPT_DIR/.." && pwd 2>/dev/null)"
+
+# 0. 可执行位兜底（Windows 构建机/打包工具不保证保留 x 位）
+chmod +x "$_APP_DIR/cmd/"* 2>/dev/null
+chmod +x "$_APP_DIR/ui/index.cgi" 2>/dev/null
+chmod +x "$_APP_DIR/server/bin/storcli64" 2>/dev/null
+
+# 0.1 storcli 兜底软链（正常由 config/resource 的 usr-local-linker 完成）
+if ! command -v storcli64 >/dev/null 2>&1 && [ -f "$_APP_DIR/server/bin/storcli64" ]; then
+    ln -sf "$_APP_DIR/server/bin/storcli64" /usr/local/bin/storcli64 2>/dev/null
+    ln -sf "$_APP_DIR/server/bin/storcli64" /usr/local/bin/storcli 2>/dev/null
+    echo "[nasdeck] usr-local-linker 未生效，已手动软链 storcli" >> "$LOG"
+fi
+
+# 1. 系统工具检测（缺啥装啥）
+need_install=()
+command -v smartctl >/dev/null 2>&1 || need_install+=("smartmontools")
+command -v sensors >/dev/null 2>&1 || need_install+=("lm-sensors")
+command -v mdadm >/dev/null 2>&1 || need_install+=("mdadm")
+command -v dmidecode >/dev/null 2>&1 || need_install+=("dmidecode")
+command -v decode-dimms >/dev/null 2>&1 || need_install+=("i2c-tools")
+# ethtool：网卡信息 + WOL（网络唤醒）开关依赖它，fnOS 基础系统不一定自带
+command -v ethtool >/dev/null 2>&1 || need_install+=("ethtool")
+
+if [ ${#need_install[@]} -gt 0 ]; then
+    echo "[nasdeck] 缺少系统工具: ${need_install[*]}，开始安装..." >> "$LOG"
+
+    # 2. 检测包管理器
+    if command -v apt-get >/dev/null 2>&1; then
+        PM="apt"
+    elif command -v dnf >/dev/null 2>&1; then
+        PM="dnf"
+    elif command -v yum >/dev/null 2>&1; then
+        PM="yum"
+    elif command -v apk >/dev/null 2>&1; then
+        PM="apk"
+    else
+        echo "[nasdeck] 未找到支持的包管理器，请手动安装 smartmontools/lm-sensors/mdadm" >> "$LOG"
+        exit 0
+    fi
+
+    # 3. 更新源
+    case "$PM" in
+        apt)
+            apt-get update -qq 2>>"$LOG"
+            APT_INSTALL="apt-get install -y -qq"
+            ;;
+        dnf|yum)
+            $PM install -y -q 2>>"$LOG"
+            ;;
+        apk)
+            apk update -q 2>>"$LOG"
+            ;;
+    esac
+
+    # 4. 安装系统工具（各发行版包名映射）
+    for tool in "${need_install[@]}"; do
+        case "$tool" in
+            smartmontools)
+                case "$PM" in
+                    apt) $APT_INSTALL smartmontools >>"$LOG" 2>&1 ;;
+                    dnf|yum) $PM install -y smartmontools >>"$LOG" 2>&1 ;;
+                    apk) apk add smartmontools >>"$LOG" 2>&1 ;;
+                esac
+                ;;
+            lm-sensors)
+                case "$PM" in
+                    apt) $APT_INSTALL lm-sensors >>"$LOG" 2>&1 ;;
+                    dnf|yum) $PM install -y lm_sensors >>"$LOG" 2>&1 ;;
+                    apk) apk add lm-sensors >>"$LOG" 2>&1 ;;
+                esac
+                # 首次安装时自动探测传感器芯片
+                command -v sensors-detect >/dev/null 2>&1 && yes "" | sensors-detect --auto >/dev/null 2>>"$LOG"
+                ;;
+            mdadm)
+                case "$PM" in
+                    apt) $APT_INSTALL mdadm >>"$LOG" 2>&1 ;;
+                    dnf|yum) $PM install -y mdadm >>"$LOG" 2>&1 ;;
+                    apk) apk add mdadm >>"$LOG" 2>&1 ;;
+                esac
+                ;;
+            dmidecode)
+                case "$PM" in
+                    apt) $APT_INSTALL dmidecode >>"$LOG" 2>&1 ;;
+                    dnf|yum) $PM install -y dmidecode >>"$LOG" 2>&1 ;;
+                    apk) apk add dmidecode >>"$LOG" 2>&1 ;;
+                esac
+                ;;
+            i2c-tools)
+                case "$PM" in
+                    apt) $APT_INSTALL i2c-tools >>"$LOG" 2>&1 ;;
+                    dnf|yum) $PM install -y i2c-tools >>"$LOG" 2>&1 ;;
+                    apk) apk add i2c-tools >>"$LOG" 2>&1 ;;
+                esac
+                ;;
+            ethtool)
+                case "$PM" in
+                    apt) $APT_INSTALL ethtool >>"$LOG" 2>&1 ;;
+                    dnf|yum) $PM install -y ethtool >>"$LOG" 2>&1 ;;
+                    apk) apk add ethtool >>"$LOG" 2>&1 ;;
+                esac
+                ;;
+        esac
+    done
+    echo "[nasdeck] 系统工具安装完成" >> "$LOG"
+fi
+
+# 5. 启动 lm-sensors 服务（如有 systemd）
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable lm-sensors 2>/dev/null
+    systemctl start lm-sensors 2>/dev/null
+fi
+
+# 6. 还原用户配置（uninstall 时镜像到持久目录，避免重装丢配置）
+: "${TRIM_PKGVAR:=/usr/local/apps/@appdata/com.dashboard.nasdeck}"
+_BACKUP_DIR="$TRIM_PKGVAR/config_backup"
+if [ -d "$_BACKUP_DIR" ]; then
+    for f in fan_disk_temp.json fan_sys_temp.json fan_labels.json board_override.txt wol.json disk_names.json; do
+        if [ -f "$_BACKUP_DIR/$f" ]; then
+            cp -f "$_BACKUP_DIR/$f" "$TRIM_PKGVAR/$f"
+            echo "[nasdeck] 已还原用户配置 $f" >> "$LOG"
+        fi
+    done
+fi
+
+exit 0

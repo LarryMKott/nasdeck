@@ -1,0 +1,59 @@
+{
+  "name": "vue-admin",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "description": "企业级 Vue 3 中后台管理系统脚手架（纯 JavaScript）",
+  "type": "module",
+  "engines": {
+    "node": ">=18.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:test": "vite build --mode test",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "lint:style": "stylelint \"src/**/*.{vue,scss,css}\"",
+    "lint:style:fix": "stylelint \"src/**/*.{vue,scss,css}\" --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "node scripts/prepare-husky.cjs"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.7.7",
+    "element-plus": "^2.9.1",
+    "nprogress": "^0.2.0",
+    "pinia": "~2.1.7",
+    "pinia-plugin-persistedstate": "^3.2.1",
+    "vue": "~3.4.38",
+    "vue-router": "~4.4.5"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.6.0",
+    "@commitlint/config-conventional": "^19.6.0",
+    "@eslint/js": "^9.17.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-vue": "^9.32.0",
+    "globals": "^15.14.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "postcss-html": "^2.0.0",
+    "prettier": "^3.4.2",
+    "sass": "~1.79.6",
+    "stylelint": "^16.11.0",
+    "stylelint-config-html": "^2.0.0",
+    "stylelint-config-recess-order": "^5.1.0",
+    "stylelint-config-recommended-vue": "^2.0.0",
+    "stylelint-config-standard": "^36.0.1",
+    "stylelint-config-standard-scss": "^14.0.0",
+    "unplugin-auto-import": "^0.18.6",
+    "unplugin-vue-components": "^0.27.5",
+    "vite": "^5.4.11",
+    "vite-plugin-compression": "^0.5.1"
+  }
+}

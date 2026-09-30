@@ -1,0 +1,48 @@
+Storage Command Line Tool  Version 007.2705.0000.0000 (c) 2020 Broadcom
+Status = Success
+Exit Code = 0x00
+
+TOPOLOGY :
+--------
+
+DG = Disk Group Index. Arrangement of disks.
+PD = Physical Drive Index.
+VD = Virtual Drive Index.
+DHS = Dedicated Hot Spare.
+GHS = Global Hotspare
+-----------------------------------------
+Physical Drives = 5
+
+PD LIST :
+--------
+
+EID:Slt DID State DG      Size Intf Med SED PI SeSz Model                      Sp Type 
+252:0    14 UBad   -  6.366 TB SAS  HDD N   N  512B ST8000NM0055                U  - 
+252:4     8 Onln   0  3.638 TB SAS  HDD N   N  512B ST3600057SS                 U  - 
+252:5     9 Onln   0  3.638 TB SAS  HDD N   N  512B ST3600057SS                 U  - 
+252:6    10 Onln   1  3.638 TB SAS  HDD N   N  512B ST3600057SS                 U  - 
+252:3     7 GHS    -  3.638 TB SAS  HDD N   N  512B ST3600057SS                 U  - 
+
+Virtual Drives = 2
+
+VD LIST :
+--------
+
+DG/VD TYPE  State Access Consist Cache Cac sCC       Size Name 
+0/0   RAID5 Optl  RW     Yes     RWBD  -   -      7.276 TB data
+0/1   RAID1 Optl  RW     Yes     RWBD  -   -      3.638 TB system
+
+CacheVault_Info :
+----------------
+Memory Type = ...
+
+CVPM02 Optimal 25C
+...
+Product Name = MegaRAID 9361-8i
+Serial Number = SK55230456
+FW Package Build = 4.680.00-8358
+FW Version = 4.680.00
+BIOS Version = 5.51.00
+Controller Temperature = 48
+ROC temperature = 55
+Drive Groups = 2
