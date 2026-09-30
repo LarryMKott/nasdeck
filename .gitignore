@@ -26,6 +26,7 @@ frontend/dist/
 
 # 后端运行时数据与本地配置（SQLite 库/健康报告/真实密钥；.env.example 模板入库）
 backend/data/
+backend/tests/_test_nasdeck.db*
 backend/.env
 
 # Windows 资源管理器杂物（非源码，勿入库）

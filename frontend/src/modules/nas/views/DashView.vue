@@ -528,9 +528,15 @@ const gpuSeries = [
 </template>
 
 <style scoped>
-/* 柱条略高于全局 .core（30px）：线程少列宽时视觉更饱满；仅本视图生效 */
+/* 柱条区固定总高、行数均分：单行（≤6 线程）柱条自动加高填满、双行与原 36px
+   相当——磁贴总高恒定，底部不再随行数留空；仅本视图生效 */
+.cores {
+  grid-auto-rows: 1fr;
+  height: 78px;
+}
+
 .cores .core {
-  height: 36px;
+  height: auto;
 }
 
 /* 使用率/频率 双视图切换（视图内局部控件，不入全局设计令牌） */
