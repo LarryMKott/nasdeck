@@ -23,4 +23,4 @@ ctl_stop              = true
 ; 端口冲突，端口占用改由 install_callback 预检（冲突即装机失败并提示换端口）。
 checkport             = false
 install_dep_apps      = python312
-changelog             = dev-0.0.5: 总览页 CPU 支持每线程使用率/频率实时切换（WS 秒级推送）；内存磁贴展示总大小/已使用/可用/缓冲/缓存/系统保留六项分量（直读 /proc/meminfo，Unraid 口径）；采集链路对齐低占用架构——CPU/内存/GPU 全部直读 /proc 与 /sys 内核文件、零外部命令，仅 NVIDIA 调 nvidia-smi 且 5s 采样；新增 GPU 实时监控（AMD sysfs / NVIDIA，Intel 核显暂不支持实时值）。
+changelog             = dev-0.0.6: 新增硬件信息获取策略决策层——启动时探测系统能力（/proc、/sys 内核文件与外部工具在位性）一次性决定各数据域的采集策略，全进程复用结论，采集代码不再各自探测；lspci 等外部命令仅确认在位后才调用，避免无效进程创建；决策依据记入启动日志，运行环境自检页与决策层共用同一工具清单。

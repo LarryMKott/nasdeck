@@ -1,6 +1,6 @@
 [project]
 name = "nasdeck-backend"
-version = "dev-0.0.5"
+version = "dev-0.0.6"
 description = "nasdeck 飞牛 fnOS 硬件监控面板 · FastAPI 后端（/api/v1 六域 + WS）"
 requires-python = ">=3.11"
 license = { text = "MIT" }
