@@ -518,18 +518,43 @@ export async function fetchAbout() {
 // ---------------- 硬件检测（§6.3 /hardware 只读） ----------------
 
 export async function fetchDetect() {
-  const [hwS, infoS, disksS] = await Promise.allSettled([
+  const [hwS, infoS, disksS, envS] = await Promise.allSettled([
     apiData('/api/v1/hardware'),
     apiData('/api/v1/system/info'),
     apiData('/api/v1/storage/disks'),
+    apiData('/api/v1/system/env'),
   ]);
   const hw = pick(hwS);
   if (!hw || !Object.keys(hw).length) return { data: mock.detect, live: false };
   const info = pick(infoS);
   const disks = pick(disksS) ?? [];
+  const env = pick(envS);
 
   const d = JSON.parse(JSON.stringify(mock.detect));
   const kv = (rows) => rows.filter(Boolean);
+
+  if (env) {
+    // 运行环境自检（§2.14）：安装期自举结果（工具/驱动/storcli/生效配置）
+    d.env = {
+      runtime: kv([
+        ['Python', env.python?.version],
+        [
+          '监听端口',
+          env.config?.host === '127.0.0.1'
+            ? `${env.config.port}（仅回环）`
+            : String(env.config?.port),
+        ],
+        ['日志级别', env.config?.log_level],
+        [
+          '原始数据保留',
+          env.config?.raw_keep_minutes != null ? `${env.config.raw_keep_minutes} 分钟` : null,
+        ],
+      ]),
+      tools: env.tools ?? [],
+      drivers: env.drivers ?? [],
+      storcli: env.storcli ?? { ok: false, path: '', desc: '' },
+    };
+  }
 
   if (info) {
     d.system = kv([

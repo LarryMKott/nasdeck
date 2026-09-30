@@ -21,6 +21,7 @@ const hasCores = computed(
 
 /** 分区折叠状态（默认全部展开） */
 const open = reactive({
+  env: true,
   cpu: true,
   mem: true,
   net: true,
@@ -95,6 +96,61 @@ function showDimm(dimm) {
           >
             <span class="muted small">{{ row[0] }}</span>
             <span class="small num" :class="row[0] === '主板温度' ? 't-ok' : ''">{{ row[1] }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 运行环境自检（安装期自举结果：工具/驱动/运行时/生效配置） -->
+    <div class="sec" :class="{ open: open.env }">
+      <button class="sec-h" @click="toggle('env')">
+        <span class="sico"><u-icon name="info" /></span>运行环境自检
+        <span class="small muted" style="font-weight: 400">安装期自举结果 · 实时探测</span>
+        <u-icon class="arr" name="chev" />
+      </button>
+      <div class="sec-b">
+        <div class="kv2">
+          <div>
+            <div class="small muted" style="margin-bottom: 8px">运行时与生效配置</div>
+            <div
+              v-for="(row, i) in d.env.runtime"
+              :key="row[0]"
+              class="kvrow"
+              :class="i < d.env.runtime.length - 1 ? 'kvline' : ''"
+            >
+              <span class="muted small">{{ row[0] }}</span>
+              <span class="small num">{{ row[1] }}</span>
+            </div>
+          </div>
+          <div>
+            <div class="small muted" style="margin-bottom: 8px">
+              系统工具与驱动（缺啥装啥 · 失败自动降级）
+            </div>
+            <div
+              v-for="(t, i) in d.env.tools"
+              :key="t.name"
+              class="kvrow"
+              :class="i < d.env.tools.length + d.env.drivers.length - 1 ? 'kvline' : ''"
+            >
+              <span class="muted small">{{ t.name }} · {{ t.desc }}</span>
+              <span class="small num" :class="t.ok ? 't-ok' : 't-warn'">
+                {{ t.ok ? `✓ ${t.path}` : `✗ 缺 ${t.install}（可手动安装）` }}
+              </span>
+            </div>
+            <div v-for="drv in d.env.drivers" :key="drv.name" class="kvrow kvline">
+              <span class="muted small">{{ drv.name }} · {{ drv.desc }}</span>
+              <span class="small num" :class="drv.loaded ? 't-ok' : 't-warn'">
+                {{ drv.loaded ? '✓ 已加载' : '未加载（对应机型风扇不可见）' }}
+              </span>
+            </div>
+            <div class="kvrow">
+              <span class="muted small">storcli · {{ d.env.storcli.desc }}</span>
+              <span class="small num" :class="d.env.storcli.ok ? 't-ok' : 't-warn'">
+                {{
+                  d.env.storcli.ok ? `✓ ${d.env.storcli.path}` : '未检测到（仅 MegaRAID/HBA 需要）'
+                }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
