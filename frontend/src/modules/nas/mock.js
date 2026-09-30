@@ -68,7 +68,7 @@ export const dashboard = {
     availText: '40.1 GB',
     buffersText: '412 MB',
     cachedText: '21.4 GB',
-    reservedText: '23.9 GB',
+    reservedText: '4.4 GB',
   },
   net: { rxText: '12.3 MB/s ↓', txText: '↑ 3.1 MB/s · eth0' },
   diskIo: { readText: '86 MB/s 读', writeText: '↑ 写 42 MB/s' },

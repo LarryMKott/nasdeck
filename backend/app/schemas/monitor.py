@@ -27,10 +27,11 @@ class RealtimeSnapshot(BaseModel):
     mem_used_mb: float
     mem_total_mb: float
     mem_percent: float
-    # 可用/缓冲/缓存分量（free(1) 口径，契约 §2.1）；Windows 后两项为 null
+    # 可用/缓冲/缓存/系统保留分量（/proc/meminfo 口径，契约 §2.1）；缺字段时为 null
     mem_available_mb: float | None = None
     mem_buffers_mb: float | None = None
     mem_cached_mb: float | None = None
+    mem_reserved_mb: float | None = None
     swap_percent: float
     net: dict[str, NetIface]
     disk_io: dict[str, float]

@@ -25,8 +25,8 @@ function memSize(mb) {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
-/** 把实时快照的内存分量并入内存磁贴（首载与 WS 聚合共用；后端内存 5s 采集缓存）。
- * 系统保留 = 总大小 − 可用（内核占用 + 不可回收部分，契约 §2.1） */
+/** 把实时快照的内存分量并入内存磁贴（首载与 WS 聚合共用；后端直读 /proc/meminfo + 5s 缓存）。
+ * 已使用 = 总大小 − 可用；系统保留 = 已使用 − (缓冲+缓存) 的正差额（契约 §2.1，后端算好） */
 export function applyMemRealtime(mem, snap) {
   mem.percent = snap.mem_percent;
   mem.usedText = memSize(snap.mem_used_mb);
@@ -34,11 +34,7 @@ export function applyMemRealtime(mem, snap) {
   mem.availText = memSize(snap.mem_available_mb);
   mem.buffersText = memSize(snap.mem_buffers_mb);
   mem.cachedText = memSize(snap.mem_cached_mb);
-  mem.reservedText = memSize(
-    snap.mem_total_mb != null && snap.mem_available_mb != null
-      ? Math.max(0, snap.mem_total_mb - snap.mem_available_mb)
-      : null
-  );
+  mem.reservedText = memSize(snap.mem_reserved_mb);
 }
 
 function pick(settled) {
