@@ -360,6 +360,45 @@ export const detect = {
     { slot: '盘位 6', size: '空', desc: '—', empty: true },
   ],
   diskChips: ['网络唤醒 WoL：开', '盘定位：关'],
+  env: {
+    runtime: [
+      ['Python', '3.12.7'],
+      ['监听端口', '9800（仅回环）'],
+      ['日志级别', 'INFO'],
+      ['原始数据保留', '120 分钟'],
+    ],
+    tools: [
+      {
+        name: 'smartctl',
+        desc: '硬盘 SMART 读取',
+        ok: true,
+        path: '/usr/bin/smartctl',
+        install: '',
+      },
+      {
+        name: 'sensors',
+        desc: '温度/风扇/电压传感',
+        ok: true,
+        path: '/usr/bin/sensors',
+        install: '',
+      },
+      { name: 'mdadm', desc: '软 RAID 阵列状态', ok: true, path: '/usr/sbin/mdadm', install: '' },
+      {
+        name: 'dmidecode',
+        desc: '主板/内存条信息',
+        ok: true,
+        path: '/usr/sbin/dmidecode',
+        install: '',
+      },
+      { name: 'decode-dimms', desc: '内存温度', ok: false, path: '', install: 'i2c-tools' },
+      { name: 'ethtool', desc: '网卡信息与 WOL', ok: true, path: '/usr/bin/ethtool', install: '' },
+    ],
+    drivers: [
+      { name: 'nct6775', desc: '风扇芯片驱动（Nuvoton 新机型）', loaded: true },
+      { name: 'it87', desc: '风扇芯片驱动（ITE 旧机型）', loaded: false },
+    ],
+    storcli: { ok: true, path: '/usr/local/bin/storcli64', desc: 'LSI MegaRAID/HBA 阵列卡工具' },
+  },
 };
 
 /** 温度监控页 */
@@ -546,7 +585,7 @@ export const manual = {
 
 /** 关于页 */
 export const about = {
-  version: 'dev-0.0.1',
+  version: 'dev-0.0.3',
   desc: '飞牛 fnOS 硬件监控面板 · UNRAID 风格',
   slogan: '把要 SSH 才能看的硬件状态，装进一块面板',
   build: [

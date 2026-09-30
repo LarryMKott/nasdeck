@@ -15,10 +15,12 @@ os_min_version        = 1.2.0
 desktop_uidir         = ui
 desktop_applaunchname = com.dashboard.nasdeck.main
 ctl_stop              = true
-; CGI 反代形态：面板由 index.cgi 在本机转发到 127.0.0.1:9800（fnpackup 同款，
+; CGI 反代形态：面板由 index.cgi 在本机转发到本机回环端口（fnpackup 同款，
 ; 不走统一网关——飞牛会周期性清空第三方 gateway 入口，实测反复 404）。
-; 9800 仅绑回环不向局域网暴露；service_port + checkport 供飞牛探测就绪。
-service_port          = 9800
-checkport             = true
+; 端口纯内部转发、仅绑回环不向局域网暴露，面板经飞牛登录态保护；默认 9800，
+; 用户可在安装向导自定义（wizard_port → install_callback 校验落盘）。
+; 按规范 CGI 模式省略 service_port 并设 checkport=false：固定声明会与用户自定义
+; 端口冲突，端口占用改由 install_callback 预检（冲突即装机失败并提示换端口）。
+checkport             = false
 install_dep_apps      = python312
-changelog             = dev-0.0.1: 开发版首包——FastAPI 后端 + UNRAID 风格新界面整体重构，功能清单见项目 README。
+changelog             = dev-0.0.3: 新增安装向导自定义面板监听端口（默认 9800，冲突可直接更换），并支持在应用「配置」中随时调整端口、日志级别与原始数据保留时长；安全加固：桌面入口仅管理员可见，读操作校验飞牛登录身份，风扇调速等写操作需管理员账号；硬件检测页新增「运行环境自检」，安装期工具/驱动自举结果一目了然。

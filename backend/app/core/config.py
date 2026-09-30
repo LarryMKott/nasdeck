@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     raw_keep_minutes: int = 120
     storcli_path: str = ""
     log_level: str = "INFO"
-    app_version: str = "dev-0.0.1"
+    app_version: str = "dev-0.0.3"
     # FPK 打包形态：指向前端 dist 目录时由本服务托管 SPA；开发形态留空不挂载
     static_dir: str = ""
 

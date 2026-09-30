@@ -1,6 +1,6 @@
 # nasdeck
 
-**dev-0.0.1**（开发版） · 飞牛OS（fnOS）NAS 硬件监控面板
+**dev-0.0.3**（开发版） · 飞牛OS（fnOS）NAS 硬件监控面板
 
 [下载 fpk](https://github.com/LarryMKott/nasdeck/releases/latest) · [操作手册](docs/使用手册.md) · [前后端接口约定](docs/前后端数据接口约定.md) · [FPK 打包说明](fpk/README.md) · [飞牛社区讨论帖](https://club.fnnas.com/forum.php?mod=viewthread&tid=67060)
 
