@@ -8,13 +8,29 @@
 
 ## 预览
 
+**总览** —— 打开即看的硬件仪表盘（深色主题）：
+
+![总览](docs/screenshots/01-overview.png)
+
 <table>
 <tr>
-<td width="33%"><img src="docs/screenshots/01-dashboard.png" alt="硬件配置检测仪表盘"><br><em>硬件配置检测</em></td>
-<td width="33%"><img src="docs/screenshots/02-fan-rule.png" alt="风扇控制 - 逐风扇温度联动控速"><br><em>风扇控制（含逐风扇温度联动控速）</em></td>
-<td width="33%"><img src="docs/screenshots/03-raid.png" alt="阵列卡"><br><em>阵列卡（LSI MegaRAID）</em></td>
+<td width="33%"><img src="docs/screenshots/02-detect.png" alt="硬件检测"><br><em>硬件检测（系统 / 主板 / CPU / 内存 / 网络 / RAID）</em></td>
+<td width="33%"><img src="docs/screenshots/03-system.png" alt="系统资源"><br><em>系统资源（CPU / 内存 / 网络 / 磁盘 IO / 功耗）</em></td>
+<td width="33%"><img src="docs/screenshots/04-temps.png" alt="温度监控"><br><em>温度监控（关键传感器速览 + 温度墙）</em></td>
+</tr>
+<tr>
+<td width="33%"><img src="docs/screenshots/05-history.png" alt="历史趋势"><br><em>历史趋势（六维度 · 24h/7d/30d · 报告导出）</em></td>
+<td width="33%"><img src="docs/screenshots/06-disks.png" alt="硬盘 SMART"><br><em>硬盘 SMART（健康分级 · 在线自检 · 定位）</em></td>
+<td width="33%"><img src="docs/screenshots/07-storage.png" alt="存储卷"><br><em>存储卷（阵列设备 · 卷映射 · 云盘）</em></td>
+</tr>
+<tr>
+<td width="33%"><img src="docs/screenshots/08-fan.png" alt="风扇控制"><br><em>风扇控制（接管调速 · 曲线编辑 · 温控规则）</em></td>
+<td width="33%"><img src="docs/screenshots/09-docker.png" alt="Docker"><br><em>Docker（容器状态 · 资源占用 · 端口映射）</em></td>
+<td width="33%"><img src="docs/screenshots/10-ports.png" alt="端口占用"><br><em>端口占用（进程识别 · 可达性 · 一键释放）</em></td>
 </tr>
 </table>
+
+> 截图为应用内置「演示数据」模式下的深色主题运行效果；「控制与自动化」「操作手册」「关于」等页面见 [操作手册](docs/使用手册.md)。
 
 ## 安装
 
