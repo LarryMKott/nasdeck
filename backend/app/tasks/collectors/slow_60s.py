@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from app.db.session import session_factory
-from app.models.hardware import HardwareItem
+from app.db import ingest
 from app.services.hardware.cpu import CpuCollector
 from app.services.hardware.gpu import GpuCollector
 from app.services.hardware.memory import MemoryCollector
@@ -38,12 +37,8 @@ async def slow_tick() -> None:
                 for c, r in zip(_COLLECTORS, rows, strict=False)
             ),
         )
-        async with session_factory() as db:
-            db.add_all(
-                HardwareItem(kind=c.kind, name=r.get("name", ""), props=r)
-                for c, r in zip(_COLLECTORS, rows, strict=False)
-            )
-            await db.commit()
+        for c, r in zip(_COLLECTORS, rows, strict=False):
+            ingest.submit("hardware", {"kind": c.kind, "name": r.get("name", ""), "props": r})
 
         # 磁盘健康计数与阵列降级数 → 缓存（告警引擎消费）
         disks = await volume_service.list_disks()
