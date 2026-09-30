@@ -23,4 +23,4 @@ ctl_stop              = true
 ; 端口冲突，端口占用改由 install_callback 预检（冲突即装机失败并提示换端口）。
 checkport             = false
 install_dep_apps      = python312
-changelog             = dev-0.0.4: 告警渠道新增通用 Webhook（向自定义 URL 推送 JSON 通知，2xx 即成功）；dev 版包默认 DEBUG 日志，app.log 记录外部工具调用明细（命令/退出码/耗时）、温度采集、硬件清单可用性与磁盘/阵列汇总，真机排障更直观，级别仍可在「配置」中调整。
+changelog             = dev-0.0.5: 总览页 CPU 支持每线程使用率/频率实时切换（WS 秒级推送）；内存磁贴展示总大小/已使用/可用/缓冲/缓存/系统保留六项分量（直读 /proc/meminfo，Unraid 口径）；采集链路对齐低占用架构——CPU/内存/GPU 全部直读 /proc 与 /sys 内核文件、零外部命令，仅 NVIDIA 调 nvidia-smi 且 5s 采样；新增 GPU 实时监控（AMD sysfs / NVIDIA，Intel 核显暂不支持实时值）。
