@@ -126,7 +126,12 @@ const gpuSeries = [
           <div class="meter" style="margin-top: 9px">
             <i class="c-ok" :style="{ width: `${d.cpu.percent}%` }" />
           </div>
-          <div class="cores" :style="{ gridTemplateColumns: `repeat(${coreCols}, 1fr)` }">
+          <!-- ≥3 线程才显示柱条对比：1-2 线程整宽单柱形似进度条且无对比意义 -->
+          <div
+            v-if="(d.cpu.cores || []).length >= 3"
+            class="cores"
+            :style="{ gridTemplateColumns: `repeat(${coreCols}, 1fr)` }"
+          >
             <span v-for="(v, i) in d.cpu.cores" :key="i" class="core" :title="coreTip(i, v)">
               <i :style="cpuMode === 'usage' ? { height: `${v}%` } : freqBarStyle(i)" />
               <em v-if="cpuMode === 'freq'" class="cf">{{ freqLabel(i) }}</em>
