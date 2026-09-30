@@ -8,7 +8,7 @@
  * 视图经 useViewData 消费，模板零改动。
  */
 
-import { apiData } from './client';
+import { apiBase, apiData } from './client';
 import * as mock from '../mock';
 
 /** 秒 → HH:MM */
@@ -703,8 +703,8 @@ export async function fetchHistoryStats(dim, rangeKey) {
   }
 }
 
-/** 历史报告导出（§3.1 export 文件流），返回可直接下载的 url */
+/** 历史报告导出（§3.1 export 文件流），返回可直接下载的 url（带网关 index.cgi 前缀） */
 export function historyExportUrl(dim, rangeKey, fmt) {
   const minutes = { '24h': 1440, '7d': 10080, '30d': 43200 }[rangeKey] ?? 10080;
-  return `/api/v1/monitor/history/export?minutes=${minutes}&dim=${dim}&fmt=${fmt}`;
+  return `${apiBase()}/api/v1/monitor/history/export?minutes=${minutes}&dim=${dim}&fmt=${fmt}`;
 }

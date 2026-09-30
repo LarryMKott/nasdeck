@@ -57,8 +57,13 @@ if [ -n "$CONTENT_TYPE" ]; then
 fi
 curl_args+=("$target_url")
 
-if [ "$REQUEST_METHOD" = "POST" ]; then
-    exec cat | curl "${curl_args[@]}" --data-binary @- --include | sed -e '/^HTTP\/1.1 100/,/^\r\?$/d'
-else
-    exec curl "${curl_args[@]}" --include | sed -e '/^HTTP\/1.1 100/,/^\r\?$/d'
-fi
+# 带请求体的方法统一把 stdin 转给 curl：只认 POST 会让 PUT/PATCH（风扇曲线、
+# 系统设置、告警规则等）收到空 body 而后端 422（审查 2026-09-30 P1）
+case "$REQUEST_METHOD" in
+    POST|PUT|PATCH|DELETE)
+        exec cat | curl "${curl_args[@]}" --data-binary @- --include | sed -e '/^HTTP\/1.1 100/,/^\r\?$/d'
+        ;;
+    *)
+        exec curl "${curl_args[@]}" --include | sed -e '/^HTTP\/1.1 100/,/^\r\?$/d'
+        ;;
+esac

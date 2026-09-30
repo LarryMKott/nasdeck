@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import platform
 
 from app.utils.async_cmd import run_cmd
@@ -43,8 +42,14 @@ async def takeover() -> dict:
     if platform.system() != "Linux":
         return {"taken_over": False, "reason": "非 Linux 环境不可执行 systemctl"}
     try:
-        await run_cmd("systemctl", "stop", UNIT, timeout=10)
-        await run_cmd("systemctl", "disable", UNIT, timeout=10)
+        # run_cmd 非零退出不抛异常（只超时/命令缺失才抛），必须逐条检查 rc，
+        # 否则 stop/disable 失败仍会置 taken_over=True（审查 2026-09-30 P1）
+        rc, _out, err = await run_cmd("systemctl", "stop", UNIT, timeout=10)
+        if rc != 0:
+            return {"taken_over": False, "reason": f"systemctl stop 失败 rc={rc}: {err.strip()[:150]}"}
+        rc, _out, err = await run_cmd("systemctl", "disable", UNIT, timeout=10)
+        if rc != 0:
+            return {"taken_over": False, "reason": f"systemctl disable 失败 rc={rc}: {err.strip()[:150]}"}
     except Exception as exc:
         return {"taken_over": False, "reason": str(exc)[:200]}
     _state["taken_over"] = True
@@ -58,7 +63,10 @@ async def release() -> dict:
     if platform.system() != "Linux":
         return {"released": False, "reason": "非 Linux 环境不可执行 systemctl"}
     try:
-        await asyncio.create_subprocess_exec("systemctl", "enable", "--now", UNIT)
+        # 须等待 systemctl 完成并确认成功后才翻转状态（原实现只创建子进程不等待）
+        rc, _out, err = await run_cmd("systemctl", "enable", "--now", UNIT, timeout=15)
+        if rc != 0:
+            return {"released": False, "reason": f"systemctl enable --now 失败 rc={rc}: {err.strip()[:150]}"}
     except Exception as exc:
         return {"released": False, "reason": str(exc)[:200]}
     _state["taken_over"] = False

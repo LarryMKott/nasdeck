@@ -2,7 +2,7 @@
 /** 控制与自动化：活动告警 / 告警规则与通知 / 报告导出 三个页内页签 + 日志弹窗（后端 + 演示回退） */
 import { computed, ref } from 'vue';
 import { automation as mockAutomation, activeAlerts as mockAlerts } from '../mock';
-import { apiData } from '../api/client';
+import { apiBase, apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
@@ -30,7 +30,8 @@ async function exportReport() {
       method: 'POST',
       timeout: 60000,
     });
-    window.open(result.url, '_blank');
+    // 后端返回根相对路径 /api/v1/...，FPK 形态须经 index.cgi 前缀才能命中（契约 §7.1）
+    window.open(apiBase() + result.url, '_blank');
   } catch {
     /* 后端不可达静默 */
   } finally {

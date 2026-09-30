@@ -61,9 +61,10 @@ class CurveIn(BaseModel):
 
     @model_validator(mode="after")
     def check_points(self) -> CurveIn:
-        temps = [p[0] for p in self.points]
-        if any(len(p) != 2 for p in self.points):
+        # 先验形状再取下标：畸形单点（如 []）应返回 422 校验错误而非 IndexError
+        if any(not isinstance(p, (list, tuple)) or len(p) != 2 for p in self.points):
             raise ValueError("每个点必须是 [temp, pwm] 二元组")
+        temps = [p[0] for p in self.points]
         if any(not (0 <= p[1] <= 100) for p in self.points):
             raise ValueError("占空比必须在 0-100")
         if any(b <= a for a, b in zip(temps, temps[1:], strict=False)):

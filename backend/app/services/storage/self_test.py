@@ -31,8 +31,9 @@ def get_test(device: str) -> dict:
     return dict(_tests[device], device=device)
 
 
-def start_test(device: str, test_type: str, runner) -> dict:
-    """runner(device, on_progress, on_done) 为 smartctl 执行器，由 API 层注入。"""
+def start_test(device: str, test_type: str, runner, probe=None) -> dict:
+    """runner(device, test_type) 为 smartctl -t 执行器、probe(device) 为结果查询器
+    （返回 (result, error)），均由 API 层注入。"""
     running = [d for d, t in _tests.items() if t["status"] == "running"]
     if device in running:
         raise StateConflictError(f"self-test already running on {device}")
@@ -52,14 +53,23 @@ def start_test(device: str, test_type: str, runner) -> dict:
         total = _DURATION_MIN.get(test_type, 2) * 60
         try:
             await runner(device, test_type)
-            # 真机 smartctl 为异步后台自检：命令成功即进入 running，由轮询更新结果；
-            # 此处保留进度推进协程，超时兜底标记完成。
+            # 真机 smartctl 为异步后台自检：命令成功即进入 running。按预计时长推进
+            # 进度，到点后经 probe 查询真实自检日志（smartctl -l selftest 最后一条）
+            # 判定结果——任务被盘中止/报错不得谎报 completed（审查 2026-09-30 P2）。
             started = time.monotonic()
             while time.monotonic() - started < total and _tests.get(device) is state:
                 state["percent"] = min(int((time.monotonic() - started) / total * 100), 99)
                 await asyncio.sleep(5)
             if _tests.get(device) is state:
-                state.update(status="done", percent=100, completed_at=_now(), result="completed")
+                result, error = "unknown", "无法确认自检结果，请查看 smartctl 自检日志"
+                if probe is not None:
+                    try:
+                        result, error = await probe(device)
+                    except Exception as exc:  # noqa: BLE001 查询失败不掩盖状态机
+                        result, error = "unknown", str(exc)[:200]
+                state.update(
+                    status="done", percent=100, completed_at=_now(), result=result, error=error
+                )
         except Exception as exc:  # noqa: BLE001 执行失败落状态
             state.update(status="failed", completed_at=_now(), error=str(exc)[:200])
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 
 import psutil
 from sqlalchemy import select
@@ -11,13 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import PermissionDeniedError
 from app.models.system import KillWhitelist
 
-# 内置受保护系统进程（不可终止）
+# 内置受保护系统进程（不可终止）；支持 fnmatch 通配（fnos-* 保护全部飞牛服务）
 PROTECTED_NAMES = {"systemd", "init", "kernel", "sshd", "uvicorn", "python3", "fnos-*"}
 
 
 def _is_protected(name: str, whitelist: set[str]) -> bool:
     low = name.lower()
-    if any(low == p.lower().rstrip("*") for p in PROTECTED_NAMES):
+    if any(fnmatch.fnmatch(low, p.lower()) for p in PROTECTED_NAMES):
         return True
     return any(low == w.lower() for w in whitelist)
 

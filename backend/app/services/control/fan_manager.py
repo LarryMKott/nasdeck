@@ -102,7 +102,13 @@ async def apply_tick(db: AsyncSession) -> list[dict]:
                     {"zone_id": zone.id, "mode": zone.mode, "error": "sensor unavailable"}
                 )
                 continue
-            target = curve_engine.target_pwm(curve.points, sensor_temp, curve.hysteresis_c, int(curve.ramp_per_tick))
+            # 当前占空比（0-255 原始值 → 0-100 pct）：迟滞与斜率限制的基准，
+            # 不传则曲线引擎每 tick 可无阻尼跳变（审查 2026-09-30 P1）
+            raw = hwmon_driver.read_pwm(zone.hwmon_name, zone.pwm_channel)
+            current_pct = raw / 255 * 100 if raw is not None else None
+            target = curve_engine.target_pwm(
+                curve.points, sensor_temp, curve.hysteresis_c, int(curve.ramp_per_tick), current_pct
+            )
         ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, target)
         entry = {
             "zone_id": zone.id,
