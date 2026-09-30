@@ -15,6 +15,9 @@ async def test_realtime_snapshot_shape(client):
     for key in ("ts", "cpu_percent", "cpu_per_core", "mem_total_mb", "net", "uptime_s"):
         assert key in data
     assert isinstance(data["cpu_per_core"], list)
+    # 每逻辑核频率（契约 §2.1）：与每核占用等长，取不到的核为 null
+    assert isinstance(data["cpu_freq_per_core"], list)
+    assert len(data["cpu_freq_per_core"]) == len(data["cpu_per_core"])
 
 
 async def test_temperatures_empty_on_non_linux(client):

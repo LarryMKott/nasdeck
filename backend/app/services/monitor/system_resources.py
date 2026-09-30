@@ -60,10 +60,25 @@ def _disk_io() -> dict[str, float]:
     }
 
 
+def _per_core_freq() -> list[float | None]:
+    """每逻辑核当前频率（MHz）；平台不给足每核条目时以 None 占位（Windows 实测仅回 1 条）。"""
+    n = psutil.cpu_count(logical=True) or 0
+    if not n:
+        return []
+    freqs = psutil.cpu_freq(percpu=True) or []
+    if not freqs:
+        return [None] * n
+    current = [f.current if f else None for f in freqs]
+    if len(current) >= n:
+        return [round(v) if v else None for v in current[:n]]
+    return [round(current[i]) if i < len(current) and current[i] else None for i in range(n)]
+
+
 async def snapshot() -> dict:
     cpu_percent = psutil.cpu_percent(interval=None)
     per_core = psutil.cpu_percent(interval=None, percpu=True)
     freq = psutil.cpu_freq()
+    freq_per_core = _per_core_freq()
     vm = psutil.virtual_memory()
     sm = psutil.swap_memory()
     try:
@@ -76,6 +91,8 @@ async def snapshot() -> dict:
         "cpu_percent": cpu_percent,
         "cpu_per_core": per_core,
         "cpu_freq_mhz": round(freq.current, 0) if freq else None,
+        "cpu_freq_per_core": freq_per_core,
+        "cpu_freq_max_mhz": round(freq.max, 0) if freq and freq.max else None,
         "load": load,
         "mem_used_mb": round(vm.used / 1024 / 1024, 1),
         "mem_total_mb": round(vm.total / 1024 / 1024, 1),

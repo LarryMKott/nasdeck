@@ -26,6 +26,7 @@ watch(
   (snap) => {
     if (!snap || !live.value) return;
     d.value.cpu.percent = Math.round(snap.cpu_percent * 10) / 10;
+    nasData.applyCpuRealtime(d.value.cpu, snap);
     d.value.mem.percent = snap.mem_percent;
     const ifaces = Object.entries(snap.net);
     d.value.net.rxText = `${(ifaces.reduce((a, [, v]) => a + v.rx_kbps, 0) / 1024).toFixed(1)} MB/s ↓`;
@@ -38,6 +39,41 @@ const headerTag = computed(() => ({
   text: live.value ? '正常' : '演示数据',
 }));
 const autoRefresh = ref(true);
+
+/** CPU 磁贴：每线程 使用率/频率 双视图（WS 1s 快照驱动） */
+const cpuMode = ref('usage');
+const coreFreqMhz = (i) => {
+  const v = d.value.cpu.freqPerCore?.[i];
+  return v > 0 ? v : null;
+};
+const freqScaleMhz = computed(
+  () =>
+    d.value.cpu.freqMaxMhz || Math.max(0, ...(d.value.cpu.freqPerCore || []).filter((v) => v > 0))
+);
+const freqBarStyle = (i) => {
+  const f = coreFreqMhz(i);
+  const scale = freqScaleMhz.value || 1;
+  return { height: `${f ? Math.min(100, Math.max(6, (f / scale) * 100)) : 0}%` };
+};
+const freqLabel = (i) => {
+  const f = coreFreqMhz(i);
+  return f ? (Math.round(f / 10) / 100).toFixed(1) : '—';
+};
+const coreTip = (i, v) => {
+  const parts = [`线程 ${i + 1}`];
+  if (v != null) parts.push(`${Math.round(v)}%`);
+  const f = coreFreqMhz(i);
+  if (f) parts.push(`${(Math.round(f / 10) / 100).toFixed(2)} GHz`);
+  return parts.join(' · ');
+};
+const freqRangeText = computed(() => {
+  const vals = (d.value.cpu.freqPerCore || []).filter((v) => v > 0);
+  if (!vals.length) return `${d.value.cpu.freqGHz} GHz`;
+  const g = (v) => (Math.round(v / 10) / 100).toFixed(2);
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  return lo === hi ? `${g(hi)} GHz` : `${g(lo)} – ${g(hi)} GHz`;
+});
 
 /** spark 序列（种子与原型一致，形态稳定；联调阶段占位） */
 const sparks = {
@@ -67,19 +103,33 @@ const gpuSeries = [
     <div class="grid">
       <div class="wg tile-wg t3">
         <div class="wg-b">
-          <div class="cap"><u-icon name="cpu" />CPU 使用率</div>
+          <div
+            class="cap"
+            style="display: flex; align-items: center; justify-content: space-between"
+          >
+            <span style="display: inline-flex; gap: 6px; align-items: center">
+              <u-icon name="cpu" />CPU 使用率
+            </span>
+            <span class="cpuswitch">
+              <span :class="{ on: cpuMode === 'usage' }" @click="cpuMode = 'usage'">使用率</span>
+              <span :class="{ on: cpuMode === 'freq' }" @click="cpuMode = 'freq'">频率</span>
+            </span>
+          </div>
           <div class="big num">{{ d.cpu.percent }}<small>%</small></div>
           <div class="meter" style="margin-top: 9px">
             <i class="c-ok" :style="{ width: `${d.cpu.percent}%` }" />
           </div>
           <div class="cores">
-            <span v-for="(v, i) in d.cpu.cores" :key="i" class="core"
-              ><i :style="{ height: `${v}%` }"
-            /></span>
+            <span v-for="(v, i) in d.cpu.cores" :key="i" class="core" :title="coreTip(i, v)">
+              <i :style="cpuMode === 'usage' ? { height: `${v}%` } : freqBarStyle(i)" />
+              <em v-if="cpuMode === 'freq'" class="cf">{{ freqLabel(i) }}</em>
+            </span>
           </div>
           <div class="mtxt">
             <span>{{ d.cpu.coresText }}</span>
-            <span class="num">{{ d.cpu.tempC }} °C · {{ d.cpu.freqGHz }} GHz</span>
+            <span class="num">
+              {{ cpuMode === 'freq' ? freqRangeText : `${d.cpu.tempC} °C · ${d.cpu.freqGHz} GHz` }}
+            </span>
           </div>
         </div>
       </div>
@@ -442,3 +492,39 @@ const gpuSeries = [
     </div>
   </section>
 </template>
+
+<style scoped>
+/* 使用率/频率 双视图切换（视图内局部控件，不入全局设计令牌） */
+.cpuswitch {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--bd);
+  border-radius: 4px;
+}
+
+.cpuswitch span {
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--tx2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.cpuswitch span.on {
+  color: #fff;
+  background: var(--acc);
+}
+
+/* 频率视图：柱内顶部标 GHz 数值 */
+.core .cf {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  left: 0;
+  font-size: 8.5px;
+  font-style: normal;
+  line-height: 1.1;
+  color: var(--tx2);
+  text-align: center;
+}
+</style>

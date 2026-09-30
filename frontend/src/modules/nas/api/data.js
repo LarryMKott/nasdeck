@@ -43,6 +43,18 @@ function withFallback(value, mockValue) {
 
 // ---------------- 总览 ----------------
 
+/** 把实时快照的每核占用/频率并入 CPU 磁贴数据（首载与 WS 聚合共用，契约 §2.1） */
+export function applyCpuRealtime(cpu, snap) {
+  if (Array.isArray(snap.cpu_per_core) && snap.cpu_per_core.length) {
+    cpu.cores = snap.cpu_per_core;
+  }
+  cpu.freqPerCore = Array.isArray(snap.cpu_freq_per_core) ? snap.cpu_freq_per_core : [];
+  if (snap.cpu_freq_max_mhz) cpu.freqMaxMhz = snap.cpu_freq_max_mhz;
+  const freqs = cpu.freqPerCore.filter((v) => v > 0);
+  if (freqs.length) cpu.freqGHz = Math.round(Math.max(...freqs) / 10) / 100;
+  else if (snap.cpu_freq_mhz) cpu.freqGHz = Math.round(snap.cpu_freq_mhz / 10) / 100;
+}
+
 export async function fetchDashboard() {
   const [snapS, tempsS, raidS, dockerS, infoS, eventsS, fansS] = await Promise.allSettled([
     apiData('/api/v1/monitor/realtime'),
@@ -68,9 +80,8 @@ export async function fetchDashboard() {
   const d = JSON.parse(JSON.stringify(mock.dashboard));
 
   d.cpu.percent = Math.round(snap.cpu_percent * 10) / 10;
-  d.cpu.cores = snap.cpu_per_core.slice(0, 8);
+  applyCpuRealtime(d.cpu, snap);
   d.cpu.coresText = `${logical} 线程 · 负载 ${snap.load[0] ?? '—'}`;
-  d.cpu.freqGHz = snap.cpu_freq_mhz ? Math.round(snap.cpu_freq_mhz / 10) / 100 : d.cpu.freqGHz;
   d.cpu.tempC = cpuTemp.length ? Math.max(...cpuTemp.map((t) => t.celsius)) : d.cpu.tempC;
 
   d.mem.percent = snap.mem_percent;

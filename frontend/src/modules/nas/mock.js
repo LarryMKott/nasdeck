@@ -55,6 +55,8 @@ export const dashboard = {
   cpu: {
     percent: 23,
     cores: [31, 18, 44, 12, 26, 38, 9, 22],
+    freqPerCore: [4600, 4500, 3800, 4300, 1200, 800, 4700, 3900],
+    freqMaxMhz: 4700,
     coresText: '4C8T · 负载 0.42',
     freqGHz: 3.49,
     tempC: 45,

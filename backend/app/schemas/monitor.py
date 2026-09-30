@@ -20,6 +20,9 @@ class RealtimeSnapshot(BaseModel):
     cpu_percent: float
     cpu_per_core: list[float]
     cpu_freq_mhz: float | None = None
+    # 每逻辑核当前频率（取不到的核为 null）与频率上限；契约 §2.1 可选字段
+    cpu_freq_per_core: list[float | None] = []
+    cpu_freq_max_mhz: float | None = None
     load: list[float]
     mem_used_mb: float
     mem_total_mb: float
