@@ -9,26 +9,28 @@ from app.utils.sysfs import list_dirs, read_int, read_text
 HWMON_ROOT = Path("/sys/class/hwmon")
 
 
-def scan_channels() -> list[dict]:
-    """枚举所有可控 pwm 通道（pwm 文件存在即可控）。"""
+def scan_channels(root: Path = HWMON_ROOT) -> list[dict]:
+    """枚举所有可控 pwm 通道（pwm 文件存在即可控）；有对应转速计则带 fan_channel。"""
     channels = []
-    for chip_dir in list_dirs(HWMON_ROOT):
-        base = HWMON_ROOT / chip_dir
+    for chip_dir in list_dirs(root):
+        base = root / chip_dir
         chip = read_text(base / "name") or chip_dir
         for pwm_file in sorted(base.glob("pwm[0-9]*")):
             name = pwm_file.name
             idx = name.removeprefix("pwm")
             if not idx.isdigit():
                 continue  # 排除 pwm*_mode/_enable 等
-            fan_idx = read_int(base / f"fan{idx}_input")
+            fan_path = base / f"fan{idx}_input"
+            fan_channel = int(idx) if fan_path.exists() else None
             channels.append(
                 {
                     "chip": chip,
                     "chip_path": str(base),
                     "pwm_channel": int(idx),
+                    "fan_channel": fan_channel,
                     "label": read_text(base / f"pwm{idx}_label"),
                     "current_pwm_pct": round((read_int(pwm_file) or 0) / 255 * 100, 1),
-                    "current_rpm": fan_idx,
+                    "current_rpm": read_int(fan_path),
                     "pwm_enable": read_int(base / f"pwm{idx}_enable"),
                     "writable": bool(pwm_file.stat().st_mode & 0o200) if pwm_file.exists() else False,
                 }

@@ -9,6 +9,7 @@ class HwmonChannel(BaseModel):
     chip: str
     chip_path: str
     pwm_channel: int
+    fan_channel: int | None = None
     label: str | None = None
     current_pwm_pct: float | None = None
     current_rpm: int | None = None
@@ -30,6 +31,7 @@ class FanZoneIn(BaseModel):
 
 
 class FanZoneUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=64)
     mode: str | None = Field(default=None, pattern="^(auto|curve|fixed)$")
     fixed_pwm: int | None = Field(default=None, ge=0, le=100)
     curve_id: int | None = None

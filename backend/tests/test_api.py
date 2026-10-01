@@ -52,6 +52,34 @@ async def test_alert_rule_crud(client):
     err(await client.delete(f"/api/v1/alert/rules/{rule_id}"), 1001)
 
 
+async def test_fan_zone_crud(client):
+    """§3.4 风区 CRUD：建 → 改名/定速 → 列表在位 → 删除（删除含交还 BIOS 的副作用）。"""
+    created = ok(
+        await client.post(
+            "/api/v1/control/fans",
+            json={
+                "name": "测试风扇",
+                "loop": "chassis",
+                "hwmon_name": "nct-test",
+                "pwm_channel": 1,
+                "mode": "auto",
+            },
+        )
+    )
+    zid = created["id"]
+    upd = ok(
+        await client.put(
+            f"/api/v1/control/fans/{zid}",
+            json={"name": "改名风扇", "mode": "fixed", "fixed_pwm": 40},
+        )
+    )
+    assert upd["name"] == "改名风扇" and upd["mode"] == "fixed"
+    items = ok(await client.get("/api/v1/control/fans"))
+    assert any(z["id"] == zid for z in items)
+    deleted = ok(await client.delete(f"/api/v1/control/fans/{zid}"))
+    assert deleted["deleted"] is True
+
+
 async def test_alert_rule_invalid_metric(client):
     err(
         await client.post(
