@@ -69,19 +69,127 @@ export function applyCpuRealtime(cpu, snap) {
   else if (snap.cpu_freq_mhz) cpu.freqGHz = Math.round(snap.cpu_freq_mhz / 10) / 100;
 }
 
-/** 把实时快照的 GPU 分量并入总览 GPU 磁贴（契约 §2.1 gpu 对象；Intel/无卡不覆盖） */
+/** 把实时快照的 GPU 分量并入总览 GPU 磁贴（契约 §2.1 gpu 对象；无卡不覆盖） */
 export function applyGpuRealtime(gpu, snap) {
   const g = snap.gpu;
   if (!g || !g.available) return;
   if (g.percent != null) gpu.percent = Math.round(g.percent);
   if (g.temp_c != null) gpu.tempC = Math.round(g.temp_c);
-  if (g.vram_total_mb) {
-    gpu.vramText = `显存 ${(g.vram_used_mb / 1024).toFixed(1)} GB`;
+  // intel_gpu_top 不提供显存：缺失时显式置“—”，避免残留演示值被当成真实读数
+  gpu.vramText =
+    g.vram_used_mb != null && g.vram_total_mb
+      ? `显存 ${(g.vram_used_mb / 1024).toFixed(1)} GB`
+      : '显存 —';
+}
+
+/** GPU 详情卡：intel_gpu_top 帧（频率/包功耗/引擎占用）；显存无内核接口恒“—”。
+ * Gen9 的 Video 引擎承担编解码（转码）、VideoEnhance 负责增强/缩放 */
+export function applyGpuDetail(detail, snap) {
+  const g = snap.gpu;
+  if (!g || !g.available) return;
+  detail.name = (g.name || '').replace(/^Intel Corporation /, '') || detail.name;
+  detail.percent = Math.round(g.percent ?? 0);
+  detail.tempC = g.temp_c != null ? Math.round(g.temp_c) : '—';
+  detail.vramText = '—';
+  const dec = g.video_busy;
+  const enc = g.enhance_busy;
+  detail.engineText =
+    dec == null && enc == null
+      ? '—'
+      : `转码 ${Math.round(dec ?? 0)}% · 增强 ${Math.round(enc ?? 0)}%`;
+  const actual = g.freq_mhz;
+  const requested = g.freq_max_mhz;
+  detail.freqText =
+    !actual && !requested
+      ? '待机 (RC6)'
+      : `${Math.round(actual ?? 0)} / ${Math.round(requested ?? 0)} MHz`;
+  detail.watts = g.power_w != null ? Math.round(g.power_w * 10) / 10 : '—';
+}
+
+/** 把实时快照的 RAPL 功耗并入功耗磁贴（后端 energy_uj 差分；无 RAPL 平台显示 —） */
+export function applyPowerRealtime(power, snap) {
+  const p = snap.power;
+  if (!p || !p.available) {
+    power.watts = '—';
+    power.cpuW = '—';
+    power.dramW = '—';
+    return;
   }
+  power.watts = Math.round((p.watts ?? 0) * 10) / 10;
+  power.cpuW = Math.round((p.cpu_w ?? 0) * 10) / 10;
+  power.dramW = p.dram_w == null ? '—' : Math.round(p.dram_w * 10) / 10;
+}
+
+/** 把实时快照的系统分量并入系统磁贴（首载与 WS/轮询聚合共用；osVersion 需 info 接口，另处回填） */
+export function applySystemRealtime(system, snap) {
+  const days = Math.floor(snap.uptime_s / 86400);
+  const hours = Math.floor((snap.uptime_s % 86400) / 3600);
+  system.uptimeDays = String(days);
+  system.uptimeRest = `天 ${hours} 小时`;
+  system.uptime = `${days} 天 ${hours} 小时`;
+  system.loadText = snap.load.map((x) => x.toFixed(2)).join(' / ') || system.loadText;
+  system.processCount = snap.process_count;
+}
+
+// ---------------- 吞吐量口径与格式化（网络/磁盘磁贴共用） ----------------
+
+/** 合成接口（不承载独立外部流量，求和时剔除） */
+const SYNTHETIC_NET_RE = /^(ovs-system$|docker0$|br-|veth)/;
+
+/** 实时吞吐求和口径：剔除 OVS 系统口/veth/docker 桥；物理口 X 与其 OVS 内部口
+ * X-ovs 并存时只计物理口——OVS 环境下两份计数器是同一份流量，不剔会双计 */
+export function realNetIfaces(net) {
+  const names = Object.keys(net ?? {});
+  return names
+    .filter((n) => !SYNTHETIC_NET_RE.test(n))
+    .filter((n) => {
+      if (!n.endsWith('-ovs')) return true;
+      return !names.includes(n.slice(0, -4));
+    });
+}
+
+/** 吞吐量自适应单位：KB/s 起步，≥1MB/s 升 MB/s，≥1GB/s 升 GB/s。
+ * 空闲流量常在个位数 KB/s，固定 MB/s 会恒显示 0.0（看起来像没采到数据） */
+export function throughputParts(kbps) {
+  const v = Number(kbps) || 0;
+  if (v >= 1024 ** 2) return { value: (v / 1024 ** 2).toFixed(1), unit: 'GB/s' };
+  if (v >= 1024) return { value: (v / 1024).toFixed(1), unit: 'MB/s' };
+  return { value: v >= 100 ? v.toFixed(0) : v.toFixed(1), unit: 'KB/s' };
+}
+
+export function throughputText(kbps) {
+  const p = throughputParts(kbps);
+  return `${p.value} ${p.unit}`;
+}
+
+/** 把实时快照的网络吞吐并入磁贴（首载与 WS/轮询聚合共用） */
+export function applyNetRealtime(net, snap) {
+  const ifaces = realNetIfaces(snap.net);
+  const rxTotal = ifaces.reduce((a, n) => a + (snap.net[n].rx_kbps ?? 0), 0);
+  const txTotal = ifaces.reduce((a, n) => a + (snap.net[n].tx_kbps ?? 0), 0);
+  const [main] = [...ifaces].sort(
+    (a, b) =>
+      snap.net[b].rx_kbps + snap.net[b].tx_kbps - (snap.net[a].rx_kbps + snap.net[a].tx_kbps)
+  );
+  const rx = throughputParts(rxTotal);
+  net.rxText = `${rx.value} ${rx.unit} ↓`;
+  net.rxValue = rx.value;
+  net.rxUnit = `${rx.unit} ↓`;
+  net.txText = `↑ ${throughputText(txTotal)} · ${main ?? 'eth0'}`;
+}
+
+/** 把实时快照的磁盘 IO 并入磁贴（首载与 WS/轮询聚合共用） */
+export function applyDiskRealtime(diskIo, snap) {
+  const io = snap.disk_io ?? {};
+  const r = throughputParts(io.read_kbps ?? 0);
+  diskIo.readText = `${r.value} ${r.unit} 读`;
+  diskIo.readValue = r.value;
+  diskIo.readUnit = `${r.unit} 读`;
+  diskIo.writeText = `↑ 写 ${throughputText(io.write_kbps ?? 0)}`;
 }
 
 export async function fetchDashboard() {
-  const [snapS, tempsS, raidS, dockerS, infoS, eventsS, fansS] = await Promise.allSettled([
+  const [snapS, tempsS, raidS, dockerS, infoS, eventsS, fansS, volsS] = await Promise.allSettled([
     apiData('/api/v1/monitor/realtime'),
     apiData('/api/v1/monitor/temperatures'),
     apiData('/api/v1/storage/raid'),
@@ -89,6 +197,7 @@ export async function fetchDashboard() {
     apiData('/api/v1/system/info'),
     apiData('/api/v1/alert/events?limit=5&status=firing'),
     apiData('/api/v1/control/fans'),
+    apiData('/api/v1/storage/volumes'),
   ]);
   const snap = pick(snapS);
   if (!snap) return { data: mock.dashboard, live: false };
@@ -99,6 +208,7 @@ export async function fetchDashboard() {
   const info = pick(infoS);
   const events = pick(eventsS) ?? [];
   const zones = pick(fansS) ?? [];
+  const mounts = pick(volsS) ?? [];
 
   const logical = snap.cpu_per_core.length || 1;
   const cpuTemp = temps.filter((t) => t.zone === 'cpu');
@@ -112,16 +222,12 @@ export async function fetchDashboard() {
   d.mem.percent = snap.mem_percent;
   applyMemRealtime(d.mem, snap);
   applyGpuRealtime(d.gpu, snap);
+  applyGpuDetail(d.gpuDetail, snap);
 
-  const ifaces = Object.entries(snap.net);
-  const rxTotal = ifaces.reduce((a, [, v]) => a + v.rx_kbps, 0);
-  const txTotal = ifaces.reduce((a, [, v]) => a + v.tx_kbps, 0);
-  const main = ifaces[0];
-  d.net.rxText = `${(rxTotal / 1024).toFixed(1)} MB/s ↓`;
-  d.net.txText = `↑ ${(txTotal / 1024).toFixed(1)} MB/s · ${main ? main[0] : 'eth0'}`;
-
-  d.diskIo.readText = `${((snap.disk_io.read_kbps ?? 0) / 1024).toFixed(0)} MB/s 读`;
-  d.diskIo.writeText = `↑ 写 ${((snap.disk_io.write_kbps ?? 0) / 1024).toFixed(0)} MB/s`;
+  applyNetRealtime(d.net, snap);
+  applyDiskRealtime(d.diskIo, snap);
+  applyPowerRealtime(d.power, snap);
+  applySystemRealtime(d.system, snap);
 
   const allVols = [...(raid?.hardware_raid ?? []), ...(raid?.software_raid ?? [])];
   if (allVols.length) {
@@ -130,16 +236,16 @@ export async function fetchDashboard() {
     d.array.level = `${vol.source === 'storcli' ? '硬 RAID' : '软 RAID'} ${vol.level} · ${vol.name}`;
     d.array.usedText = `状态 ${vol.state}`;
     d.array.usedPercent = vol.healthy ? 100 : 0;
+    // 真实容量（软 RAID 来自 mdstat blocks×1024）；缺失显式“—”，不残留演示值
+    d.array.total = Number.isFinite(vol.size_bytes)
+      ? `${(vol.size_bytes / 1e12).toFixed(1)} TB`
+      : '—';
   }
 
-  d.system.uptime = uptimeText(snap.uptime_s);
-  d.system.uptimeS = snap.uptime_s;
   d.system.osVersion =
     info?.fnos_version ||
     [info?.platform, info?.kernel].filter(Boolean).join(' ') ||
     d.system.osVersion;
-  d.system.loadText = snap.load.map((x) => x.toFixed(2)).join(' / ') || d.system.loadText;
-  d.system.processCount = snap.process_count;
 
   d.fans = zones.length
     ? zones.map((z, i) => ({
@@ -150,12 +256,14 @@ export async function fetchDashboard() {
         tempC: z.sensor_temp_c != null ? Math.round(z.sensor_temp_c) : 0,
         durSec: 3 + (i % 3) * 0.35,
       }))
-    : d.fans;
+    : []; // 未配置风区时空列表，模板走空态，不回退演示风扇
 
   const containers = docker?.containers ?? [];
   if (containers.length) {
+    const running = containers.filter((c) => c.state === 'running').length;
+    d.dockerText = `${running} 运行中 · ${containers.length - running} 退出`;
     d.dockerBrief = containers
-      .slice(0, 4)
+      .slice(0, 6)
       .map((c) =>
         c.state === 'running'
           ? { name: c.name, statText: c.status }
@@ -163,11 +271,39 @@ export async function fetchDashboard() {
       );
   }
 
-  const diskTemps = temps.filter((t) => t.zone === 'disk' || t.zone === 'nvme');
+  // 机械盘 SMART 温度 + 每块 NVMe 取 Composite 一条（Sensor 1/2 与 Composite 同源）
+  const diskTemps = [
+    ...temps.filter((t) => t.zone === 'disk'),
+    ...temps.filter(
+      (t) => t.zone === 'nvme' && (t.label || '').toLowerCase().includes('composite')
+    ),
+  ];
   if (diskTemps.length) {
     d.diskTemps = diskTemps
       .slice(0, 6)
       .map((t) => ({ label: t.label || t.key, tempC: Math.round(t.celsius) }));
+  }
+
+  // 存储卷卡：ssd 标记的挂载为缓存卷，其余最大卷为数据卷；无“云盘备份”数据源不虚构
+  if (mounts.length) {
+    const sizeText = (bytes) =>
+      bytes >= 1e12 ? `${(bytes / 1e12).toFixed(1)} TB` : `${(bytes / 1e9).toFixed(0)} GB`;
+    const fill = (block, m, prefix) => {
+      block.label = `${prefix} ${m.mount} · ${(m.fs_type || '').toUpperCase()}`;
+      block.percent = Math.round(m.percent ?? 0);
+      block.usedText = `已用 ${sizeText(m.used_bytes ?? 0)} / ${sizeText(m.total_bytes ?? 0)}`;
+      block.tempC = '—'; // 卷接口无温度；nvme 温度在盘温卡展示
+    };
+    const ssd = mounts.find((m) => (m.opts ?? []).includes('ssd'));
+    const dataVol = mounts
+      .filter((m) => !(m.opts ?? []).includes('ssd') && m.mount.startsWith('/vol'))
+      .sort((a, b) => (b.total_bytes ?? 0) - (a.total_bytes ?? 0))[0];
+    if (ssd) fill(d.cache, ssd, '缓存');
+    if (dataVol) {
+      fill(d.cloud, dataVol, '数据卷');
+      d.cloud.syncText = '实时';
+    }
+    d.storageSummary = `${mounts.length} 卷已挂载`;
   }
 
   if (events.length) {
@@ -333,7 +469,14 @@ export async function fetchHistorySeries(dim, rangeKey, seedShift = 0) {
   try {
     const resp = await apiData(`/api/v1/monitor/history?minutes=${minutes}&points=${points}`);
     const rows = resp.points ?? [];
-    const labels = rows.map((p) => String(p.ts).slice(5, 16).replace('T', ' '));
+    // 历史落库为 UTC 无时区后缀（契约 §2.3），补 Z 按 UTC 解析再转本地显示，
+    // 否则图表横轴比本机时间慢 8 小时（真机 UTC+8 实测）
+    const labels = rows.map((p) => {
+      const d = new Date(`${p.ts}Z`);
+      if (Number.isNaN(d.getTime())) return String(p.ts).slice(5, 16).replace('T', ' ');
+      const pad = (x) => String(x).padStart(2, '0');
+      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    });
     const field = DIM_FIELDS[dim] ?? 'cpu_avg';
     const data = rows.map((p) => Math.round(((p[field] ?? 0) + (seedShift % 1)) * 10) / 10);
     if (!data.length) throw new Error('empty');
@@ -486,28 +629,44 @@ export async function fetchPorts() {
 // ---------------- 风扇 ----------------
 
 export async function fetchFans() {
-  const [zonesS, curvesS, fcsS] = await Promise.allSettled([
+  const [zonesS, curvesS, fcsS, chansS] = await Promise.allSettled([
     apiData('/api/v1/control/fans'),
     apiData('/api/v1/control/curves'),
     apiData('/api/v1/control/fcs'),
+    apiData('/api/v1/control/hwmon/channels'),
   ]);
   const zones = pick(zonesS);
+  if (zones === null) return { data: mock.fans, live: false }; // 仅后端不可达才演示回退
+
   const curves = pick(curvesS);
   const fcs = pick(fcsS);
-  if (!zones?.length) return { data: mock.fans, live: false };
-
+  const channels = pick(chansS) ?? [];
   const firstCurve = (curves ?? [])[0];
   return {
     data: {
       takeover: fcs?.taken_over || zones.some((z) => z.mode !== 'auto'),
-      cards: zones.slice(0, 3).map((z) => ({
+      cards: zones.slice(0, 6).map((z) => ({
+        id: z.id,
         name: z.name,
         rpm: z.current_rpm ?? 0,
         duty: Math.round(z.current_pwm_pct ?? 0),
         pwm: z.mode !== 'auto',
+        hwmonName: z.hwmon_name,
+        pwmChannel: z.pwm_channel,
+        fanChannel: z.fan_channel,
       })),
+      // 未建风区的硬件通道（检测区数据源）；已建风区的通道在卡片区展示
+      channels: channels.filter(
+        (c) => !zones.some((z) => z.hwmon_name === c.chip && z.pwm_channel === c.pwm_channel)
+      ),
       curveDefault: firstCurve?.points?.length ? firstCurve.points : mock.fans.curveDefault,
-      rules: mock.fans.rules,
+      curveMeta: firstCurve
+        ? {
+            name: firstCurve.name,
+            hysteresis_c: firstCurve.hysteresis_c,
+            ramp_per_tick: firstCurve.ramp_per_tick,
+          }
+        : null,
       curveId: firstCurve?.id ?? null,
     },
     live: true,

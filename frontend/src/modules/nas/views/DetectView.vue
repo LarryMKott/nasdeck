@@ -9,7 +9,7 @@ import UModal from '../components/UModal.vue';
 
 defineOptions({ name: 'NasDetect' });
 
-const { data: d, live } = useViewData(nasData.fetchDetect, mockDetect);
+const { data: d, live, lastUpdated } = useViewData(nasData.fetchDetect, mockDetect);
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
   text: live.value ? '正常' : '演示数据',
@@ -53,7 +53,7 @@ function showDimm(dimm) {
       title="硬件检测"
       sub="系统 · 主板 · CPU · 内存 · 网络 · RAID · 硬盘"
       :tag="headerTag"
-      updated="10:32:08"
+      :updated="lastUpdated"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">

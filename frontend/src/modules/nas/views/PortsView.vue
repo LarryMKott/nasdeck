@@ -14,7 +14,7 @@ const keyword = ref('');
 const reachFilter = ref('');
 const autoRefresh = ref(true);
 
-const { data: d, live, refresh } = useViewData(nasData.fetchPorts, mockPorts);
+const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchPorts, mockPorts);
 
 /** 每行独立的释放确认气泡开合 */
 const popOpen = reactive({});
@@ -46,7 +46,7 @@ const filtered = computed(() =>
 
 <template>
   <section>
-    <u-page-header title="端口占用" sub="监听端口 · 进程 · 可达性" updated="10:32:05">
+    <u-page-header title="端口占用" sub="监听端口 · 进程 · 可达性" :updated="lastUpdated">
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
           <span class="tr" />10s

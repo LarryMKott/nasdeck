@@ -1,6 +1,6 @@
 <script setup>
 /** UNRAID 稿页头：标题 + 副题 + 状态徽标 + 「最后更新 / 立即刷新」+ 右侧扩展插槽 */
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { nowHMS } from '../utils/series';
 
 defineOptions({ name: 'UPageHeader' });
@@ -16,6 +16,14 @@ const props = defineProps({
 
 const spinning = ref(false);
 const lastUpdated = ref(props.updated);
+
+// 页面数据刷新会更新 updated prop（useViewData.lastUpdated / 实时时刻），同步到内部显示
+watch(
+  () => props.updated,
+  (v) => {
+    if (v && v !== '—') lastUpdated.value = v;
+  }
+);
 
 function refresh() {
   if (spinning.value) return;

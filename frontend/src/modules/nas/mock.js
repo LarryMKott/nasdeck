@@ -70,8 +70,13 @@ export const dashboard = {
     cachedText: '21.4 GB',
     reservedText: '4.4 GB',
   },
-  net: { rxText: '12.3 MB/s ↓', txText: '↑ 3.1 MB/s · eth0' },
-  diskIo: { readText: '86 MB/s 读', writeText: '↑ 写 42 MB/s' },
+  net: { rxText: '12.3 MB/s ↓', rxValue: '12.3', rxUnit: 'MB/s ↓', txText: '↑ 3.1 MB/s · eth0' },
+  diskIo: {
+    readText: '86 MB/s 读',
+    readValue: '86',
+    readUnit: 'MB/s 读',
+    writeText: '↑ 写 42 MB/s',
+  },
   array: {
     total: '21.8 TB',
     usedPercent: 38,
@@ -82,8 +87,12 @@ export const dashboard = {
   },
   gpu: { percent: 15, tempC: 44, vramText: '显存 0.9 GB' },
   power: { watts: 40.5, cpuW: 32.1, dramW: 8.4 },
+  dockerText: '3 运行中 · 1 退出',
+  storageSummary: '3 卷已挂载',
   system: {
     uptime: '23 天 4 小时',
+    uptimeDays: '23',
+    uptimeRest: '天 4 小时',
     osVersion: '0.9.20',
     loadText: '0.42 / 0.38 / 0.35',
     processCount: 217,
@@ -117,7 +126,7 @@ export const dashboard = {
     { label: '盘位 5 · SSD', tempC: 41 },
     { label: '阵列卡', tempC: 36 },
   ],
-  cache: { label: '缓存 nvme0n1 · Btrfs', percent: 64, usedText: '308 / 480 GB', tempC: 41 },
+  cache: { label: '缓存 nvme0n1 · Btrfs', percent: 64, usedText: '308 / 480 GB', tempC: '41 °C' },
   cloud: {
     label: '云盘 backup · OSS',
     percent: 32,

@@ -9,7 +9,7 @@ import UPop from '../components/UPop.vue';
 
 defineOptions({ name: 'NasStorage' });
 
-const { data: s } = useViewData(nasData.fetchStorage, mockStorage);
+const { data: s, lastUpdated } = useViewData(nasData.fetchStorage, mockStorage);
 
 const stopConfirmOpen = ref(false);
 /** 手动「停止阵列」后的本地覆盖（联调阶段不动后端状态） */
@@ -32,7 +32,7 @@ function stopArray() {
       title="存储卷"
       sub="阵列设备 · 卷 · 云盘"
       :tag="{ type: arrayRunning ? 'ok' : 'warn', text: arrayRunning ? '运行中' : '已停止' }"
-      updated="10:32:06"
+      :updated="lastUpdated"
     />
 
     <!-- 阵列操作卡（UNRAID 招牌） -->

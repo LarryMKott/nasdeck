@@ -11,7 +11,7 @@ import UPop from '../components/UPop.vue';
 
 defineOptions({ name: 'NasDisks' });
 
-const { data: d, live, refresh } = useViewData(nasData.fetchDisks, mockDisks);
+const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchDisks, mockDisks);
 
 /** 每行独立的自检菜单开合状态 */
 const menuOpen = reactive({});
@@ -46,7 +46,7 @@ const headerTag = computed(() => {
       title="硬盘 SMART"
       sub="健康状态 · 自检 · 定位"
       :tag="headerTag"
-      updated="10:32:06"
+      :updated="lastUpdated"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">

@@ -8,7 +8,7 @@ import UPageHeader from '../components/UPageHeader.vue';
 
 defineOptions({ name: 'NasDocker' });
 
-const { data: d, live } = useViewData(nasData.fetchDocker, mockDocker);
+const { data: d, live, lastUpdated } = useViewData(nasData.fetchDocker, mockDocker);
 
 const runningCount = computed(() => d.value.containers.filter((c) => c.running).length);
 const headerTag = computed(() => {
@@ -26,7 +26,12 @@ const autoRefresh = ref(true);
 
 <template>
   <section>
-    <u-page-header title="Docker" sub="容器运行状态 · 资源占用" :tag="headerTag" updated="10:32:10">
+    <u-page-header
+      title="Docker"
+      sub="容器运行状态 · 资源占用"
+      :tag="headerTag"
+      :updated="lastUpdated"
+    >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
           <span class="tr" />8s

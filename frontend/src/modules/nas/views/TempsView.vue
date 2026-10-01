@@ -1,8 +1,7 @@
 <script setup>
 /** 温度监控：关键传感器速览磁贴 + 温度墙（45/60 分档着色，后端 + 演示回退） */
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { temps as mockTemps } from '../mock';
-import { walk } from '../utils/series';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
 import * as nasData from '../api/data';
@@ -15,26 +14,44 @@ defineOptions({ name: 'NasTemps' });
 const warmAt = 45;
 const hotAt = 60;
 
-const { data: d, live } = useViewData(nasData.fetchTemps, mockTemps);
+const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchTemps, mockTemps);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
   text: live.value ? '正常' : '演示数据',
 }));
 
-/** 磁贴 spark（演示形态；真实数据 5s 级轮询时由数值刷新体现） */
-const sparkSeeds = { tcpu: 21, tboard: 22, tnvme: 23, traid: 24, tother: 25 };
+/** 磁贴 spark：真实温度滚动缓冲（页内按 5s 轮询累积，约 40 点窗口） */
+const history = ref({}); // key → number[]
+watch(
+  d,
+  (val) => {
+    for (const t of val.tiles ?? []) {
+      const arr = history.value[t.key] ?? [];
+      arr.push(t.tempC);
+      if (arr.length > 40) arr.shift();
+      history.value = { ...history.value, [t.key]: arr };
+    }
+  },
+  { immediate: true, deep: true }
+);
 const sparkData = computed(() =>
   Object.fromEntries(
-    d.value.tiles.map((t, i) => {
-      const base = Math.max(t.tempC, 1);
-      const key = sparkSeeds[t.key] !== undefined ? t.key : 'tother';
-      return [t.key, walk(40, sparkSeeds[key] + i, base, base * 0.04, base * 0.9, base * 1.15)];
+    d.value.tiles.map((t) => {
+      const arr = history.value[t.key] ?? [];
+      return [t.key, arr.length > 1 ? arr : [t.tempC, t.tempC]];
     })
   )
 );
 
 const autoRefresh = ref(true);
+let timer = null;
+onMounted(() => {
+  timer = setInterval(() => {
+    if (autoRefresh.value) refresh();
+  }, 5000);
+});
+onBeforeUnmount(() => clearInterval(timer));
 </script>
 
 <template>
@@ -43,7 +60,7 @@ const autoRefresh = ref(true);
       title="温度监控"
       sub="关键传感器速览 · 温度墙"
       :tag="headerTag"
-      updated="10:32:10"
+      :updated="lastUpdated"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">

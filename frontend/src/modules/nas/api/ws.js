@@ -4,10 +4,15 @@
  * 实时推送组合器（契约 §4 + §7.4 建议形态）：
  * - WS /api/v1/ws/realtime：realtime(1s) / fans(5s) / alert 事件 / ping-pong 保活
  * - 指数退避重连（1s 起上限 30s）；连续失败切 HTTP 轮询降级，恢复后切回
+ * - 飞牛 CGI 反代形态（路径带 index.cgi）网关不透传 WS：直接轮询不起 WS
  * 经 Pinia store（realtime.js）使用，视图不直连。
  */
 
 const BASE = `${typeof location !== 'undefined' && location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
+
+/** 飞牛 CGI 反代形态（页面路径带 index.cgi）：网关不透传 WebSocket 升级，
+ * WS 在该形态下永远连不上——直接轮询，省去 3 次重连失败的约 10s 演示数据空窗 */
+const GATEWAY_FORM = typeof location !== 'undefined' && location.pathname.includes('index.cgi');
 
 export function createRealtimeSocket({ onSnapshot, onFans, onAlert, pollFallback } = {}) {
   let ws = null;
@@ -74,6 +79,20 @@ export function createRealtimeSocket({ onSnapshot, onFans, onAlert, pollFallback
     if (attempt >= 3) startPolling();
     const delay = Math.min(1000 * 2 ** (attempt - 1), 30000);
     setTimeout(() => connect(), attempt >= 3 ? delay : Math.min(delay, 3000));
+  }
+
+  if (GATEWAY_FORM) {
+    startPolling();
+    return {
+      close() {
+        closed = true;
+        stopPolling();
+      },
+      /** 轮询形态无 WS 连接，恒 false */
+      get open() {
+        return false;
+      },
+    };
   }
 
   connect();

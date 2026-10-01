@@ -11,6 +11,7 @@ export function useViewData(loader, initial, { immediate = true } = {}) {
   const data = ref(initial);
   const live = ref(false);
   const extra = ref(null); // 适配器可附带的元信息（如 docker 不可用原因）
+  const lastUpdated = ref('—'); // 最近一次成功取数时刻（页头「最后更新」）
 
   async function refresh() {
     try {
@@ -19,6 +20,9 @@ export function useViewData(loader, initial, { immediate = true } = {}) {
         data.value = result.data;
         live.value = !!result.live;
         extra.value = result.extra ?? null;
+        const now = new Date();
+        const pad = (x) => String(x).padStart(2, '0');
+        lastUpdated.value = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
       }
     } catch {
       /* 保持演示值 */
@@ -29,5 +33,5 @@ export function useViewData(loader, initial, { immediate = true } = {}) {
     onMounted(refresh);
     onActivated(refresh);
   }
-  return { data, live, extra, refresh };
+  return { data, live, extra, refresh, lastUpdated };
 }

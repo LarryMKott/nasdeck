@@ -2,7 +2,6 @@
 /** 总览：UNRAID Dashboard 式磁贴 + GPU 监控 + 风扇/Docker/温度/缓存/告警（后端实时 + 演示回退） */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { colors, dashboard as mockDashboard, activeAlerts as mockAlerts } from '../mock';
-import { walk, timeLabels } from '../utils/series';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
 import { useRealtimeStore } from '../stores/realtime';
@@ -14,7 +13,7 @@ import FanRotor from '../components/FanRotor.vue';
 
 defineOptions({ name: 'NasDash' });
 
-const { data: d, live } = useViewData(nasData.fetchDashboard, mockDashboard);
+const { data: d, live, lastUpdated } = useViewData(nasData.fetchDashboard, mockDashboard);
 const { data: alerts } = useViewData(nasData.fetchActiveAlerts, mockAlerts);
 
 /** WS 实时快照合并（仅更新磁贴数字，图表/序列仍走加载时数据） */
@@ -29,9 +28,29 @@ watch(
     nasData.applyCpuRealtime(d.value.cpu, snap);
     nasData.applyMemRealtime(d.value.mem, snap);
     nasData.applyGpuRealtime(d.value.gpu, snap);
-    const ifaces = Object.entries(snap.net);
-    d.value.net.rxText = `${(ifaces.reduce((a, [, v]) => a + v.rx_kbps, 0) / 1024).toFixed(1)} MB/s ↓`;
-    d.value.diskIo.readText = `${((snap.disk_io.read_kbps ?? 0) / 1024).toFixed(0)} MB/s 读`;
+    nasData.applyNetRealtime(d.value.net, snap);
+    nasData.applyDiskRealtime(d.value.diskIo, snap);
+    nasData.applyPowerRealtime(d.value.power, snap);
+    nasData.applySystemRealtime(d.value.system, snap);
+    nasData.applyGpuDetail(d.value.gpuDetail, snap);
+    const netKbps = Object.values(snap.net ?? {}).reduce(
+      (a, v) => a + (v.rx_kbps ?? 0) + (v.tx_kbps ?? 0),
+      0
+    );
+    netHistory.value.push(Math.round(netKbps));
+    dioHistory.value.push(
+      Math.round((snap.disk_io?.read_kbps ?? 0) + (snap.disk_io?.write_kbps ?? 0))
+    );
+    if (netHistory.value.length > 40) netHistory.value.shift();
+    if (dioHistory.value.length > 40) dioHistory.value.shift();
+    const gpuPt = snap.gpu && snap.gpu.available ? Math.round(snap.gpu.percent ?? 0) : 0;
+    const now = new Date();
+    const pad = (x) => String(x).padStart(2, '0');
+    gpuHistory.value.push({
+      label: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+      percent: gpuPt,
+    });
+    if (gpuHistory.value.length > 60) gpuHistory.value.shift();
   }
 );
 
@@ -40,6 +59,12 @@ const headerTag = computed(() => ({
   text: live.value ? '正常' : '演示数据',
 }));
 const autoRefresh = ref(true);
+
+/** 功耗条比例：按 package 最大量程 65W 归一（i3 级 CPU TDP 上限，非精确标尺） */
+const powerMeterPct = computed(() => {
+  const w = Number(d.value.power.watts);
+  return Number.isFinite(w) ? Math.min(100, Math.max(4, (w / 65) * 100)) : 4;
+});
 
 /** CPU 磁贴：每线程 使用率/频率 双视图（WS 1s 快照驱动） */
 const cpuMode = ref('usage');
@@ -82,23 +107,27 @@ const freqRangeText = computed(() => {
   return lo === hi ? `${g(hi)} GHz` : `${g(lo)} – ${g(hi)} GHz`;
 });
 
-/** spark 序列（种子与原型一致，形态稳定；联调阶段占位） */
-const sparks = {
-  net: walk(40, 7, 12, 4, 7.2, 19.2),
-  dio: walk(40, 11, 86, 26, 51.6, 137.6),
-  gpu: walk(40, 12, 15, 8, 9, 24),
-};
+/** 网络/磁盘 spark：实时快照滚动缓冲（约 40 点），KB/s 口径 */
+const netHistory = ref([]);
+const dioHistory = ref([]);
 
-const gpuLabels = timeLabels(60, 1);
-const gpuSeries = [
-  { name: 'GPU 使用率', color: colors.gpu, data: walk(60, 13, 15, 8, 2, 60) },
-  { name: '显存占用', color: colors.info, data: walk(60, 14, 53, 5, 40, 72), dash: true },
-];
+/** GPU 曲线：实时快照滚动缓冲（约 60s 窗口），无快照前为空由图表空态兜底 */
+const gpuHistory = ref([]);
+const gpuLabels = computed(() => gpuHistory.value.map((p) => p.label));
+const gpuSeries = computed(() => [
+  { name: 'GPU 使用率', color: colors.gpu, data: gpuHistory.value.map((p) => p.percent) },
+]);
+const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 </script>
 
 <template>
   <section>
-    <u-page-header title="总览" sub="系统 · 阵列 · 风扇 · 服务" :tag="headerTag" updated="10:32:12">
+    <u-page-header
+      title="总览"
+      sub="系统 · 阵列 · 风扇 · 服务"
+      :tag="headerTag"
+      :updated="lastUpdated"
+    >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
           <span class="tr" />自动
@@ -185,22 +214,27 @@ const gpuSeries = [
       <div class="wg tile-wg t3">
         <div class="wg-b">
           <div class="cap"><u-icon name="net" />网络吞吐</div>
-          <div class="big num">{{ d.net.rxText.split(' ')[0] }}<small>MB/s ↓</small></div>
+          <div class="big num">
+            {{ d.net.rxValue ?? d.net.rxText }}<small>{{ d.net.rxUnit ?? 'MB/s ↓' }}</small>
+          </div>
           <div class="num" style="margin-top: 2px; font-size: 12px; color: var(--tx2)">
             {{ d.net.txText }}
           </div>
-          <u-spark :data="sparks.net" :color="colors.ok" />
+          <u-spark :data="netHistory" :color="colors.ok" />
         </div>
       </div>
 
       <div class="wg tile-wg t3">
         <div class="wg-b">
           <div class="cap"><u-icon name="drive" />磁盘 IO</div>
-          <div class="big num">{{ d.diskIo.readText.split(' ')[0] }}<small>MB/s 读</small></div>
+          <div class="big num">
+            {{ d.diskIo.readValue ?? d.diskIo.readText
+            }}<small>{{ d.diskIo.readUnit ?? 'MB/s 读' }}</small>
+          </div>
           <div class="num" style="margin-top: 2px; font-size: 12px; color: var(--tx2)">
             {{ d.diskIo.writeText }}
           </div>
-          <u-spark :data="sparks.dio" :color="colors.purp" />
+          <u-spark :data="dioHistory" :color="colors.purp" />
         </div>
       </div>
     </div>
@@ -238,7 +272,7 @@ const gpuSeries = [
         <div class="wg-b">
           <div class="cap"><u-icon name="pulse" />GPU 使用率</div>
           <div class="big num">{{ d.gpu.percent }}<small>%</small></div>
-          <u-spark :data="sparks.gpu" :color="colors.gpu" />
+          <u-spark :data="gpuSparkData" :color="colors.gpu" />
           <div class="mtxt">
             <span>核显 · 温度 {{ d.gpu.tempC }} °C</span>
             <span class="num">{{ d.gpu.vramText }}</span>
@@ -250,7 +284,9 @@ const gpuSeries = [
         <div class="wg-b">
           <div class="cap"><u-icon name="power" />整机功耗</div>
           <div class="big num">{{ d.power.watts }}<small>W</small></div>
-          <div class="meter" style="margin-top: 9px"><i :style="{ width: '62%' }" /></div>
+          <div class="meter" style="margin-top: 9px">
+            <i :style="{ width: `${powerMeterPct}%` }" />
+          </div>
           <div class="mtxt">
             <span
               >CPU <span class="num">{{ d.power.cpuW }} W</span></span
@@ -266,7 +302,7 @@ const gpuSeries = [
         <div class="wg-b">
           <div class="cap"><u-icon name="clock" />系统</div>
           <div class="big num">
-            23<small>{{ d.system.uptime.slice(2) }}</small>
+            {{ d.system.uptimeDays ?? '—' }}<small>{{ d.system.uptimeRest ?? '天' }}</small>
           </div>
           <div class="kvrow kvline">
             <span class="muted small">系统</span>
@@ -341,7 +377,6 @@ const gpuSeries = [
           />
           <div class="legend">
             <span><i :style="{ background: colors.gpu }" />GPU 使用率</span>
-            <span><i :style="{ background: colors.info }" />显存占用</span>
           </div>
         </div>
       </div>
@@ -354,11 +389,15 @@ const gpuSeries = [
           <u-icon name="fan" />
           <h3>风扇转速</h3>
           <span class="x"
-            ><span class="tag acc"><span class="dot" />接管中 · 3/3 运转</span></span
+            ><span class="tag" :class="d.fans.length ? 'acc' : 'mute'"
+              ><span class="dot" />{{
+                d.fans.length ? `接管中 · ${d.fans.length}/${d.fans.length} 运转` : '未配置'
+              }}</span
+            ></span
           >
         </div>
         <div class="wg-b">
-          <div class="fans3">
+          <div v-if="d.fans.length" class="fans3">
             <div v-for="fan in d.fans" :key="fan.name" class="fanb">
               <div class="fn">
                 <fan-rotor :dur-sec="fan.durSec" />
@@ -376,6 +415,9 @@ const gpuSeries = [
               </div>
             </div>
           </div>
+          <div v-else class="small muted" style="padding: 18px 0; text-align: center">
+            风扇未配置 · 到「风扇」页添加风区并接管后此处显示实时转速
+          </div>
           <button
             class="btn sm"
             style="width: 100%; margin-top: 11px"
@@ -391,7 +433,7 @@ const gpuSeries = [
           <u-icon name="docker" />
           <h3>Docker</h3>
           <span class="x"
-            ><span class="st"><span class="dot" />3 运行中 · 1 退出</span></span
+            ><span class="st"><span class="dot" />{{ d.dockerText ?? '—' }}</span></span
           >
         </div>
         <div class="wg-b" style="padding-top: 8px">
@@ -421,7 +463,7 @@ const gpuSeries = [
         <div class="wg-h">
           <u-icon name="drive" />
           <h3>硬盘温度</h3>
-          <span class="x">6 盘位 · 按阈值着色</span>
+          <span class="x">{{ d.diskTemps.length }} 盘 · 按阈值着色</span>
         </div>
         <div class="wg-b">
           <div class="temps">
@@ -447,9 +489,9 @@ const gpuSeries = [
       <div class="wg t4">
         <div class="wg-h">
           <u-icon name="cloud" />
-          <h3>缓存与备份</h3>
+          <h3>存储卷概览</h3>
           <span class="x"
-            ><span class="st"><span class="dot" />已连接</span></span
+            ><span class="st"><span class="dot" />{{ d.storageSummary ?? '—' }}</span></span
           >
         </div>
         <div class="wg-b">
@@ -470,7 +512,7 @@ const gpuSeries = [
           </div>
           <div class="mtxt">
             <span class="num">{{ d.cache.usedText }}</span
-            ><span>{{ d.cache.tempC }} °C</span>
+            ><span>{{ d.cache.tempC }}</span>
           </div>
           <div style="height: 1px; margin: 11px 0; background: var(--bd)" />
           <div

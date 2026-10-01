@@ -14,7 +14,11 @@ defineOptions({ name: 'NasAutomation' });
 /** 页内页签：t1 活动告警 | t2 告警规则与通知 | t3 报告导出 */
 const activeTab = ref('t1');
 
-const { data: d, live } = useViewData(nasData.fetchAutomation, {
+const {
+  data: d,
+  live,
+  lastUpdated,
+} = useViewData(nasData.fetchAutomation, {
   ...mockAutomation,
   activeAlerts: mockAlerts,
 });
@@ -94,7 +98,7 @@ const headerTag = computed(() => ({
       title="控制与自动化"
       sub="告警 · 通知 · 报告 · 日志"
       :tag="headerTag"
-      updated="10:32:00"
+      :updated="lastUpdated"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">

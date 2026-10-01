@@ -12,7 +12,39 @@ import FanRotor from '../components/FanRotor.vue';
 
 defineOptions({ name: 'NasFan' });
 
-const { data: d, live } = useViewData(nasData.fetchFans, mockFans);
+const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchFans, mockFans);
+
+/** 硬件检测：未建风区的 pwm 通道列表，一键创建只读风区（mode=auto 不干预转速） */
+const addingKey = ref('');
+const loopOf = reactive({});
+
+function detectKey(ch) {
+  return `${ch.chip}:${ch.pwm_channel}`;
+}
+
+async function addZone(ch) {
+  const key = detectKey(ch);
+  addingKey.value = key;
+  try {
+    await apiData('/api/v1/control/fans', {
+      method: 'POST',
+      body: {
+        name: `风扇 pwm${ch.pwm_channel}`,
+        loop: loopOf[key] ?? 'chassis',
+        hwmon_name: ch.chip,
+        pwm_channel: ch.pwm_channel,
+        fan_channel: ch.fan_channel,
+        mode: 'auto', // 只读监控；调速在卡片上切 PWM/定速或绑曲线
+        enabled: true,
+      },
+    });
+    await refresh();
+  } catch {
+    /* 通道冲突/校验失败静默，列表刷新后以实际状态为准 */
+  } finally {
+    addingKey.value = '';
+  }
+}
 
 /** 接管总开关（真实控区存在时走后端 fcs/mode；演示模式仅本地态） */
 const takeoverOverride = ref(null);
@@ -45,12 +77,53 @@ watch(
   { immediate: true, deep: true }
 );
 
-function rotorDur(duty) {
-  return Math.max(0.35, 6 - duty * 0.05);
+/** PWM 开关/滑杆写回后端：开=mode fixed（apply_tick 每 5s 写 pwm），关=auto 交还 BIOS */
+async function pushZone(fan, patch) {
+  try {
+    await apiData(`/api/v1/control/fans/${fan.id}`, { method: 'PUT', body: patch });
+    return true;
+  } catch {
+    return false; // 失败静默，下次 fetchFans 以后端状态为准
+  }
 }
 
-function rotorRpm(duty) {
-  return Math.round(duty * 26.5);
+async function togglePwm(fan) {
+  const next = !fan.pwm;
+  fan.pwm = next; // 乐观更新
+  // 开启时占空比下限 20%：抓到的当前值可能是 BIOS 闲置的 0%，钉 0 会停转风扇
+  const fixed = next ? Math.max(fan.duty, 20) : undefined;
+  if (next) fan.duty = fixed;
+  const ok = await pushZone(fan, next ? { mode: 'fixed', fixed_pwm: fixed } : { mode: 'auto' });
+  if (!ok) fan.pwm = !next;
+}
+
+async function onDutyCommit(fan) {
+  if (!fan.pwm) return; // auto 模式下滑杆仅预览，不写
+  await pushZone(fan, { mode: 'fixed', fixed_pwm: fan.duty });
+}
+
+/** 重命名/删除气泡（按风区 id 记开合）；删除时后端自动把该通道交还 BIOS */
+const popOpen = reactive({});
+const renameValue = ref('');
+
+async function confirmRename(fan) {
+  const name = renameValue.value.trim();
+  if (!name || name === fan.name) return;
+  const ok = await pushZone(fan, { name });
+  if (ok) fan.name = name;
+}
+
+async function confirmDelete(fan) {
+  try {
+    await apiData(`/api/v1/control/fans/${fan.id}`, { method: 'DELETE' });
+  } catch {
+    /* 静默，列表刷新以实际为准 */
+  }
+  await refresh();
+}
+
+function rotorDur(duty) {
+  return Math.max(0.35, 6 - duty * 0.05);
 }
 
 /** 曲线编辑器（后端有曲线时回填，保存走 PUT /control/curves/{id}） */
@@ -96,16 +169,51 @@ function curveReset() {
   curveSaved.value = false;
 }
 
+/** 迟滞/斜率：跟随后端曲线回填，保存时一并提交 */
+const curveHysteresis = ref(2);
+const curveRamp = ref(5);
+watch(
+  () => d.value.curveMeta,
+  (meta) => {
+    if (meta) {
+      curveHysteresis.value = meta.hysteresis_c ?? 2;
+      curveRamp.value = meta.ramp_per_tick ?? 5;
+    }
+  },
+  { immediate: true }
+);
+
 async function saveCurve() {
   curveSaved.value = false;
-  if (!live.value || d.value.curveId == null) return;
+  if (!live.value) return;
   savingCurve.value = true;
   try {
-    await apiData(`/api/v1/control/curves/${d.value.curveId}`, {
-      method: 'PUT',
-      body: { name: '默认曲线', points: curvePts.value, hysteresis_c: 2, ramp_per_tick: 5 },
-    });
+    let curveId = d.value.curveId;
+    if (curveId == null) {
+      // 首次保存：创建默认曲线后回填 id
+      const created = await apiData('/api/v1/control/curves', {
+        method: 'POST',
+        body: {
+          name: '默认曲线',
+          points: curvePts.value,
+          hysteresis_c: curveHysteresis.value,
+          ramp_per_tick: curveRamp.value,
+        },
+      });
+      curveId = created.id;
+    } else {
+      await apiData(`/api/v1/control/curves/${curveId}`, {
+        method: 'PUT',
+        body: {
+          name: '默认曲线',
+          points: curvePts.value,
+          hysteresis_c: curveHysteresis.value,
+          ramp_per_tick: curveRamp.value,
+        },
+      });
+    }
     curveSaved.value = true;
+    refresh();
   } catch {
     /* 校验失败（1002）静默，气泡读数可自查 */
   } finally {
@@ -126,7 +234,7 @@ const headerTag = computed(() =>
       title="风扇控制"
       sub="接管 · 手动调速 · 温控规则 · 曲线编辑"
       :tag="headerTag"
-      updated="10:32:09"
+      :updated="lastUpdated"
     >
       <template #right>
         <label class="switch on" @click.prevent> <span class="tr" />2s </label>
@@ -162,26 +270,116 @@ const headerTag = computed(() =>
       </div>
     </div>
 
+    <!-- 硬件检测：未建风区的 pwm 通道 -->
+    <div v-if="live && d.channels?.length" class="wg">
+      <div class="wg-b opcard" style="padding: 14px 16px">
+        <div class="ot" style="flex: 1">
+          <b>硬件检测 · {{ d.channels.length }} 个未配置通道</b>
+          <small
+            >检测到主板 Super I/O 的 pwm 通道。添加风区后即可在此监控转速；mode=auto
+            只读不干预，调速随时可在下方卡片开启</small
+          >
+        </div>
+      </div>
+      <div class="wg-b" style="padding-top: 0">
+        <table class="u">
+          <thead>
+            <tr>
+              <th>芯片</th>
+              <th>通道</th>
+              <th>占空比</th>
+              <th>转速</th>
+              <th>回路</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="ch in d.channels" :key="detectKey(ch)">
+              <td>{{ ch.chip }}</td>
+              <td class="num">
+                pwm{{ ch.pwm_channel }}{{ ch.fan_channel ? ` / fan${ch.fan_channel}` : '' }}
+              </td>
+              <td class="num">{{ Math.round(ch.current_pwm_pct ?? 0) }}%</td>
+              <td class="num">
+                {{ ch.current_rpm != null ? `${ch.current_rpm} RPM` : '—'
+                }}<template v-if="ch.current_rpm"> ●</template>
+              </td>
+              <td>
+                <select v-model="loopOf[detectKey(ch)]" style="width: auto">
+                  <option value="chassis">机箱</option>
+                  <option value="cpu">CPU</option>
+                </select>
+              </td>
+              <td class="r">
+                <button class="btn sm" :disabled="addingKey === detectKey(ch)" @click="addZone(ch)">
+                  {{ addingKey === detectKey(ch) ? '添加中…' : '添加风区' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 手动调速卡 -->
     <div class="grid">
+      <div v-if="live && !cards.length" class="wg t12">
+        <div class="wg-b small muted" style="padding: 22px 0; text-align: center">
+          尚未添加风区 · 从上方「硬件检测」把在转的风扇添加为风区后，此处显示实时调速卡
+        </div>
+      </div>
       <div v-for="fan in cards" :key="fan.name" class="wg t4 fan-card">
         <div class="wg-h">
           <u-icon name="fan" />
           <h3>{{ fan.name }}</h3>
           <span class="x">
-            <button class="btn sm">重命名</button>
-            <button class="btn sm">隐藏</button>
+            <u-pop
+              v-model="popOpen[`ren:${fan.id}`]"
+              ok-text="保存"
+              cancel-text="取消"
+              @confirm="confirmRename(fan)"
+            >
+              <template #trigger>
+                <button class="btn sm" @click="renameValue = fan.name">重命名</button>
+              </template>
+              <input
+                v-model="renameValue"
+                type="text"
+                style="width: 170px"
+                maxlength="64"
+                placeholder="风区名称"
+              />
+            </u-pop>
+            <u-pop
+              v-model="popOpen[`del:${fan.id}`]"
+              ok-text="删除"
+              cancel-text="取消"
+              danger
+              @confirm="confirmDelete(fan)"
+            >
+              <template #trigger>
+                <button class="btn sm">删除</button>
+              </template>
+              删除风区「{{ fan.name }}」？删除后立即交还主板控制。
+            </u-pop>
           </span>
         </div>
         <div class="wg-b">
           <div class="fanrow">
             <fan-rotor size="lg" :dur-sec="rotorDur(fan.duty)" :paused="fan.duty === 0" />
-            <span class="big num">{{ rotorRpm(fan.duty) }}<small> RPM</small></span>
+            <span class="big num">{{ fan.rpm }}<small> RPM</small></span>
             <span class="num">占空比 {{ fan.duty }}%</span>
           </div>
-          <input v-model.number="fan.duty" type="range" min="0" max="100" :disabled="!takeover" />
+          <input
+            v-model.number="fan.duty"
+            type="range"
+            min="0"
+            max="100"
+            :disabled="!takeover"
+            @change="onDutyCommit(fan)"
+          />
           <div class="dutyrow">
-            <label class="switch" :class="{ on: fan.pwm }" @click="fan.pwm = !fan.pwm">
+            <label class="switch" :class="{ on: fan.pwm }" @click="togglePwm(fan)">
               <span class="tr" />PWM
             </label>
             <span>DC 12V</span>
@@ -218,25 +416,19 @@ const headerTag = computed(() =>
           <h3>温控规则</h3>
         </div>
         <div class="wg-b">
-          <template v-for="(rule, ri) in d.rules" :key="rule.title">
-            <div class="small" style="margin-bottom: 8px; font-weight: 600">{{ rule.title }}</div>
-            <div class="frm" :style="ri < d.rules.length - 1 ? 'margin-bottom: 15px' : ''">
-              <label>传感器</label>
-              <select>
-                <option>{{ rule.sensor }}</option>
-              </select>
-              <label>曲线</label>
-              <select>
-                <option>{{ rule.curve }}</option>
-              </select>
-              <label>迟滞</label>
-              <input type="text" :value="rule.hysteresis" />
-            </div>
-          </template>
+          <div class="small" style="margin-bottom: 8px; font-weight: 600">
+            {{ d.curveMeta?.name ?? '默认曲线（首次保存时创建）' }}
+          </div>
+          <div class="frm">
+            <label>迟滞 °C</label>
+            <input v-model.number="curveHysteresis" type="number" min="0" max="10" />
+            <label>每 tick 斜率 %</label>
+            <input v-model.number="curveRamp" type="number" min="1" max="50" />
+          </div>
           <button
             class="btn pri"
             style="margin-top: 15px"
-            :disabled="savingCurve"
+            :disabled="savingCurve || !live"
             @click="saveCurve"
           >
             <u-icon name="check" />{{

@@ -7,6 +7,7 @@ import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import ULineChart from '../components/ULineChart.vue';
 import UDropdown from '../components/UDropdown.vue';
+import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasSysHist' });
 
@@ -55,6 +56,7 @@ const remote = ref(null); // { series, labels, stats }
 const remoteLive = ref(false);
 
 const remoteStats = ref(null);
+const lastUpdated = ref('—');
 
 async function loadRemote() {
   const result = await nasData.fetchHistorySeries(activeDim.value, activeRange.value);
@@ -66,6 +68,9 @@ async function loadRemote() {
     remoteLive.value = false;
   }
   remoteStats.value = await nasData.fetchHistoryStats(activeDim.value, activeRange.value);
+  const now = new Date();
+  const pad = (x) => String(x).padStart(2, '0');
+  lastUpdated.value = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
 function exportAs(fmt) {
@@ -105,7 +110,7 @@ const fmtOpen = reactive({ md: false, html: false, csv: false });
 
 <template>
   <section>
-    <u-page-header title="历史趋势" sub="六维度历史数据回看 · 报告导出" updated="10:32:09">
+    <u-page-header title="历史趋势" sub="六维度历史数据回看 · 报告导出" :updated="lastUpdated">
       <template #right>
         <div class="seg">
           <button
