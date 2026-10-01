@@ -41,7 +41,7 @@ fpk/                        # 打包源（本目录）
 └── app/                    # 应用内容（安装后与系统层合并到应用根目录）
     ├── app.py              # 健康检 shim：飞牛经 /app/app.py 软链探活（真机实测，勿删）
     ├── ui/
-│   ├── config          # 桌面入口（iframe → /cgi/ThirdParty/.../index.cgi/，仅管理员可见）
+│   ├── config          # 桌面入口（iframe → /cgi/ThirdParty/.../index.cgi/，所有用户可见）
 │   ├── index.cgi       # CGI 反代 → 本机回环端口（默认 9800，读同目录 ui/port 镜像）
 │   └── images/icon_{64,256}.png
     └── server/             # 构建脚本生成
@@ -61,7 +61,7 @@ build/fpk/nasdeck-fnpack-*.fpk  # 最终交付物
 | 访问模型 | **CGI 反代**（iframe → index.cgi → 本机回环端口），不用统一网关 | 飞牛会周期性清空第三方 `entry.gateway_socket` 导致网关 404（2026-08 真机实测，看门狗方案已废弃） |
 | 端口 | 回环端口**默认 9800，安装向导可自定义、应用「配置」可随时修改**（`wizard_port` → 校验+占用预检 → 落盘 `${TRIM_PKGVAR}/port`，镜像 `ui/port`）；manifest 按 CGI 规范省略 `service_port`、`checkport=false` | cmd/main 与 index.cgi 从同一落盘文件读端口（非法值回退 9800）；仅绑 127.0.0.1，不向局域网暴露管理面板 |
 | 运行参数 | 日志级别 / 原始数据保留时长经**配置向导**落盘 `${TRIM_PKGVAR}/runtime.env`，cmd/main 启动时 source | `NASDECK_LOG_LEVEL` 仅在用户显式选过时落盘导出，缺省由后端按版本通道判定：**dev- 前缀包 DEBUG**（真机排查采集链路）、正式包 INFO；`NASDECK_RAW_KEEP_MINUTES`（默认 120）；后端 pydantic-settings 前缀映射零改动 |
-| 鉴权 | `NASDECK_TRIM_AUTH=true`：读=飞牛登录（X-Trim-Userid），写=管理员（X-Trim-Isadmin） | index.cgi 转发的可信身份头在后端强制校验（`require_trim_auth`）；桌面入口 `allUsers=false` 仅管理员可见；`/health` 探针除外 |
+| 鉴权 | `NASDECK_TRIM_AUTH=true`：读=飞牛登录（X-Trim-Userid），写=管理员（X-Trim-Isadmin） | index.cgi 转发的可信身份头在后端强制校验（`require_trim_auth`）；桌面入口 `allUsers=true` 全员可见（普通用户只读，前端屏蔽设置按钮）；`/health` 探针除外 |
 | 权限 | `run-as: root` | SMART / storcli / hwmon PWM 写入 / systemctl 全部需要 root；面板本身在飞牛登录态 + 分级鉴权之后 |
 | Python | `install_dep_apps=python312` 提供解释器；依赖离线打进 site-packages | 不联网、不 pip 装系统（旧 `--break-system-packages` 方案废弃）；`PYTHONPATH` 注入 |
 | 前端 | `.env.fpk`：base=完整 cgi 前缀，history 路由刷新不丢资源；SPA 回退由后端承担（`NASDECK_STATIC_DIR`） | nas 数据层自带 index.cgi 前缀自适应；WS 经代理不可用 → 前端自动降级 2s 轮询 |
@@ -86,11 +86,11 @@ export PYTHONPATH="${SERVER_DIR}/site-packages"
 
 1. 应用中心 → 手动安装 → 选 `.fpk`（官方注明仅限本地测试；分发走应用中心/GitHub Release）。
 2. 验证清单：
-   - 安装成功、桌面出现「NAS硬件监控」图标（仅管理员可见）、点击打开面板（需登录管理员）
+   - 安装成功、桌面出现「NAS硬件监控」图标（所有用户可见）、点击打开面板（需登录飞牛）
    - `cmd/main status` 退出码 0；`curl 127.0.0.1:9800/health` 返回 healthy
    - 面板各页数据正常（CPU/硬盘 SMART/阵列卡/风扇），风扇控制可写 PWM
    - 硬件检测页「运行环境自检」分区如实反映自举结果：工具缺哪个、驱动加载没、生效配置
-   - 鉴权：管理员账号读写正常；普通用户看不到桌面图标，直连 9800 无身份头返回 403
+   - 鉴权：管理员读写正常；普通用户可看面板、写操作 403 且无设置按钮；直连 9800 无身份头返回 403
    - 停止/启动/升级各一遍；升级后 @appdata 数据仍在
    - 卸载 → 选「保留配置」→ 重装 → 配置还原（config_backup 镜像生效）
 3. 自定义端口验证（第二次装机时做）：
