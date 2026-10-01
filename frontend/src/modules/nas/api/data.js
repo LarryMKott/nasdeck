@@ -745,6 +745,7 @@ export async function fetchDetect() {
           env.config?.raw_keep_minutes != null ? `${env.config.raw_keep_minutes} 分钟` : null,
         ],
       ]),
+      schemes: env.schemes ?? [],
       tools: env.tools ?? [],
       drivers: env.drivers ?? [],
       storcli: env.storcli ?? { ok: false, path: '', desc: '' },

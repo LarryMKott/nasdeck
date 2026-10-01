@@ -37,6 +37,24 @@ def test_decide_linux_full(tmp_path, monkeypatch):
     assert p.tools["smartctl"] and p.tools["nvidia-smi"] and not p.tools["lspci"]
     # reasons 记录各探测点结论（降级判定留档）
     assert "cpu_util" in p.reasons and "gpu_scan" in p.reasons
+    # 逐域采集方案：每域带 primary/source/fallback/ok（自检页与启动日志展示）
+    domains = {x["domain"] for x in p.schemes}
+    assert {
+        "cpu_util",
+        "memory",
+        "net",
+        "power",
+        "temperature",
+        "fan",
+        "smart",
+        "soft_raid",
+        "hard_raid",
+        "gpu_intel",
+    } <= domains
+    cpu = next(x for x in p.schemes if x["domain"] == "cpu_util")
+    assert cpu["primary"] == "/proc/stat 差分" and cpu["ok"] is True and cpu["fallback"]
+    gpu_intel = next(x for x in p.schemes if x["domain"] == "gpu_intel")
+    assert gpu_intel["ok"] is False and "intel-gpu-tools" in gpu_intel["note"]  # 未装工具 → 降级带原因
 
 
 def test_decide_degraded_reasons(tmp_path, monkeypatch):
@@ -73,8 +91,12 @@ def test_get_policy_singleton(monkeypatch):
     def fake_decide() -> HardwarePolicy:
         calls.append(1)
         return HardwarePolicy(
-            platform="Test", cpu_util="proc", cpu_freq="sysfs", memory="meminfo",
-            gpu_scan=False, gpu_vendors={},
+            platform="Test",
+            cpu_util="proc",
+            cpu_freq="sysfs",
+            memory="meminfo",
+            gpu_scan=False,
+            gpu_vendors={},
         )
 
     monkeypatch.setattr(policy_mod, "_policy", None)  # 测试后自动还原

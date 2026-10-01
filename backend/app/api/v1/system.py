@@ -25,7 +25,7 @@ from app.schemas.system import (
     WhitelistIn,
     WhitelistItem,
 )
-from app.services.hardware.policy import TOOLS
+from app.services.hardware.policy import TOOLS, get_policy
 from app.services.system import docker as docker_service
 from app.services.system import ports as port_service
 from app.services.system import process as process_service
@@ -82,6 +82,8 @@ async def env_check() -> dict:
     resolved_storcli = settings.storcli_cmd
     storcli_ok = bool(shutil.which(resolved_storcli)) or Path(resolved_storcli).exists()
     return {
+        # 逐域采集方案（策略决策层启动时判定：本机实际采用的数据源/回退/降级原因）
+        "schemes": get_policy().schemes,
         "python": {"version": platform.python_version(), "executable": sys.executable},
         "config": {
             "port": settings.port,

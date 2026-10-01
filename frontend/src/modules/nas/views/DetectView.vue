@@ -153,6 +153,28 @@ function showDimm(dimm) {
             </div>
           </div>
         </div>
+
+        <!-- 数据采集方案：逐域本机实际采用的数据源/回退（策略决策层启动判定） -->
+        <div v-if="d.env.schemes?.length" style="margin-top: 15px">
+          <div class="small muted" style="margin-bottom: 8px">
+            数据采集方案（逐域 · 本机实际采用 · 启动时探测判定）
+          </div>
+          <div
+            v-for="(sc, i) in d.env.schemes"
+            :key="sc.domain"
+            class="kvrow"
+            :class="i < d.env.schemes.length - 1 ? 'kvline' : ''"
+            style="display: flex; gap: 10px; align-items: baseline"
+          >
+            <span class="small" style="flex: 0 0 150px; font-weight: 600">{{ sc.label }}</span>
+            <span class="small num" :class="sc.ok ? 't-ok' : 't-warn'" style="flex: 0 0 auto">{{
+              sc.ok ? sc.primary : '✗ 不可用'
+            }}</span>
+            <span class="muted small" style="flex: 1" :title="sc.fallback">
+              {{ sc.ok ? sc.source : sc.note || sc.fallback }}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
 
