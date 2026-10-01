@@ -1,6 +1,6 @@
 # nasdeck
 
-**dev-0.0.6**（开发版） · 飞牛OS（fnOS）NAS 硬件监控面板
+**dev-0.0.22**（开发版） · 飞牛OS（fnOS）NAS 硬件监控面板
 
 [下载 fpk](https://github.com/LarryMKott/nasdeck/releases/latest) · [操作手册](docs/使用手册.md) · [前后端接口约定](docs/前后端数据接口约定.md) · [FPK 打包说明](fpk/README.md) · [飞牛社区讨论帖](https://club.fnnas.com/forum.php?mod=viewthread&tid=67060)
 
@@ -30,14 +30,14 @@
 </tr>
 </table>
 
-> 截图为应用内置「演示数据」模式下的深色主题运行效果；「控制与自动化」「操作手册」「关于」等页面见 [操作手册](docs/使用手册.md)。
+> 截图为 fnOS 1.2.0701 真机（i3-9100T · UHD Graphics 630 核显）深色主题实拍；「控制与自动化」「操作手册」「关于」等页面见 [操作手册](docs/使用手册.md)。
 
 ## 功能
 
 UNRAID 风格顶栏共 13 个视图（11 个功能页 + 操作手册 + 关于），覆盖 NAS 硬件运维核心场景：
 
 - **总览**：单页仪表盘——CPU / 内存 / 网络吞吐 / 磁盘 IO / 阵列 / GPU / 整机功耗 / 风扇 / Docker 一屏尽览，秒级自动刷新
-- **硬件检测**：系统信息、主板（DMI 直读品牌/BIOS/芯片组）、CPU（逐核占用）、内存（SPD 直读品牌，颗粒厂与模组厂区分）、网卡（IP/MAC/协商速率/驱动）、阵列卡自动识别 MegaRAID / HBA 直通 / 纯 SATA 三种形态
+- **硬件检测**：系统信息、主板（DMI 直读品牌/BIOS/芯片组）、CPU（逐核占用）、内存（SPD 直读品牌，颗粒厂与模组厂区分）、网卡（IP/MAC/协商速率/驱动）、阵列卡自动识别 MegaRAID / HBA 直通 / 纯 SATA 三种形态，附**运行环境自检**（安装期工具/驱动自举结果实时呈现，缺失项带安装提示）
 - **系统资源**：CPU / 内存 / 网络 / 磁盘 IO 60 秒滚动折线，RAPL 实时功耗（Intel），GPU 占用与频率
 - **温度监控**：关键传感器速览 + 全机温度墙，按阈值分档着色，5 秒就地更新
 - **历史趋势**：六维度历史回看（24h / 7d / 30d，自动降采样保留 30 天），一键导出 Markdown / HTML / CSV 健康报告
@@ -47,6 +47,7 @@ UNRAID 风格顶栏共 13 个视图（11 个功能页 + 操作手册 + 关于）
 - **Docker**：容器状态、内存 / CPU 占用、网络速率、端口映射、运行时长
 - **端口占用**：列出全部监听端口并自动识别占用者（飞牛应用 / 容器 / 系统服务），可达范围三级徽章，一键释放（保护系统关键进程）
 - **控制与自动化**：温度 / SMART 告警规则，Telegram / Bark / 邮件通知渠道，一键健康报告导出
+- **权限分级**：桌面入口所有用户可见，普通用户只读（界面自动隐藏设置类按钮），风扇调速 / 进程终止等写操作仅管理员（后端按飞牛身份头强制校验）
 
 ## 架构
 
@@ -69,8 +70,8 @@ UNRAID 风格顶栏共 13 个视图（11 个功能页 + 操作手册 + 关于）
 ## 安装（fnOS 真机）
 
 1. 下载 `.fpk`（Releases 或手动安装）
-2. 飞牛 **应用中心 → 手动安装**，按向导确认——系统工具（smartmontools / lm-sensors / mdadm / dmidecode / i2c-tools / ethtool）自动安装，Python 运行环境与全部依赖离线内置，无需联网编译
-3. 桌面出现「NAS硬件监控」图标，点击打开（需先登录飞牛）
+2. 飞牛 **应用中心 → 手动安装**，按向导确认——系统工具（smartmontools / lm-sensors / mdadm / dmidecode / i2c-tools / ethtool，Intel 显卡机型另装 intel-gpu-tools）自动安装，Python 运行环境与全部依赖离线内置，无需联网编译；监听端口默认 9800，冲突时可在向导中修改
+3. 桌面出现「NAS硬件监控」图标（所有用户可见），点击打开（需登录飞牛；普通用户只读，写操作仅管理员）
 
 > 风扇调速需要主板传感器驱动：NCT 系列系统一般自带（`modprobe nct6775`），ITE 系列装应用中心的 `ite-it87`；nasdeck 每次启动也会自动尝试加载。详见[操作手册](docs/使用手册.md)。
 
@@ -83,7 +84,7 @@ cd backend && .venv/Scripts/python.exe -m uvicorn main:app --port 8766
 # 前端（127.0.0.1:5173，代理已指向 8766；内置演示数据模式，后端不在也能跑）
 cd frontend && pnpm dev
 
-# 测试（40 项）
+# 测试（73 项）
 cd backend && .venv/Scripts/python.exe -m pytest -q
 
 # 打 FPK 包（产物 build/fpk/nasdeck-fnpack-<版本>.fpk）
@@ -108,7 +109,9 @@ backend/.venv/Scripts/python.exe scripts/build_fpk.py
 | `NASDECK_DB_URL` | backend/data/nasdeck.db | SQLite（FPK 形态落 @appdata） |
 | `NASDECK_STORCLI_PATH` | 自动探测 | storcli 可执行文件路径 |
 | `NASDECK_STATIC_DIR` | 空 | 前端 dist 目录（设置后由后端托管 SPA） |
-| `NASDECK_LOG_LEVEL` | INFO | 日志级别 |
+| `NASDECK_LOG_LEVEL` | INFO | 日志级别（FPK 形态由配置向导落盘 runtime.env） |
+| `NASDECK_RAW_KEEP_MINUTES` | 120 | 原始高频数据保留分钟数（影响数据库体积） |
+| `NASDECK_TRIM_AUTH` | 关 | 飞牛形态分级鉴权：读=登录用户、写=管理员（FPK 形态由 cmd/main 强制开启） |
 
 ## 约束与已知限制
 
