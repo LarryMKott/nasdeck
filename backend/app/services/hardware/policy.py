@@ -30,6 +30,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "ethtool": ("网卡信息与 WOL", "ethtool"),
     "lspci": ("PCI 设备识别（主板/阵列卡）", "pciutils"),
     "nvidia-smi": ("NVIDIA GPU 实时", "NVIDIA 驱动"),
+    "intel_gpu_top": ("Intel GPU 实时利用（核显/独显）", "intel-gpu-tools"),
 }
 
 # 内核文件探测点（proc/sys 直读策略的判定依据）
@@ -39,8 +40,8 @@ SYS_CPUFREQ = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"
 SYS_DRM = "/sys/class/drm"
 
 # GPU 实时策略（vendor key → 策略）：AMD sysfs 直读；NVIDIA 依赖 nvidia-smi；
-# Intel 无内核忙闲接口（Unraid 原生同样需 intel_gpu_top 插件）——恒 unavailable
-GPU_STRATEGIES = {"amd": "sysfs", "nvidia": "nvidia-smi", "intel": "unavailable"}
+# Intel 无全局忙闲 sysfs，走 intel_gpu_top -J 长驻进程（perf PMU），在位才启用
+GPU_STRATEGIES = {"amd": "sysfs", "nvidia": "nvidia-smi", "intel": "intel-gpu-top"}
 
 
 def _readable(path: str) -> bool:
@@ -88,6 +89,9 @@ def decide() -> HardwarePolicy:
         elif strategy == "nvidia-smi" and not tools["nvidia-smi"]:
             gpu_vendors[vendor] = "unavailable"
             reasons[f"gpu_{vendor}"] = "nvidia-smi 不在位"
+        elif strategy == "intel-gpu-top" and not tools["intel_gpu_top"]:
+            gpu_vendors[vendor] = "unavailable"
+            reasons[f"gpu_{vendor}"] = "intel_gpu_top 不在位（apt install intel-gpu-tools）"
         else:
             gpu_vendors[vendor] = strategy
     reasons["gpu_scan"] = f"/sys/class/drm {'可枚举' if gpu_scan else '缺失'}"

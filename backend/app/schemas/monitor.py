@@ -23,7 +23,22 @@ class GpuRealtime(BaseModel):
     vram_used_mb: float | None = None
     vram_total_mb: float | None = None
     temp_c: float | None = None
+    # intel_gpu_top 扩展：频率（实测/请求 MHz）、i915 包功耗、视频/增强引擎 busy
+    freq_mhz: float | None = None
+    freq_max_mhz: float | None = None
+    power_w: float | None = None
+    video_busy: float | None = None
+    enhance_busy: float | None = None
     source: str = ""
+
+
+class PowerRealtime(BaseModel):
+    """RAPL 实时功耗分量（Intel energy_uj 差分；非 Intel/无权限时 available=false）。"""
+
+    available: bool = False
+    watts: float | None = None
+    cpu_w: float | None = None
+    dram_w: float | None = None
 
 
 class RealtimeSnapshot(BaseModel):
@@ -47,6 +62,8 @@ class RealtimeSnapshot(BaseModel):
     swap_percent: float
     # GPU 实时分量（medium_5s 采样；无卡/Intel 时 available=false 或 null）
     gpu: GpuRealtime | None = None
+    # RAPL 实时功耗（Intel energy_uj 差分；不可用平台 available=false）
+    power: PowerRealtime | None = None
     net: dict[str, NetIface]
     disk_io: dict[str, float]
     process_count: int

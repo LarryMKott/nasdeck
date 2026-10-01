@@ -9,6 +9,7 @@ storcli 文本解析在 storcli.py（移植旧版实测实现）；本模块负�
 from __future__ import annotations
 
 import asyncio
+import re
 
 from app.services.storage import storcli
 from app.utils.async_cmd import run_cmd
@@ -113,18 +114,29 @@ def _storcli_text_run(args: list[str], timeout: float) -> str:
     return out
 
 
-def _mdstat_volumes() -> list[dict]:
-    text = read_text("/proc/mdstat")
+def _mdstat_volumes(path: str = "/proc/mdstat") -> list[dict]:
+    text = read_text(path)
     if not text:
         return []
     volumes = []
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
         if " : active" not in line:
             continue
         name, rest = line.split(" : ", 1)
         parts = rest.split()
         level = parts[1].lstrip("raid") if len(parts) > 1 else "unknown"
-        healthy = "[UU]" in rest or "_" not in rest
+        # 成员行下一行形如 "8790400320 blocks super 1.2 ... [4/4] [UUUU]"：
+        # blocks 单位 KiB；盘位状态 [U_U] 在该行，降级判断须连同它一起看
+        size_bytes = None
+        blocks_line = ""
+        for follow in lines[i + 1 : i + 3]:
+            match = re.search(r"(\d+) blocks", follow)
+            if match:
+                size_bytes = int(match.group(1)) * 1024
+                blocks_line = follow
+                break
+        healthy = "_" not in rest and "_" not in blocks_line
         volumes.append(
             {
                 "source": "mdadm",
@@ -132,7 +144,7 @@ def _mdstat_volumes() -> list[dict]:
                 "volume_id": name,
                 "name": name,
                 "level": level,
-                "size_bytes": None,
+                "size_bytes": size_bytes,
                 "state": "clean" if healthy else "degraded",
                 "healthy": healthy,
                 "details": {"members": rest[:200]},

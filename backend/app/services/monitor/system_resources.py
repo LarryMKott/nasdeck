@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 import psutil
 
 from app.services.hardware.policy import get_policy
+from app.services.monitor.power import rapl_power
 from app.utils.sysfs import read_text
 from app.utils.unit_convert import kbps_to_human
 
@@ -259,6 +260,7 @@ async def snapshot() -> dict:
         "swap_percent": mem["swap_percent"],
         "net": _net_ifaces(),
         "disk_io": _disk_io(),
+        "power": rapl_power(),
         "process_count": len(psutil.pids()),
         "uptime_s": int(time.time() - psutil.boot_time()),
     }
