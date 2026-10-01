@@ -2,53 +2,116 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from datetime import UTC, datetime, timedelta
+from math import ceil
+
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.metrics import MetricPoint
 
 MAX_MINUTES = 30 * 24 * 60  # 30 天
+MAX_POINTS = 500  # 单次返回点数上限（契约 §2.3）
 
 
-async def query_history(
-    db: AsyncSession, minutes: int, points: int
-) -> tuple[list[dict], str]:
-    """返回 (点列表, 主粒度)。窗口全在 raw 保留期内用 raw，否则 1m；10m 留给更长窗口。"""
+async def query_history(db: AsyncSession, minutes: int, points: int) -> tuple[list[dict], str]:
+    """返回 (点列表, 主粒度)。粒度按窗口选：raw 保留期内用 raw，7 天内用 1m，更长用 10m。
+
+    窗口内点数超过 points 时按时间桶平均降采样，保证任意窗口都返回铺满区间的点。
+    此前实现固定取最近 N 条 raw 行，minutes 参数实际无效——24h 窗口也只覆盖最后几秒。
+    窗口超过 raw 保留期时新旧两段拼接：老区段用 1m/10m（严格 < raw 起点防止与
+    raw 段重叠双画），最近 raw 保留期仍用 raw——1m/10m 由 downsampler 滞后聚合，
+    单查聚合表会把最近几小时漏掉。
+    """
     minutes = min(minutes, MAX_MINUTES)
-    granularity = "raw"
-    rows: list[MetricPoint] = []
-    # raw 窗口：直接取最近 minutes 分钟
+    points = max(1, min(points, MAX_POINTS))
+    raw_keep = max(settings.raw_keep_minutes, 1)
+    if minutes <= raw_keep:
+        return await _window(db, "raw", _iso_minutes_ago(minutes), minutes, points), "raw"
+    granularity = "1m" if minutes <= 7 * 24 * 60 else "10m"
+    raw_since = _iso_minutes_ago(raw_keep)
+    older_span = minutes - raw_keep
+    older_points = max(1, round(points * older_span / minutes))
+    rows = await _window(db, granularity, _iso_minutes_ago(minutes), older_span, older_points, until=raw_since)
+    rows += await _window(db, "raw", raw_since, raw_keep, max(1, points - older_points))
+    return rows, granularity
+
+
+async def _window(
+    db: AsyncSession,
+    granularity: str,
+    since: str,
+    span_minutes: int,
+    points: int,
+    until: str | None = None,
+) -> list[dict]:
+    """取一个区段的点：点数不超上限原样返回，超了按时间桶均分降采样。"""
+    conds = [MetricPoint.granularity == granularity, MetricPoint.ts >= since]
+    if until is not None:
+        conds.append(MetricPoint.ts < until)
+    total = await _count(db, conds)
+    if total <= points:
+        return await _plain(db, conds, points)
+    return await _bucketed(db, conds, span_minutes, points, granularity)
+
+
+def _iso_minutes_ago(minutes: int) -> str:
+    return (datetime.now(UTC) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+async def _count(db: AsyncSession, conds: list) -> int:
+    result = await db.execute(select(func.count()).select_from(MetricPoint).where(*conds))
+    return int(result.scalar_one())
+
+
+async def _plain(db: AsyncSession, conds: list, limit: int) -> list[dict]:
+    result = await db.execute(select(MetricPoint).where(*conds).order_by(MetricPoint.ts.desc()).limit(limit))
+    return [_point_dict(r) for r in list(result.scalars())[::-1]]
+
+
+async def _bucketed(db: AsyncSession, conds: list, minutes: int, points: int, granularity: str) -> list[dict]:
+    """窗口均分 time 桶取均值：SQLite 端聚合，桶内 ts 取最早点作横坐标。"""
+    bucket_seconds = max(ceil(minutes * 60 / points), 1)
+    bucket = cast(func.strftime("%s", MetricPoint.ts) / bucket_seconds, Integer)
     result = await db.execute(
-        select(MetricPoint)
-        .where(MetricPoint.granularity == "raw")
-        .order_by(MetricPoint.ts.desc())
-        .limit(min(points, 500))
+        select(
+            func.min(MetricPoint.ts),
+            func.avg(MetricPoint.cpu),
+            func.max(MetricPoint.cpu),
+            func.avg(MetricPoint.mem_mb),
+            func.avg(MetricPoint.net_kbps),
+            func.max(MetricPoint.temp_max),
+            func.avg(MetricPoint.gpu),
+            func.avg(MetricPoint.disk_read_kbps),
+            func.avg(MetricPoint.disk_write_kbps),
+        )
+        .where(*conds)
+        .group_by(bucket)
+        .order_by(func.min(MetricPoint.ts))
     )
-    rows = list(result.scalars())[::-1]
-    if rows:
-        span_minutes = _span_minutes(rows[0].ts, rows[-1].ts)
-        if span_minutes > minutes + 5:
-            granularity = "1m"
-            result = await db.execute(
-                select(MetricPoint)
-                .where(MetricPoint.granularity == "1m")
-                .order_by(MetricPoint.ts.desc())
-                .limit(min(points, 500))
-            )
-            rows = list(result.scalars())[::-1]
-    return [_point_dict(r) for r in rows], granularity
+    rows = result.all()
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "ts": r[0],
+                "cpu_avg": _round(r[1], 2),
+                "cpu_max": _round(r[2], 2),
+                "mem_avg_mb": _round(r[3], 1),
+                "net_avg_kbps": _round(r[4], 1),
+                "temp_max_c": r[5],
+                "gpu_avg": _round(r[6], 2),
+                "disk_read_kbps": _round(r[7], 1),
+                "disk_write_kbps": _round(r[8], 1),
+                "granularity": granularity,
+            }
+        )
+    return out
 
 
-def _span_minutes(ts_start: str, ts_end: str) -> float:
-    from datetime import datetime
-
-    fmt = "%Y-%m-%dT%H:%M:%S"
-    try:
-        a = datetime.strptime(ts_start, fmt)
-        b = datetime.strptime(ts_end, fmt)
-        return (b - a).total_seconds() / 60
-    except ValueError:
-        return 0.0
+def _round(v: float | None, digits: int) -> float | None:
+    return None if v is None else round(v, digits)
 
 
 def _point_dict(row: MetricPoint) -> dict:
@@ -80,8 +143,9 @@ async def stats(db: AsyncSession, minutes: int, dim: str) -> dict:
         "gpu": MetricPoint.gpu,
     }.get(dim, MetricPoint.cpu)
     result = await db.execute(
-        select(func.avg(column), func.max(column), func.count())
-        .where(MetricPoint.granularity == "raw", MetricPoint.ts >= since)
+        select(func.avg(column), func.max(column), func.count()).where(
+            MetricPoint.granularity == "raw", MetricPoint.ts >= since
+        )
     )
     avg, mx, n = result.one()
     return {"dim": dim, "minutes": minutes, "n": n, "avg": avg, "max": mx}
@@ -113,9 +177,7 @@ def export_build(rows: list[dict], dim: str, minutes: int, fmt: str) -> tuple[st
         head = f"# nasdeck 历史健康报告 · {label} · 最近 {minutes} 分钟\n\n"
         stats = [v for v in values if v is not None]
         avg = sum(stats) / len(stats) if stats else 0
-        head += (
-            f"- 采样点：{len(rows)}\n- 均值：{avg:.1f}{unit}\n- 峰值：{max(stats, default=0):.1f}{unit}\n\n"
-        )
+        head += f"- 采样点：{len(rows)}\n- 均值：{avg:.1f}{unit}\n- 峰值：{max(stats, default=0):.1f}{unit}\n\n"
         head += "| 时间 | 数值 |\n|---|---|\n"
         head += "\n".join(
             f"| {r['ts']} | {'' if v is None else f'{v}{unit}'} |" for r, v in zip(rows, values, strict=False)
