@@ -4,6 +4,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { fans as mockFans } from '../mock';
 import { apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
+import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
@@ -11,6 +12,10 @@ import UCurveEditor from '../components/UCurveEditor.vue';
 import FanRotor from '../components/FanRotor.vue';
 
 defineOptions({ name: 'NasFan' });
+
+// 权限铁律：设置类操作仅管理员；非管理员全部写控件禁用
+const identity = useIdentityStore();
+identity.ensure();
 
 const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchFans, mockFans);
 
@@ -23,6 +28,7 @@ function detectKey(ch) {
 }
 
 async function addZone(ch) {
+  if (!identity.canWrite) return;
   const key = detectKey(ch);
   addingKey.value = key;
   try {
@@ -52,6 +58,7 @@ const takeover = computed(() => takeoverOverride.value ?? d.value.takeover ?? tr
 const takeoverPopOpen = ref(false);
 
 function toggleTakeover() {
+  if (!identity.canWrite) return;
   if (takeover.value) {
     takeoverPopOpen.value = true; // 开 → 关需二次确认
   } else {
@@ -61,6 +68,7 @@ function toggleTakeover() {
 }
 
 async function confirmTakeoverOff() {
+  if (!identity.canWrite) return;
   takeoverOverride.value = false;
   if (live.value) {
     await apiData('/api/v1/control/fcs/release', { method: 'POST' }).catch(() => null);
@@ -79,6 +87,7 @@ watch(
 
 /** PWM 开关/滑杆写回后端：开=mode fixed（apply_tick 每 5s 写 pwm），关=auto 交还 BIOS */
 async function pushZone(fan, patch) {
+  if (!identity.canWrite) return false;
   try {
     await apiData(`/api/v1/control/fans/${fan.id}`, { method: 'PUT', body: patch });
     return true;
@@ -88,6 +97,7 @@ async function pushZone(fan, patch) {
 }
 
 async function togglePwm(fan) {
+  if (!identity.canWrite) return;
   const next = !fan.pwm;
   fan.pwm = next; // 乐观更新
   // 开启时占空比下限 20%：抓到的当前值可能是 BIOS 闲置的 0%，钉 0 会停转风扇
@@ -107,6 +117,7 @@ const popOpen = reactive({});
 const renameValue = ref('');
 
 async function confirmRename(fan) {
+  if (!identity.canWrite) return;
   const name = renameValue.value.trim();
   if (!name || name === fan.name) return;
   const ok = await pushZone(fan, { name });
@@ -114,6 +125,7 @@ async function confirmRename(fan) {
 }
 
 async function confirmDelete(fan) {
+  if (!identity.canWrite) return;
   try {
     await apiData(`/api/v1/control/fans/${fan.id}`, { method: 'DELETE' });
   } catch {
@@ -185,7 +197,7 @@ watch(
 
 async function saveCurve() {
   curveSaved.value = false;
-  if (!live.value) return;
+  if (!live.value || !identity.canWrite) return;
   savingCurve.value = true;
   try {
     let curveId = d.value.curveId;
@@ -244,7 +256,12 @@ const headerTag = computed(() =>
     <!-- 接管总开关 -->
     <div class="wg">
       <div class="wg-b opcard" style="padding: 14px 16px">
-        <label class="switch" :class="{ on: takeover }" @click="toggleTakeover">
+        <label
+          class="switch"
+          :class="{ on: takeover, disabled: !identity.canWrite }"
+          :title="identity.deniedText"
+          @click="toggleTakeover"
+        >
           <span class="tr" />
         </label>
         <div class="ot" style="flex: 1; min-width: 220px">
@@ -262,7 +279,13 @@ const headerTag = computed(() =>
             @confirm="confirmTakeoverOff"
           >
             <template #trigger>
-              <button class="btn sm" :disabled="!takeover">停用接管</button>
+              <button
+                class="btn sm"
+                :disabled="!takeover || !identity.canWrite"
+                :title="identity.deniedText"
+              >
+                停用接管
+              </button>
             </template>
             确认停用风扇接管？将交还主板 BIOS 控制（FCS 恢复）。
           </u-pop>
@@ -311,7 +334,12 @@ const headerTag = computed(() =>
                 </select>
               </td>
               <td class="r">
-                <button class="btn sm" :disabled="addingKey === detectKey(ch)" @click="addZone(ch)">
+                <button
+                  class="btn sm"
+                  :disabled="addingKey === detectKey(ch) || !identity.canWrite"
+                  :title="identity.deniedText"
+                  @click="addZone(ch)"
+                >
                   {{ addingKey === detectKey(ch) ? '添加中…' : '添加风区' }}
                 </button>
               </td>
@@ -340,7 +368,14 @@ const headerTag = computed(() =>
               @confirm="confirmRename(fan)"
             >
               <template #trigger>
-                <button class="btn sm" @click="renameValue = fan.name">重命名</button>
+                <button
+                  class="btn sm"
+                  :disabled="!identity.canWrite"
+                  :title="identity.deniedText"
+                  @click="renameValue = fan.name"
+                >
+                  重命名
+                </button>
               </template>
               <input
                 v-model="renameValue"
@@ -358,7 +393,9 @@ const headerTag = computed(() =>
               @confirm="confirmDelete(fan)"
             >
               <template #trigger>
-                <button class="btn sm">删除</button>
+                <button class="btn sm" :disabled="!identity.canWrite" :title="identity.deniedText">
+                  删除
+                </button>
               </template>
               删除风区「{{ fan.name }}」？删除后立即交还主板控制。
             </u-pop>
@@ -379,7 +416,12 @@ const headerTag = computed(() =>
             @change="onDutyCommit(fan)"
           />
           <div class="dutyrow">
-            <label class="switch" :class="{ on: fan.pwm }" @click="togglePwm(fan)">
+            <label
+              class="switch"
+              :class="{ on: fan.pwm, disabled: !identity.canWrite }"
+              :title="identity.deniedText"
+              @click="togglePwm(fan)"
+            >
               <span class="tr" />PWM
             </label>
             <span>DC 12V</span>
@@ -428,7 +470,7 @@ const headerTag = computed(() =>
           <button
             class="btn pri"
             style="margin-top: 15px"
-            :disabled="savingCurve || !live"
+            :disabled="savingCurve || !live || !identity.canWrite"
             @click="saveCurve"
           >
             <u-icon name="check" />{{

@@ -1379,6 +1379,12 @@
         background: #fff;
       }
     }
+
+    // 无权限禁用（权限铁律：设置类仅管理员）：降透明度+禁用手势
+    &.disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
   }
 
   select,

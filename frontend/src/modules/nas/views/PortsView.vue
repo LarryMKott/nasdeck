@@ -4,11 +4,16 @@ import { computed, reactive, ref } from 'vue';
 import { ports as mockPorts } from '../mock';
 import { apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
+import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
 
 defineOptions({ name: 'NasPorts' });
+
+// 权限铁律：设置类操作仅管理员；非管理员禁用「释放进程」
+const identity = useIdentityStore();
+identity.ensure();
 
 const keyword = ref('');
 const reachFilter = ref('');
@@ -106,7 +111,13 @@ const filtered = computed(() =>
                   @confirm="releasePort(p)"
                 >
                   <template #trigger>
-                    <button class="btn sm">释放</button>
+                    <button
+                      class="btn sm"
+                      :disabled="!identity.canWrite"
+                      :title="identity.deniedText"
+                    >
+                      释放
+                    </button>
                   </template>
                   {{ p.confirm }}
                 </u-pop>

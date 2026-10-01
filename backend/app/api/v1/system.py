@@ -6,7 +6,7 @@ import platform
 from datetime import UTC, datetime
 
 import psutil
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,7 +35,13 @@ router = APIRouter(prefix="/system", tags=["system"], dependencies=[ApiKeyDep, T
 
 
 @router.get("/info", response_model=SystemInfo)
-async def info() -> dict:
+async def info(request: Request) -> dict:
+    # 权限铁律的前端依据：trim 形态按飞牛注入的 X-Trim-Isadmin 头；
+    # 非 trim 形态（api_key/本机无鉴权）恒 true——写权限归 api_key 持有者
+    if settings.trim_auth:
+        is_admin = request.headers.get("x-trim-isadmin", "").strip().lower() in ("true", "1")
+    else:
+        is_admin = True
     return {
         "hostname": platform.node(),
         "platform": platform.system(),
@@ -46,6 +52,7 @@ async def info() -> dict:
         "fnos_version": read_text("/usr/trim/etc/version"),
         "uptime_s": int(datetime.now(UTC).timestamp() - psutil.boot_time()),
         "app_version": settings.app_version,
+        "is_admin": is_admin,
     }
 
 

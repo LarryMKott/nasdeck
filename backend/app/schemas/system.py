@@ -17,6 +17,9 @@ class SystemInfo(BaseModel):
     fnos_version: str | None = None
     uptime_s: int
     app_version: str
+    # trim 形态下当前登录者是否管理员（透传飞牛注入的 X-Trim-Isadmin 头）；
+    # 非 trim 形态（api_key/无鉴权）恒 true——写权限由 api_key 持有者天然具备
+    is_admin: bool = True
 
 
 class ContainerItem(BaseModel):

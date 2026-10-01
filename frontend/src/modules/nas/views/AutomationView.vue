@@ -4,12 +4,17 @@ import { computed, ref } from 'vue';
 import { automation as mockAutomation, activeAlerts as mockAlerts } from '../mock';
 import { apiBase, apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
+import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UModal from '../components/UModal.vue';
 import UPop from '../components/UPop.vue';
 
 defineOptions({ name: 'NasAutomation' });
+
+// 权限铁律：设置类操作仅管理员；非管理员禁用规则保存与报告导出
+const identity = useIdentityStore();
+identity.ensure();
 
 /** 页内页签：t1 活动告警 | t2 告警规则与通知 | t3 报告导出 */
 const activeTab = ref('t1');
@@ -27,6 +32,7 @@ const alerts = computed(() => d.value.activeAlerts ?? []);
 /** 报告导出：真实生成 HTML 健康报告并触发下载 */
 const exporting = ref(false);
 async function exportReport() {
+  if (!identity.canWrite) return;
   if (exporting.value) return;
   exporting.value = true;
   try {
@@ -53,6 +59,7 @@ const ruleSaving = ref(false);
 const ruleSaved = ref(false);
 
 async function saveRule() {
+  if (!identity.canWrite) return;
   ruleSaving.value = true;
   ruleSaved.value = false;
   try {
@@ -170,7 +177,13 @@ const headerTag = computed(() => ({
               <button class="btn sm"><u-icon name="send" />发送测试通知</button>
             </span>
           </div>
-          <button class="btn pri" style="margin-top: 15px" :disabled="ruleSaving" @click="saveRule">
+          <button
+            class="btn pri"
+            style="margin-top: 15px"
+            :disabled="ruleSaving || !identity.canWrite"
+            :title="identity.deniedText"
+            @click="saveRule"
+          >
             <u-icon name="check" />{{ ruleSaving ? '保存中…' : ruleSaved ? '已保存' : '保存规则' }}
           </button>
         </div>
@@ -201,7 +214,12 @@ const headerTag = computed(() => ({
             </span>
             <label />
             <span>
-              <button class="btn" :disabled="exporting" @click="exportReport">
+              <button
+                class="btn"
+                :disabled="exporting || !identity.canWrite"
+                :title="identity.deniedText"
+                @click="exportReport"
+              >
                 <u-icon name="dl" />{{ exporting ? '生成中…' : '立即导出' }}
               </button>
             </span>

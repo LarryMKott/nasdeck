@@ -10,6 +10,12 @@ async def test_health(client):
     assert data == {"status": "healthy"}
 
 
+async def test_info_has_is_admin(client):
+    """§3.3 info 暴露 is_admin（trim 形态透传 X-Trim-Isadmin；测试形态恒 true）。"""
+    data = ok(await client.get("/api/v1/system/info"))
+    assert data["is_admin"] is True
+
+
 async def test_realtime_snapshot_shape(client):
     data = ok(await client.get("/api/v1/monitor/realtime"))
     for key in ("ts", "cpu_percent", "cpu_per_core", "mem_total_mb", "mem_available_mb", "net", "uptime_s"):

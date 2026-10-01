@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # 空 = 跟随版本通道缺省（resolved_log_level）：dev 包 DEBUG 便于真机排查采集
     # 链路，正式包 INFO；FPK 形态由配置向导显式选择后写入 runtime.env
     log_level: str = ""
-    app_version: str = "dev-0.0.18"
+    app_version: str = "dev-0.0.20"
     # FPK 打包形态：指向前端 dist 目录时由本服务托管 SPA；开发形态留空不挂载
     static_dir: str = ""
 
