@@ -111,13 +111,7 @@ const filtered = computed(() =>
                   @confirm="releasePort(p)"
                 >
                   <template #trigger>
-                    <button
-                      class="btn sm"
-                      :disabled="!identity.canWrite"
-                      :title="identity.deniedText"
-                    >
-                      释放
-                    </button>
+                    <button v-if="identity.canWrite" class="btn sm">释放</button>
                   </template>
                   {{ p.confirm }}
                 </u-pop>

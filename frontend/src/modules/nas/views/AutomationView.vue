@@ -9,6 +9,7 @@ import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UModal from '../components/UModal.vue';
 import UPop from '../components/UPop.vue';
+import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasAutomation' });
 
@@ -215,9 +216,9 @@ const headerTag = computed(() => ({
             <label />
             <span>
               <button
+                v-if="identity.canWrite"
                 class="btn"
-                :disabled="exporting || !identity.canWrite"
-                :title="identity.deniedText"
+                :disabled="exporting"
                 @click="exportReport"
               >
                 <u-icon name="dl" />{{ exporting ? '生成中…' : '立即导出' }}

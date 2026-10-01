@@ -253,8 +253,8 @@ const headerTag = computed(() =>
       </template>
     </u-page-header>
 
-    <!-- 接管总开关 -->
-    <div class="wg">
+    <!-- 接管总开关（权限铁律：设置类仅管理员，非管理员整块隐藏） -->
+    <div v-if="identity.canWrite" class="wg">
       <div class="wg-b opcard" style="padding: 14px 16px">
         <label
           class="switch"
@@ -293,8 +293,8 @@ const headerTag = computed(() =>
       </div>
     </div>
 
-    <!-- 硬件检测：未建风区的 pwm 通道 -->
-    <div v-if="live && d.channels?.length" class="wg">
+    <!-- 硬件检测：未建风区的 pwm 通道（仅管理员） -->
+    <div v-if="live && identity.canWrite && d.channels?.length" class="wg">
       <div class="wg-b opcard" style="padding: 14px 16px">
         <div class="ot" style="flex: 1">
           <b>硬件检测 · {{ d.channels.length }} 个未配置通道</b>
@@ -353,14 +353,18 @@ const headerTag = computed(() =>
     <div class="grid">
       <div v-if="live && !cards.length" class="wg t12">
         <div class="wg-b small muted" style="padding: 22px 0; text-align: center">
-          尚未添加风区 · 从上方「硬件检测」把在转的风扇添加为风区后，此处显示实时调速卡
+          {{
+            identity.canWrite
+              ? '尚未添加风区 · 从上方「硬件检测」把在转的风扇添加为风区后，此处显示实时调速卡'
+              : '管理员尚未配置风扇风区 · 配置后此处显示实时转速'
+          }}
         </div>
       </div>
       <div v-for="fan in cards" :key="fan.name" class="wg t4 fan-card">
         <div class="wg-h">
           <u-icon name="fan" />
           <h3>{{ fan.name }}</h3>
-          <span class="x">
+          <span v-if="identity.canWrite" class="x">
             <u-pop
               v-model="popOpen[`ren:${fan.id}`]"
               ok-text="保存"
@@ -408,6 +412,7 @@ const headerTag = computed(() =>
             <span class="num">占空比 {{ fan.duty }}%</span>
           </div>
           <input
+            v-if="identity.canWrite"
             v-model.number="fan.duty"
             type="range"
             min="0"
@@ -417,9 +422,9 @@ const headerTag = computed(() =>
           />
           <div class="dutyrow">
             <label
+              v-if="identity.canWrite"
               class="switch"
-              :class="{ on: fan.pwm, disabled: !identity.canWrite }"
-              :title="identity.deniedText"
+              :class="{ on: fan.pwm }"
               @click="togglePwm(fan)"
             >
               <span class="tr" />PWM
@@ -443,8 +448,10 @@ const headerTag = computed(() =>
               </template>
               <template v-else>拖拽圆点调整</template>
             </span>
-            <button class="btn sm" @click="curveAdd"><u-icon name="plus" />添加点</button>
-            <button class="btn sm" @click="curveReset">重置</button>
+            <template v-if="identity.canWrite">
+              <button class="btn sm" @click="curveAdd"><u-icon name="plus" />添加点</button>
+              <button class="btn sm" @click="curveReset">重置</button>
+            </template>
           </span>
         </div>
         <div class="wg-b curve-wrap">
@@ -468,9 +475,10 @@ const headerTag = computed(() =>
             <input v-model.number="curveRamp" type="number" min="1" max="50" />
           </div>
           <button
+            v-if="identity.canWrite"
             class="btn pri"
             style="margin-top: 15px"
-            :disabled="savingCurve || !live || !identity.canWrite"
+            :disabled="savingCurve || !live"
             @click="saveCurve"
           >
             <u-icon name="check" />{{
