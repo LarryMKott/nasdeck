@@ -3,6 +3,7 @@
 # 幂等可重复执行（安装/升级都可能重跑）。
 #
 # - 系统工具：smartmontools / lm-sensors / mdadm / dmidecode / i2c-tools / ethtool
+#   / intel-gpu-tools（仅检测到 Intel 显卡时安装，供核显实时利用率）
 #   （缺啥装啥；无外网时安装失败不阻塞装机，对应功能自动降级）
 # - storcli 随包内置（server/bin/storcli64，config/resource 的 usr-local-linker 负责软链
 #   到 /usr/local/bin，此处兜底处理软链未生效的极少数环境）
@@ -66,6 +67,11 @@ command -v dmidecode >/dev/null 2>&1 || need_install+=("dmidecode")
 command -v decode-dimms >/dev/null 2>&1 || need_install+=("i2c-tools")
 # ethtool：网卡信息 + WOL（网络唤醒）开关依赖它，fnOS 基础系统不一定自带
 command -v ethtool >/dev/null 2>&1 || need_install+=("ethtool")
+# intel_gpu_top：Intel 核显/独显实时利用率（存在 Intel drm 卡才装，省无卡机器流量）
+if [ -d /sys/class/drm ] && ls /sys/class/drm/card[0-9]*/device/vendor >/dev/null 2>&1 && \
+   grep -q 0x8086 /sys/class/drm/card[0-9]*/device/vendor 2>/dev/null; then
+    command -v intel_gpu_top >/dev/null 2>&1 || need_install+=("intel-gpu-tools")
+fi
 
 if [ ${#need_install[@]} -gt 0 ]; then
     echo "[nasdeck] 缺少系统工具: ${need_install[*]}，开始安装..." >> "$LOG"
@@ -143,6 +149,13 @@ if [ ${#need_install[@]} -gt 0 ]; then
                     apt) $APT_INSTALL ethtool >>"$LOG" 2>&1 ;;
                     dnf|yum) $PM install -y ethtool >>"$LOG" 2>&1 ;;
                     apk) apk add ethtool >>"$LOG" 2>&1 ;;
+                esac
+                ;;
+            intel-gpu-tools)
+                case "$PM" in
+                    apt) $APT_INSTALL intel-gpu-tools >>"$LOG" 2>&1 ;;
+                    dnf|yum) $PM install -y intel-gpu-tools >>"$LOG" 2>&1 ;;
+                    apk) apk add intel-gpu-tools >>"$LOG" 2>&1 ;;
                 esac
                 ;;
         esac
