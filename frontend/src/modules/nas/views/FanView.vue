@@ -1,6 +1,6 @@
 <script setup>
 /** 风扇控制：接管总开关 + 手动调速卡 + 曲线编辑器 + 温控规则（后端 + 演示回退） */
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { fans as mockFans } from '../mock';
 import { apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
@@ -134,8 +134,9 @@ async function confirmDelete(fan) {
   await refresh();
 }
 
-function rotorDur(duty) {
-  return Math.max(0.35, 6 - duty * 0.05);
+/** 转子驱动转速：优先传感器读数；无转速计通道按占空比估算（仅视觉，约 35%≈930RPM） */
+function visualRpm(fan) {
+  return fan.rpm > 0 ? fan.rpm : Math.round(fan.duty * 26.5);
 }
 
 /** 曲线编辑器（后端有曲线时回填，保存走 PUT /control/curves/{id}） */
@@ -233,6 +234,16 @@ async function saveCurve() {
   }
 }
 
+/** 2s 轮询：转子/调速卡跟随传感器实时转速（页头开关可暂停） */
+const autoRefresh = ref(true);
+let pollTimer = null;
+onMounted(() => {
+  pollTimer = setInterval(() => {
+    if (autoRefresh.value) refresh();
+  }, 2000);
+});
+onBeforeUnmount(() => clearInterval(pollTimer));
+
 const headerTag = computed(() =>
   takeover.value
     ? { type: 'acc', text: live.value ? '接管中' : '接管中 · 演示' }
@@ -249,7 +260,9 @@ const headerTag = computed(() =>
       :updated="lastUpdated"
     >
       <template #right>
-        <label class="switch on" @click.prevent> <span class="tr" />2s </label>
+        <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
+          <span class="tr" />2s
+        </label>
       </template>
     </u-page-header>
 
@@ -407,7 +420,7 @@ const headerTag = computed(() =>
         </div>
         <div class="wg-b">
           <div class="fanrow">
-            <fan-rotor size="lg" :dur-sec="rotorDur(fan.duty)" :paused="fan.duty === 0" />
+            <fan-rotor size="lg" :rpm="visualRpm(fan)" />
             <span class="big num">{{ fan.rpm }}<small> RPM</small></span>
             <span class="num">占空比 {{ fan.duty }}%</span>
           </div>

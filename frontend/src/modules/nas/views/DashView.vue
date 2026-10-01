@@ -400,7 +400,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           <div v-if="d.fans.length" class="fans3">
             <div v-for="fan in d.fans" :key="fan.name" class="fanb">
               <div class="fn">
-                <fan-rotor :dur-sec="fan.durSec" />
+                <fan-rotor :rpm="fan.rpm > 0 ? fan.rpm : Math.round(fan.dutyPercent * 26.5)" />
                 {{ fan.name }}
                 <span class="chip">{{ fan.chip }}</span>
               </div>
