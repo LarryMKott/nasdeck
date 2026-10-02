@@ -10,7 +10,6 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import { setupStore } from './stores';
 import { setupRouter } from './router';
-import directives from './directives';
 import 'element-plus/theme-chalk/dark/css-vars.css';
 import '@/styles/index.scss';
 
@@ -19,8 +18,6 @@ const app = createApp(App);
 // 顺序要求：Pinia 先于 Router 安装（路由守卫内使用 store）
 setupStore(app);
 setupRouter(app);
-app.use(directives);
-
 // 全局运行时异常兜底
 app.config.errorHandler = (error, _instance, info) => {
   console.error('[全局异常]', error, info);

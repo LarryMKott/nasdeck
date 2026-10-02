@@ -15,7 +15,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.db.session import session_factory
 from app.models.system import SystemSetting
-from app.services.report.desensitizer import desensitize
+from app.services.report.desensitizer import desensitize, mask_secret_values
 
 REPORT_DIR = Path(__file__).resolve().parents[3] / "data" / "reports"
 
@@ -42,9 +42,11 @@ async def generate_diagnostic(redact: bool) -> dict:
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("info.json", json.dumps(desensitize(json.dumps(info), redact), ensure_ascii=False, indent=2))
+        # 自由 KV 的 settings：先按 key 命中打码凭据值（正则覆盖不了的形态），再整体脱敏
+        masked_settings = mask_secret_values(settings_dump, redact)
         zf.writestr(
             "settings.json",
-            json.dumps(desensitize(json.dumps(settings_dump), redact), ensure_ascii=False, indent=2),
+            json.dumps(desensitize(json.dumps(masked_settings), redact), ensure_ascii=False, indent=2),
         )
     (REPORT_DIR / filename).write_bytes(buffer.getvalue())
     return {"filename": filename, "url": f"/api/v1/report/diagnostic/{filename}"}

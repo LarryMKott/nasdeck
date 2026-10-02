@@ -17,6 +17,8 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.db import ingest
 from app.db.init_db import init_db
+from app.db.session import session_factory
+from app.services.alert import engine as alert_engine
 from app.services.control import fan_manager, fcs_safe_takeover
 from app.services.hardware.policy import get_policy
 from app.tasks import downsampler
@@ -60,6 +62,9 @@ async def lifespan(app: FastAPI):
         settings.static_dir or "-",
     )
     await init_db()
+    async with session_factory() as db:
+        await alert_engine.reconcile_on_startup(db)  # 遗留 firing 事件对账
+        await db.commit()
     await downsampler.purge_legacy_aggregates()  # 一次性清除 v1 失真历史聚合（幂等）
     fcs_safe_takeover.load_state()  # 接管状态落盘对账：崩溃/升级重启后如实上报
     ingest.start()  # 采集落库单写者 worker（批量攒写，先于调度器就绪）

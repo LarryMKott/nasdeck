@@ -2,10 +2,15 @@
 
 metric 取值来源：实时快照（cpu_percent/mem_percent）、温度 max（temp_max）、
 磁盘失败计数（disk_failed）、阵列降级数（raid_degraded）——后两者由慢采集刷新。
+
+通知发送与 DB 事务解耦：evaluate_tick 只把待发通知入队（事务内零网络 IO），
+调用方提交事务后经 schedule_drain 在后台 task 发送——慢渠道（email 15s 超时）
+不再拖住 SQLite 写锁与 5s 调度 tick。
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -27,6 +32,10 @@ _CHANNELS = {c.type: c for c in (TelegramChannel(), BarkChannel(), EmailChannel(
 _tick_counters: dict[int, int] = {}
 # rule_id → 活跃事件 id（用于恢复）
 _firing: dict[int, int] = {}
+
+# 待发通知队列：(channel_type, config, title, body)——事务内只入队
+_pending: list[tuple[str, dict, str, str]] = []
+_drain_task: asyncio.Task | None = None
 
 
 def channel_impl(channel_type: str):
@@ -53,11 +62,49 @@ def metric_value(metric: str, ctx: dict) -> float | None:
     return ctx.get(metric)
 
 
+def _now() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+async def reconcile_on_startup(db: AsyncSession) -> int:
+    """启动对账：进程内 _firing 随上次进程消失，落库的 firing 事件成为孤儿
+    （指标恢复后无人置 resolved）。全部标记 resolved，事件流不悬挂。"""
+    result = await db.execute(select(AlertEvent).where(AlertEvent.status == "firing"))
+    orphans = result.scalars().all()
+    now = _now()
+    for event in orphans:
+        event.status = "resolved"
+        event.resolved_at = now
+    if orphans:
+        await db.flush()
+        logger.warning("启动对账：上次进程遗留 %s 条 firing 事件已标记 resolved", len(orphans))
+    return len(orphans)
+
+
+async def resolve_rule_events(db: AsyncSession, rule_id: int) -> None:
+    """删除规则时收尾其活跃事件，避免事件流悬挂 firing（rule_id 已无主）。"""
+    _tick_counters.pop(rule_id, None)
+    _firing.pop(rule_id, None)
+    result = await db.execute(select(AlertEvent).where(AlertEvent.rule_id == rule_id, AlertEvent.status == "firing"))
+    now = _now()
+    count = 0
+    for event in result.scalars():
+        event.status = "resolved"
+        event.resolved_at = now
+        count += 1
+    if count:
+        await db.flush()
+
+
 async def evaluate_tick(db: AsyncSession, ctx: dict) -> list[dict]:
-    """一轮评估，返回本轮触发/恢复的事件（WS alert 事件数据源）。"""
-    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    """一轮评估，返回本轮触发/恢复的事件（WS alert 事件数据源）。
+
+    命中/恢复的渠道通知只入队，不入库也不发送——见模块 docstring。
+    """
+    now = _now()
     result = await db.execute(select(AlertRule).where(AlertRule.enabled.is_(True)))
     rules = result.scalars().all()
+    enabled_channels = await _enabled_channels(db)
     fired_events = []
 
     for rule in rules:
@@ -85,8 +132,8 @@ async def evaluate_tick(db: AsyncSession, ctx: dict) -> list[dict]:
             db.add(event)
             await db.flush()
             _firing[rule.id] = event.id
-            fired_events.append(_event_dict(event))
-            await _notify(db, rule, title=f"告警触发 · {rule.name}", body=message)
+            fired_events.append(event_dict(event))
+            _queue_notify(enabled_channels, rule.channels, title=f"告警触发 · {rule.name}", body=message)
 
         elif not hit and rule.id in _firing:
             event_id = _firing.pop(rule.id)
@@ -94,30 +141,52 @@ async def evaluate_tick(db: AsyncSession, ctx: dict) -> list[dict]:
             if event:
                 event.status = "resolved"
                 event.resolved_at = now
-                fired_events.append(_event_dict(event))
-                await _notify(db, rule, title=f"告警恢复 · {rule.name}", body=f"{rule.metric} 已回落正常")
+                fired_events.append(event_dict(event))
+                _queue_notify(
+                    enabled_channels, rule.channels,
+                    title=f"告警恢复 · {rule.name}", body=f"{rule.metric} 已回落正常",
+                )
     return fired_events
 
 
-async def _notify(db: AsyncSession, rule: AlertRule, title: str, body: str) -> None:
-    if not rule.channels:
-        return
+async def _enabled_channels(db: AsyncSession) -> dict[int, AlertChannel]:
     result = await db.execute(select(AlertChannel).where(AlertChannel.enabled.is_(True)))
-    by_id = {c.id: c for c in result.scalars()}
-    for channel_id in rule.channels:
-        channel = by_id.get(channel_id)
-        if not channel:
-            continue
+    return {c.id: c for c in result.scalars()}
+
+
+def _queue_notify(channels: dict[int, AlertChannel], channel_ids: list[int], title: str, body: str) -> None:
+    for channel_id in channel_ids or []:
+        channel = channels.get(channel_id)
+        if channel:
+            _pending.append((channel.type, dict(channel.config), title, body))
+
+
+def schedule_drain() -> None:
+    """事务提交后由调用方触发：后台 task 发送待发通知。
+
+    上一批尚未发完（多渠道叠加 10-15s 超时）时直接跳过本轮入队——队列在
+    evaluate_tick 后持续累积，不会丢通知，只合并发送时机。
+    """
+    global _drain_task
+    if not _pending:
+        return
+    if _drain_task is not None and not _drain_task.done():
+        return
+    _drain_task = asyncio.create_task(_drain())
+
+
+async def _drain() -> None:
+    while _pending:
+        channel_type, config, title, body = _pending.pop(0)
         try:
-            impl = channel_impl(channel.type)
-            ok = await impl.send(channel.config, title, body)
+            ok = await channel_impl(channel_type).send(config, title, body)
         except Exception as exc:  # noqa: BLE001 通知失败不阻断引擎
-            logger.warning("通知发送失败 channel=%s: %s", channel_id, exc)
+            logger.warning("通知发送失败 channel=%s: %s", channel_type, exc)
             ok = False
-        logger.info("通知 %s channel=%s ok=%s", title, channel_id, ok)
+        logger.info("通知 %s channel=%s ok=%s", title, channel_type, ok)
 
 
-def _event_dict(event: AlertEvent) -> dict:
+def event_dict(event: AlertEvent) -> dict:
     return {
         "id": event.id,
         "rule_id": event.rule_id,

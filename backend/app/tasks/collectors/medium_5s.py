@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from app.db.session import session_factory
-from app.services.alert.engine import evaluate_tick
+from app.services.alert.engine import evaluate_tick, schedule_drain
 from app.services.control import fan_manager
 from app.services.monitor import gpu as gpu_service
 from app.services.monitor import temperature
@@ -62,6 +62,9 @@ async def medium_tick() -> None:
             }
             events = await evaluate_tick(db, ctx)
             await db.commit()
+
+        # 事务已提交：通知经后台 task 发送（慢渠道不再占住 SQLite 写锁与 5s 调度）
+        schedule_drain()
 
         # GPU 实时分量（服务内 5s 采样缓存；fast_tick 落库 gpu 列与 realtime 快照读取该缓存）
         realtime_cache.set("gpu", await gpu_service.collect(), ttl=10)

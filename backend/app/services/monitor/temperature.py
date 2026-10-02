@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import glob
 import json
 import os
@@ -98,6 +99,8 @@ async def _smart_disk_scan() -> None:
     同时记录 smart_status 健康判定（passed/failing/unknown），供 disk_failed
     告警与 /monitor/summary 磁盘健康统计使用（此前 list_disks 无 health 字段，
     该指标恒 0、summary 恒 unknown）。
+    逐盘并发执行：medium tick 等这轮结果做风扇调速与告警评估，串行时单盘
+    卡 15s × N 盘会把 5s tick 拖到分钟级（scheduler max_instances=1 顺延）。
     """
     now = time.monotonic()
     if now - _disk_cache["ts"] < _DISK_CACHE_TTL:
@@ -105,15 +108,16 @@ async def _smart_disk_scan() -> None:
     items: list[dict] = []
     health: dict[str, str] = {}
     if shutil.which("smartctl"):
-        for dev in sorted(glob.glob("/dev/sd?")):
-            try:
-                _rc, out, _err = await run_cmd(
-                    "smartctl", "-n", "standby", "-H", "-A", "-j", dev, timeout=15
-                )
-                data = json.loads(out)
-            except Exception:  # noqa: BLE001 单盘失败/坏 JSON 不影响其余
+        devices = sorted(glob.glob("/dev/sd?"))
+        results = await asyncio.gather(
+            *(_probe_disk(dev) for dev in devices), return_exceptions=True
+        )
+        for _dev, result in zip(devices, results, strict=False):
+            if isinstance(result, Exception):
+                continue  # 单盘失败不影响其余
+            name, data = result
+            if data is None:
                 continue
-            name = os.path.basename(dev)
             passed = (data.get("smart_status") or {}).get("passed")
             if passed is True:
                 health[name] = "passed"
@@ -132,6 +136,17 @@ async def _smart_disk_scan() -> None:
                     }
                 )
     _disk_cache.update(ts=now, items=items, health=health)
+
+
+async def _probe_disk(dev: str) -> tuple[str, dict | None]:
+    """单盘探测：返回 (设备名, JSON dict)；无 JSON 输出返回 (设备名, None)。"""
+    try:
+        _rc, out, _err = await run_cmd(
+            "smartctl", "-n", "standby", "-H", "-A", "-j", dev, timeout=15
+        )
+        return os.path.basename(dev), json.loads(out)
+    except Exception:  # noqa: BLE001 超时/缺工具/坏 JSON 都按该盘无数据
+        return os.path.basename(dev), None
 
 
 async def _smart_disk_temps() -> list[dict]:

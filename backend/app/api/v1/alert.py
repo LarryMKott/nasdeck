@@ -67,6 +67,8 @@ async def delete_rule(rule_id: int, db: AsyncSession = DbDep) -> dict:
     rule = await db.get(AlertRule, rule_id)
     if not rule:
         raise NotFoundError(f"rule {rule_id} not found")
+    # 删除前收尾该规则的活跃事件：rule_id 失去主后 firing 永远无人 resolved
+    await engine.resolve_rule_events(db, rule_id)
     await db.delete(rule)
     await db.flush()
     return {"id": rule_id, "deleted": True}
@@ -82,7 +84,7 @@ async def list_events(
     if status != "all":
         query = query.where(AlertEvent.status == status)
     result = await db.execute(query)
-    return [engine._event_dict(e) for e in result.scalars()]
+    return [engine.event_dict(e) for e in result.scalars()]
 
 
 @router.get("/channels", response_model=list[AlertChannelItem])

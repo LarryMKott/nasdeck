@@ -38,10 +38,25 @@ async def downsample_tick() -> None:
                     MetricPoint.granularity == "1m", MetricPoint.ts < _iso_minutes_ago(30 * 24 * 60)
                 )
             )
+            # 10m 点同样要有终点（查询最大区间 30 天，留 90 天余量），否则常年运行 DB 无限膨胀
+            await db.execute(
+                delete(MetricPoint).where(
+                    MetricPoint.granularity == "10m", MetricPoint.ts < _iso_minutes_ago(90 * 24 * 60)
+                )
+            )
+            await _prune_hardware_items(db)
             await db.commit()
     except Exception as exc:  # noqa: BLE001
         logger.warning("downsample 异常: %s", exc)
 
+
+async def _prune_hardware_items(db: AsyncSession) -> None:
+    """硬件清单快照只保留最近窗口：hardware API 只读每 kind 最新一条，
+    slow tick 每分钟一轮（6 kind/轮），20 分钟窗口 = ~120 行恒定规模。"""
+    from app.models.hardware import HardwareItem
+
+    cutoff = (datetime.now(UTC) - timedelta(minutes=20)).strftime("%Y-%m-%d %H:%M:%S")
+    await db.execute(delete(HardwareItem).where(HardwareItem.created_at < cutoff))
 
 
 async def purge_legacy_aggregates() -> None:

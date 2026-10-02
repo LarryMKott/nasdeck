@@ -10,12 +10,16 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       # tag 必须与 pyproject 版本一致，防止版本号漏改就打 tag 发出错版包
       - name: Verify tag matches pyproject version
@@ -61,14 +65,23 @@ jobs:
         run: |
           python3 scripts/build_fpk.py --skip-fnpack-download --python "$(command -v python3)"
 
-      # 发布说明取 fpk/manifest 的 changelog 行（与包内展示同源）
+      # 发布说明取 fpk/manifest 的 changelog 中当前版本对应段落
+      # （格式：`changelog = ver1: 说明; ver2: 说明; …`，整行连发会带出全部历史版本）
       - name: Release notes
         run: |
           python3 - <<'PY'
           import os, re
           ver = os.environ['GITHUB_REF_NAME']
           m = re.search(r'^changelog\s*=\s*(.+)$', open('fpk/manifest', encoding='utf-8').read(), re.M)
-          body = m.group(1).strip() if m else '开发版。'
+          body = ''
+          if m:
+              for seg in m.group(1).split(';'):
+                  seg = seg.strip()
+                  if seg.startswith(f'{ver}:'):
+                      body = seg[len(ver) + 1:].strip()
+                      break
+          if not body:
+              body = '开发版。'
           notes = (f"nasdeck {ver}\n\n{body}\n\n---\n\n"
                    "安装：飞牛 fnOS 应用中心 → 手动安装 → 选择本 fpk（官方注明仅限本地测试），详见 README。")
           path = os.path.join(os.environ['RUNNER_TEMP'], 'release-notes.md')
