@@ -8,26 +8,42 @@ from datetime import UTC, datetime
 from app.core.exceptions import ExternalToolError
 from app.utils.async_cmd import run_cmd
 
-_HEALTH_MAP = {"PASSED": "passed", "OK": "passed", "WARNING": "warning", "FAILED": "failing"}
+
+def _health_of(data: dict) -> str:
+    """smart_status.passed 布尔直判。
+
+    旧实现 str(True) 查大写键表（"PASSED"）恒 unknown，且「unknown 且有 NVMe
+    日志就翻 passed」的兜底把 smart_status.passed=false 的故障 NVMe 判成健康。
+    """
+    passed = data.get("smart_status", {}).get("passed")
+    if passed is True:
+        return "passed"
+    if passed is False:
+        return "failing"
+    return "unknown"
 
 
 async def smart_report(device: str) -> dict:
     """device 为不带前缀设备名。standby 休眠盘只回 device/standby/health。"""
-    rc, out, err = await run_cmd("smartctl", "-j", "-a", f"/dev/{device}", timeout=30)
-    if rc == 2 or "Unknown" in err:
-        raise ExternalToolError(f"smartctl failed for {device}: {err.strip()[:200]}")
+    # -n standby：休眠盘立即返回不转起（轮询本接口不打扰盘休眠）
+    rc, out, err = await run_cmd("smartctl", "-j", "-n", "standby", "-a", f"/dev/{device}", timeout=30)
     try:
         data = json.loads(out)
-    except ValueError as exc:
-        raise ExternalToolError(f"smartctl output parse failed for {device}") from exc
+    except ValueError:
+        data = None
+    if data is None:
+        # 无 JSON：真失败（不支持/打开失败）。rc==2 在 -n standby 下也可能是休眠，
+        # 但休眠时 smartctl 仍输出可解析的 JSON 头，走到这里即非休眠
+        raise ExternalToolError(f"smartctl failed for {device}: {err.strip()[:200]}")
 
-    standby = data.get("device", {}).get("type") == "sat" and rc == 2
+    # -n standby 下 rc==2 且 JSON 可解析 = 盘在休眠（未执行 SMART 查询）
+    standby = rc == 2
     report = {
         "device": device,
         "model": data.get("model_name"),
         "serial": data.get("serial_number"),
         "firmware": data.get("firmware_version"),
-        "health": _HEALTH_MAP.get(str(data.get("smart_status", {}).get("passed")), "unknown"),
+        "health": _health_of(data),
         "temp_c": _temperature(data),
         "power_on_hours": _attr_value(data, 9),
         "power_cycles": _attr_value(data, 12),
@@ -37,8 +53,6 @@ async def smart_report(device: str) -> dict:
         "standby": standby,
         "assessed_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
     }
-    if report["health"] == "unknown" and data.get("nvme_smart_health_information_log"):
-        report["health"] = "passed"
     if standby:
         report.update({k: None for k in ("model", "serial", "firmware", "temp_c")})
         report["attributes"] = []

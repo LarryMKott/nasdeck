@@ -76,4 +76,11 @@ async def kill_process(db: AsyncSession, pid: int, confirm: bool) -> dict:
         await asyncio.to_thread(proc.wait, timeout=5)
     except psutil.NoSuchProcess:
         pass
+    except psutil.TimeoutExpired:
+        # SIGTERM 5s 未退：升级 SIGTERM→SIGKILL 并等待回收，否则进程残留且 API 500
+        proc.kill()
+        try:
+            await asyncio.to_thread(proc.wait, timeout=3)
+        except psutil.TimeoutExpired:
+            pass
     return {"pid": pid, "name": name, "killed": True}

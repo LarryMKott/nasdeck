@@ -102,9 +102,55 @@ def _diff(curr: dict, last: dict) -> dict[str, float]:
     return out
 
 
+# 合成交换口前缀：容器 veth 对/docker 桥/软件网桥在物理口或网桥上已有同一份计数，
+# 不剔除会双计（每容器 ×2；桥接物理口与网桥再 ×2）
+_SYNTHETIC_NET_PREFIXES = ("veth", "docker", "br-", "virbr", "vport", "ovs-system")
+
+# 桥成员名单 5s 缓存（/sys 目录扫描），1s tick 不重复扫
+_bridge_members: dict = {"ts": 0.0, "set": frozenset()}
+
+
+def _refresh_bridge_members() -> None:
+    import os
+
+    now = time.monotonic()
+    if now - _bridge_members["ts"] < 5.0:
+        return
+    members = []
+    try:
+        for name in os.listdir("/sys/class/net"):
+            if os.path.exists(f"/sys/class/net/{name}/brport"):
+                members.append(name)
+    except OSError:
+        pass  # 非 Linux / 无该路径：按无桥成员处理
+    _bridge_members.update(ts=now, set=frozenset(members))
+
+
+def _real_net_names(names: list[str]) -> list[str]:
+    """参与吞吐统计的真实接口：剔除回环/合成交换口/被桥接物理口（只计网桥本身）。"""
+    _refresh_bridge_members()
+    name_set = set(names)
+    out = []
+    for name in names:
+        if name == "lo" or name.startswith(_SYNTHETIC_NET_PREFIXES):
+            continue
+        if name.endswith("-ovs") and name[:-4] in name_set:
+            continue  # OVS 内部口与物理口同名成对，计数重复
+        if name in _bridge_members["set"]:
+            continue
+        out.append(name)
+    return out
+
+
 def _net_ifaces() -> dict[str, dict]:
     now = time.monotonic()
-    counters = {k: (v.bytes_recv, v.bytes_sent) for k, v in psutil.net_io_counters(pernic=True).items() if k != "lo"}
+    all_names = list(psutil.net_io_counters(pernic=True).keys())
+    keep = set(_real_net_names(all_names))
+    counters = {
+        k: (v.bytes_recv, v.bytes_sent)
+        for k, v in psutil.net_io_counters(pernic=True).items()
+        if k in keep
+    }
     dt = max(now - _last_net["ts"], 1e-6)
     result = {}
     for name, (rx, tx) in counters.items():
@@ -150,7 +196,7 @@ def _read_proc_stat(path: str = "/proc/stat") -> list[tuple[int, int]] | None:
                 if not line.startswith("cpu"):
                     break
                 fields = line.split()
-                if len(fields) < 5:
+                if len(fields) < 6:  # cpu + 8 计数字段中至少需到 iowait（第 4 列）
                     break
                 vals = [int(v) for v in fields[1:9]]  # user nice system idle iowait irq softirq steal
                 rows.append((sum(vals), vals[3] + vals[4]))  # idle + iowait 视为空闲

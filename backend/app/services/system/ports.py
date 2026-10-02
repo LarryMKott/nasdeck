@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import socket
+
 import psutil
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +39,9 @@ async def list_ports(db: AsyncSession) -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        proto = "udp" if str(conn.type).endswith("UDP_DGRAM") else "tcp"
+        # IntEnum 直接比较：py3.11+ str(SocketKind) 返回数值，字符串后缀判断恒 False
+        # （曾导致所有 UDP 监听被标成 tcp）
+        proto = "udp" if conn.type == socket.SOCK_DGRAM else "tcp"
         entries.append(
             {
                 "proto": proto,

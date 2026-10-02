@@ -126,7 +126,8 @@ def _build_schemes(
             "net",
             "网络吞吐",
             "psutil net_io_counters",
-            "/proc/net/dev（psutil 内部直读），接口求和已剔除 OVS/veth/网桥",
+            "/proc/net/dev（psutil 内部直读），求和剔除 veth/docker 内部口"
+            "与被桥接物理口（system_resources._real_net_names）",
             "—",
             True,
             "" if linux else "非 Linux 下为 psutil 跨平台实现",

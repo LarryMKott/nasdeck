@@ -28,7 +28,9 @@ _ZONE_HINTS = {
 }
 
 _DISK_CACHE_TTL = 60.0
-_disk_cache: dict = {"ts": 0.0, "items": []}
+# 单次扫描同时产出温度条目与各盘 SMART 健康（disk_failed 告警/summary 数据源），
+# 共用同一轮 smartctl 与 60s 缓存，不增加 fork
+_disk_cache: dict = {"ts": 0.0, "items": [], "health": {}}
 
 
 def _zone_for(chip: str, label: str | None) -> str:
@@ -90,24 +92,35 @@ def _nvme_hwmon_items(root: str = "/sys/class/hwmon") -> list[dict]:
     return items
 
 
-async def _smart_disk_temps() -> list[dict]:
-    """机械盘温度：smartctl -n standby -A -j（休眠盘立即返回不打扰，该轮无读数）。"""
+async def _smart_disk_scan() -> None:
+    """机械盘扫描：smartctl -n standby -H -A -j（休眠盘立即返回不打扰，该轮无读数）。
+
+    同时记录 smart_status 健康判定（passed/failing/unknown），供 disk_failed
+    告警与 /monitor/summary 磁盘健康统计使用（此前 list_disks 无 health 字段，
+    该指标恒 0、summary 恒 unknown）。
+    """
     now = time.monotonic()
     if now - _disk_cache["ts"] < _DISK_CACHE_TTL:
-        return _disk_cache["items"]
+        return
     items: list[dict] = []
+    health: dict[str, str] = {}
     if shutil.which("smartctl"):
         for dev in sorted(glob.glob("/dev/sd?")):
             try:
-                _rc, out, _err = await run_cmd("smartctl", "-n", "standby", "-A", "-j", dev, timeout=15)
-            except Exception:  # noqa: BLE001 单盘失败不影响其余
+                _rc, out, _err = await run_cmd(
+                    "smartctl", "-n", "standby", "-H", "-A", "-j", dev, timeout=15
+                )
+                data = json.loads(out)
+            except Exception:  # noqa: BLE001 单盘失败/坏 JSON 不影响其余
                 continue
-            try:
-                current = (json.loads(out).get("temperature") or {}).get("current")
-            except ValueError:
-                continue
+            name = os.path.basename(dev)
+            passed = (data.get("smart_status") or {}).get("passed")
+            if passed is True:
+                health[name] = "passed"
+            elif passed is False:
+                health[name] = "failing"
+            current = (data.get("temperature") or {}).get("current")
             if isinstance(current, (int, float)):
-                name = os.path.basename(dev)
                 items.append(
                     {
                         "key": f"smart:{name}",
@@ -118,8 +131,20 @@ async def _smart_disk_temps() -> list[dict]:
                         "grade": grade_of(current),
                     }
                 )
-    _disk_cache.update(ts=now, items=items)
-    return items
+    _disk_cache.update(ts=now, items=items, health=health)
+
+
+async def _smart_disk_temps() -> list[dict]:
+    await _smart_disk_scan()
+    return _disk_cache["items"]
+
+
+async def disk_health() -> dict[str, str]:
+    """设备名（sda…）→ SMART overall 健康。与盘温共用同一轮探测与缓存。"""
+    if platform.system() != "Linux":
+        return {}
+    await _smart_disk_scan()
+    return dict(_disk_cache["health"])
 
 
 async def temperatures() -> list[dict]:

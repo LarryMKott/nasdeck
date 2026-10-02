@@ -24,14 +24,21 @@ async def list_containers(with_stats: bool) -> dict:
     if reason:
         return {"available": False, "reason": reason, "containers": []}
     import asyncio
+    import contextlib
 
+    proc = None
     try:
-        out = await asyncio.create_subprocess_exec(
+        proc = await asyncio.create_subprocess_exec(
             "docker", "ps", "--format", "{{json .}}", "--no-trunc",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await asyncio.wait_for(out.communicate(), timeout=15)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
     except (FileNotFoundError, TimeoutError):
+        # 超时须回收子进程：daemon 卡顿时每次刷新泄漏一个 docker 进程
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                proc.kill()
+                await proc.wait()
         return {"available": False, "reason": "docker CLI 不可用", "containers": []}
     containers = []
     for line in stdout.decode().splitlines():

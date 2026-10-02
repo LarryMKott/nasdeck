@@ -7,6 +7,7 @@ DEBUG 级别记录每次外部工具调用的完整命令行、退出码、输�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import shutil
 import time
@@ -47,6 +48,9 @@ async def run_cmd(
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError as exc:
         proc.kill()
+        # kill 后回收：不 wait 会留下僵尸进程表项与管道句柄，等 GC/child watcher 兜底
+        with contextlib.suppress(Exception):
+            await proc.wait()
         logger.debug("工具超时 %s（>%gs）", args[0], timeout)
         raise ExternalToolError(f"command timeout: {args[0]}") from exc
     out_text, err_text = out.decode(errors="replace"), err.decode(errors="replace")

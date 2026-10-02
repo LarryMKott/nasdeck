@@ -11,6 +11,7 @@ from app.services.hardware.memory import MemoryCollector
 from app.services.hardware.motherboard import MotherboardCollector
 from app.services.hardware.nic import NicCollector
 from app.services.hardware.raid_card import RaidCardCollector
+from app.services.monitor import temperature
 from app.services.monitor.cache import realtime_cache
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
@@ -40,12 +41,16 @@ async def slow_tick() -> None:
         for c, r in zip(_COLLECTORS, rows, strict=False):
             ingest.submit("hardware", {"kind": c.kind, "name": r.get("name", ""), "props": r})
 
-        # 磁盘健康计数与阵列降级数 → 缓存（告警引擎消费）
+        # 磁盘健康计数与阵列降级数 → 缓存（告警引擎消费）。
+        # health 来自 SMART 扫描（temperature.disk_health，与盘温同一轮 60s 缓存）：
+        # list_disks(lsblk) 本身不带健康字段，旧实现 get("health") 恒 None → 指标恒 0
         disks = await volume_service.list_disks()
-        failed = sum(1 for d in disks if d.get("health") == "failing")
+        health_map = await temperature.disk_health()
+        failed = sum(1 for d in disks if health_map.get(d.get("device")) == "failing")
         raid = await raid_service.raid_status()
         degraded = sum(1 for v in raid["software_raid"] + raid["hardware_raid"] if not v["healthy"])
         realtime_cache.set("disk_failed", failed, ttl=120)
+        realtime_cache.set("disk_health", health_map, ttl=120)
         realtime_cache.set("raid_degraded", degraded, ttl=120)
         logger.debug("磁盘清单 %d 块（failing=%d），阵列降级 %d 卷", len(disks), failed, degraded)
     except Exception as exc:  # noqa: BLE001

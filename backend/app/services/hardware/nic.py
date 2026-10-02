@@ -5,7 +5,7 @@ from __future__ import annotations
 import psutil
 
 from app.services.hardware.base import BaseCollector
-from app.utils.sysfs import read_int, read_text
+from app.utils.sysfs import read_int
 
 
 class NicCollector(BaseCollector):
@@ -28,9 +28,7 @@ class NicCollector(BaseCollector):
                 if addr.family.name == "AF_INET":
                     nic["ipv4"] = addr.address
             speed_path = f"/sys/class/net/{name}/speed"
-            if read_text(speed_path) is None:
-                nic["driver"] = None
-            else:
-                nic["speed_mbps"] = read_int(speed_path) or nic["speed_mbps"]
+            if read_int(speed_path):
+                nic["speed_mbps"] = read_int(speed_path)
             nics.append(nic)
         return {"name": nics[0]["name"] if nics else "", "available": bool(nics), "nics": nics}

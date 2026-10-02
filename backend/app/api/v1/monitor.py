@@ -55,9 +55,14 @@ async def summary(db: AsyncSession = DbDep) -> dict:
     if temps is None:
         temps = await temperature.temperatures()
     disks = await volume_service.list_disks()
+    # 磁盘健康来自 SMART 扫描缓存（slow_tick 维护）；缓存未热时按 unknown 计，
+    # 不回退 unknown 之外的猜测值
+    health_map = realtime_cache.get("disk_health") or {}
     counts = {"passed": 0, "warning": 0, "failing": 0, "unknown": 0}
     for disk in disks:
-        counts[disk.get("health", "unknown")] = counts.get(disk.get("health", "unknown"), 0) + 1
+        counts[health_map.get(disk.get("device"), "unknown")] = (
+            counts.get(health_map.get(disk.get("device"), "unknown"), 0) + 1
+        )
     return {
         "cpu_percent": snap["cpu_percent"],
         "mem_percent": snap["mem_percent"],
