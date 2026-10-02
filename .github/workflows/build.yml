@@ -1,11 +1,13 @@
 name: Build nasdeck fpk
 
-# 默认分支是 master（此前写成 main 导致 push 从不触发），PR 与手动触发同走此流程
+# 默认分支是 main（origin/HEAD 已核实）；PR 与手动触发同走此流程。
+# 注意：frontend/package.json 没有 typecheck/test 脚本，前端只做 lint + build；
+# fpk 打包走 scripts/build_fpk.py（旧模板里的 build.sh/app.py 均不存在）。
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
@@ -17,14 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v7
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
-      # pnpm 版本读 frontend/package.json 的 packageManager 字段（pnpm@9.15.4）
+      # pnpm 版本读 frontend/package.json 的 packageManager 字段
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -37,42 +39,39 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      # 前端必须在打包含内重建：templates/vue 虽随仓库提交，但 CI 从源码重建，
-      # 避免「改了 frontend/src 忘了重新构建就提交」导致 fpk 带过期前端
       - name: Install frontend deps
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Frontend typecheck (vue-tsc)
+      - name: Frontend lint (eslint)
         working-directory: frontend
-        run: pnpm typecheck
+        run: pnpm lint
 
-      - name: Frontend unit tests (vitest)
-        working-directory: frontend
-        run: pnpm test
-
-      - name: Build frontend -> templates/vue
+      # 前端必须在 CI 从源码重建：避免「改了 frontend/src 忘了重新构建就提交」
+      # 导致 fpk 带过期前端
+      - name: Build frontend
         working-directory: frontend
         run: pnpm build
 
-      - name: Make build scripts executable
-        run: chmod +x build.sh scripts/verify.sh scripts/test.sh scripts/local_smoke.sh
+      - name: Backend lint (ruff)
+        run: |
+          python3 -m pip install -q ruff
+          python3 -m ruff check backend
 
-      - name: Python syntax check (app.py + backend/)
-        run: python3 -m compileall -q app.py backend
+      - name: Backend sanity (compileall + pytest)
+        run: |
+          python3 -m compileall -q backend/app backend/main.py
+          python3 -c "import tomllib; deps = tomllib.load(open('backend/pyproject.toml', 'rb'))['project']['dependencies']; open('requirements-ci.txt', 'w').write('\n'.join(deps) + '\n')"
+          python3 -m pip install -q -r requirements-ci.txt pytest pytest-asyncio
+          (cd backend && python3 -m pytest -q)
 
-      - name: Parser unit tests (pytest)
-        run: ./scripts/test.sh
-
-      - name: Local smoke test (hardware may be absent -> WARN only)
-        run: ./scripts/local_smoke.sh
-        continue-on-error: true
-
-      - name: Build fpk + consistency verify
-        run: ./build.sh
+      # fpk 组装 + 校验 + 打包（--skip-fnpack-download：CI 为 Linux，跳过 Windows 版 fnpack）
+      - name: Build fpk
+        run: python3 scripts/build_fpk.py --skip-fnpack-download --python "$(command -v python3)"
 
       - name: Upload fpk artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: nasdeck-fpk
-          path: nasdeck.fpk
+          path: build/fpk/*.fpk
+          if-no-files-found: error

@@ -9,6 +9,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 APP_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _version_from_pyproject() -> str:
+    """版本唯一来源是 pyproject.toml（与 fpk/manifest 经 build_fpk 校验一致）。
+    读取失败（如部署形态未携带）回退 0.0.0：正式通道日志级别，不影响功能。"""
+    try:
+        import tomllib
+
+        with open(APP_ROOT / "pyproject.toml", "rb") as f:
+            return str(tomllib.load(f)["project"]["version"])
+    except Exception:  # noqa: BLE001 文件缺失/损坏按未知版本处理
+        return "0.0.0"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="NASDECK_", env_file=APP_ROOT / ".env", extra="ignore"
@@ -34,7 +46,7 @@ class Settings(BaseSettings):
     # 空 = 跟随版本通道缺省（resolved_log_level）：dev 包 DEBUG 便于真机排查采集
     # 链路，正式包 INFO；FPK 形态由配置向导显式选择后写入 runtime.env
     log_level: str = ""
-    app_version: str = "dev-0.0.25"
+    app_version: str = _version_from_pyproject()
     # FPK 打包形态：指向前端 dist 目录时由本服务托管 SPA；开发形态留空不挂载
     static_dir: str = ""
 

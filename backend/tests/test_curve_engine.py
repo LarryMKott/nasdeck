@@ -21,7 +21,10 @@ def test_above_range():
 
 
 def test_slope_limit():
-    # 相邻两次目标差被 ramp_per_tick 限制
-    full = target_pwm(POINTS, 60, current_pwm=None)
+    # 回归锁：斜率限制（PWM 防突变，安全相关）必须真实生效——
+    # 旧断言 `== 55.0 or == full` 在限幅逻辑被删时照样绿
     stepped = target_pwm(POINTS, 60, ramp_per_tick=5, current_pwm=50)
-    assert stepped == 55.0 or stepped == full
+    assert stepped == 55.0  # 目标 100，单 tick 只能 +5
+    assert target_pwm(POINTS, 60, ramp_per_tick=5, current_pwm=90) == 95.0
+    # 40°C 曲线目标 50：从 80 下调单 tick 只能 -5
+    assert target_pwm(POINTS, 40, ramp_per_tick=5, current_pwm=80) == 75.0

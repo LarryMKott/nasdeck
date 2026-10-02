@@ -299,6 +299,8 @@ def copy_backend(staging: Path) -> None:
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
     shutil.copyfile(ROOT / "backend" / "main.py", server / "main.py")
+    # 版本单源：运行时 config.app_version 从 pyproject 读取，必须随包分发
+    shutil.copyfile(ROOT / "backend" / "pyproject.toml", server / "pyproject.toml")
     (server / "bin").mkdir(exist_ok=True)
     shutil.copyfile(ROOT / "backend" / "bin" / "storcli64", server / "bin" / "storcli64")
     log("后端代码与 storcli64 已复制")
@@ -417,6 +419,10 @@ def validate(staging: Path) -> None:
     need((staging / "app" / "app.py").is_file(), "缺少 app/app.py（飞牛健康检软链目标）")
     need((staging / "app" / "server" / "main.py").is_file(), "缺少 app/server/main.py")
     need((staging / "app" / "server" / "app" / "core" / "config.py").is_file(), "缺少后端 app 包")
+    need(
+        (staging / "app" / "server" / "pyproject.toml").is_file(),
+        "缺少 app/server/pyproject.toml（运行时版本单源，config.app_version 读取）",
+    )
     need((staging / "app" / "server" / "site-packages" / "fastapi").is_dir(), "site-packages 缺 fastapi")
     need((staging / "app" / "server" / "web" / "dist" / "index.html").is_file(), "缺少前端 dist/index.html")
     bin_storcli = staging / "app" / "server" / "bin" / "storcli64"
@@ -542,15 +548,21 @@ def fnpack_build(exe: Path, staging: Path) -> Path | None:
 
 
 def fpk_modes_ok(path: Path) -> bool:
-    """检查 fpk 内 cmd/main 是否保留可执行位（Windows 上 fnpack 可能丢 x 位）。"""
+    """检查 fpk 内 cmd/main 是否保留可执行位（Windows 上 fnpack 可能丢 x 位）。
+
+    目标成员一个都没找到说明包结构异常，按校验失败处理（原实现漏判为 True）。
+    """
     try:
         with tarfile.open(path, "r:gz") as tf:
+            found = False
             for m in tf.getmembers():
                 if m.name.rstrip("/.") in ("cmd/main", "app.tgz/cmd/main", "cmd/install_callback"):
-                    return bool(m.mode & 0o111)
+                    found = True
+                    if not bool(m.mode & 0o111):
+                        return False
+            return found
     except Exception:  # noqa: BLE001
         return False
-    return True
 
 
 def fpk_summary(path: Path) -> None:
