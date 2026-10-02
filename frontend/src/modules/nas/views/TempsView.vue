@@ -1,6 +1,6 @@
 <script setup>
 /** 温度监控：关键传感器速览磁贴 + 温度墙（45/60 分档着色，后端 + 演示回退） */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { temps as mockTemps } from '../mock';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
@@ -46,12 +46,25 @@ const sparkData = computed(() =>
 
 const autoRefresh = ref(true);
 let timer = null;
-onMounted(() => {
+// keep-alive 路由：定时器随 activated/deactivated 启停（onBeforeUnmount 不触发）
+function startTimer() {
+  if (timer) return;
   timer = setInterval(() => {
     if (autoRefresh.value) refresh();
   }, 5000);
-});
-onBeforeUnmount(() => clearInterval(timer));
+}
+
+function stopTimer() {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+
+onMounted(startTimer);
+onBeforeUnmount(stopTimer);
+onActivated(startTimer);
+onDeactivated(stopTimer);
 </script>
 
 <template>

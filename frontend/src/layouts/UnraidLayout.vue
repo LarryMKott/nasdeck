@@ -158,7 +158,7 @@ const themeMeta = computed(() => {
         <span class="nd-bell-host">
           <button class="iconbtn" title="通知" @click.stop="toggleBell">
             <u-icon name="bell" />
-            <span class="b">{{ activeAlerts.length }}</span>
+            <span v-if="activeAlerts.length" class="b">{{ activeAlerts.length }}</span>
           </button>
         </span>
 

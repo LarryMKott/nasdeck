@@ -1,7 +1,7 @@
 <script setup>
 /** 总览：UNRAID Dashboard 式磁贴 + GPU 监控 + 风扇/Docker/温度/缓存/告警（后端实时 + 演示回退） */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { colors, dashboard as mockDashboard, activeAlerts as mockAlerts } from '../mock';
+import { colors } from '../mock';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
 import { useRealtimeStore } from '../stores/realtime';
@@ -13,8 +13,9 @@ import FanRotor from '../components/FanRotor.vue';
 
 defineOptions({ name: 'NasDash' });
 
-const { data: d, live, lastUpdated } = useViewData(nasData.fetchDashboard, mockDashboard);
-const { data: alerts } = useViewData(nasData.fetchActiveAlerts, mockAlerts);
+// 初始空骨架（磁贴显示「—」而非演示值）；mock 仅由适配层在后端不可达时整页回退
+const { data: d, live, lastUpdated } = useViewData(nasData.fetchDashboard, nasData.emptyDashboard());
+const { data: alerts } = useViewData(nasData.fetchActiveAlerts, []);
 
 /** WS 实时快照合并（仅更新磁贴数字，图表/序列仍走加载时数据） */
 const realtime = useRealtimeStore();
@@ -169,7 +170,11 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           <div class="mtxt">
             <span>{{ d.cpu.coresText }}</span>
             <span class="num">
-              {{ cpuMode === 'freq' ? freqRangeText : `${d.cpu.tempC} °C · ${d.cpu.freqGHz} GHz` }}
+              {{
+                cpuMode === 'freq'
+                  ? freqRangeText
+                  : `${d.cpu.tempC ?? '—'} °C · ${d.cpu.freqGHz ?? '—'} GHz`
+              }}
             </span>
           </div>
         </div>
@@ -274,7 +279,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           <div class="big num">{{ d.gpu.percent }}<small>%</small></div>
           <u-spark :data="gpuSparkData" :color="colors.gpu" />
           <div class="mtxt">
-            <span>核显 · 温度 {{ d.gpu.tempC }} °C</span>
+            <span>核显 · 温度 {{ d.gpu.tempC ?? '—' }} °C</span>
             <span class="num">{{ d.gpu.vramText }}</span>
           </div>
         </div>
@@ -437,7 +442,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           >
         </div>
         <div class="wg-b" style="padding-top: 8px">
-          <div class="kv2">
+          <div v-if="d.dockerBrief.length" class="kv2">
             <template v-for="c in d.dockerBrief" :key="c.name">
               <div class="kvrow kvline">
                 <span :class="{ muted: c.exited }">{{ c.name }}</span>
@@ -445,6 +450,9 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
                 <span v-else class="st bad small"><span class="dot" />已退出</span>
               </div>
             </template>
+          </div>
+          <div v-else class="small muted" style="padding: 8px 0 2px">
+            {{ d.dockerText ?? '未检测到 Docker 容器' }}
           </div>
           <button
             class="btn sm"
@@ -463,14 +471,17 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
         <div class="wg-h">
           <u-icon name="drive" />
           <h3>硬盘温度</h3>
-          <span class="x">{{ d.diskTemps.length }} 盘 · 按阈值着色</span>
+          <span class="x">{{ d.diskTemps.length ? `${d.diskTemps.length} 盘 · 按阈值着色` : '无温度数据源' }}</span>
         </div>
         <div class="wg-b">
-          <div class="temps">
+          <div v-if="d.diskTemps.length" class="temps">
             <div v-for="t in d.diskTemps" :key="t.label" class="temp" :class="tempClass(t.tempC)">
               <div class="n">{{ t.label }}</div>
               <div class="v num">{{ t.tempC }} °C</div>
             </div>
+          </div>
+          <div v-else class="small muted" style="padding: 18px 0; text-align: center">
+            未检测到硬盘温度传感器 · 传感器接入后此处显示各盘温度
           </div>
           <div class="legend">
             <span><i style="background: var(--sf3)" />&lt; 40 正常</span>
@@ -563,6 +574,9 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           <span class="txt">{{ a.text }}</span>
           <span class="tm num">{{ a.time }}</span>
           <button class="btn sm" @click="$router.push(a.jump.path)">{{ a.jump.action }}</button>
+        </div>
+        <div v-if="!alerts.length" class="small muted" style="padding: 6px 0">
+          {{ live ? '当前无活动告警' : '后端不可达，显示演示告警' }}
         </div>
       </div>
     </div>

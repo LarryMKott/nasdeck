@@ -12,39 +12,17 @@ import USpark from '../components/USpark.vue';
 
 defineOptions({ name: 'NasSystem' });
 
-/** 演示回退序列（后端不可达时保持页面完整） */
+/** 演示回退序列（后端不可达时保持页面完整）——形状与真实链路一致：单聚合序列 */
 const fallbackLabels = timeLabels(60, 1);
 const fallback = {
   labels: fallbackLabels,
   cpuSeries: [{ name: 'CPU', color: colors.acc, data: walk(60, 5, 23, 7, 5, 60) }],
   memSeries: [{ name: '内存', color: colors.info, data: walk(60, 6, 41, 2.5, 35, 50) }],
-  netSeriesByNic: {
-    eth0: [
-      { name: '下行', color: colors.ok, data: walk(60, 7, 12.3, 4, 1, 40) },
-      { name: '上行', color: colors.warn, data: walk(60, 8, 3.1, 1.5, 0.2, 15), dash: true },
-    ],
-    eth1: [
-      { name: '下行', color: colors.ok, data: walk(60, 9, 0.4, 0.3, 0, 3) },
-      { name: '上行', color: colors.warn, data: walk(60, 10, 0.2, 0.2, 0, 2), dash: true },
-    ],
-  },
-  diskSeries: [
-    { name: '读', color: colors.acc, data: walk(60, 11, 86, 26, 5, 220) },
-    { name: '写', color: colors.purp, data: walk(60, 12, 42, 16, 2, 140) },
-  ],
-  nicNames: ['eth0', 'eth1'],
+  netSeries: [{ name: '总吞吐', color: colors.ok, data: walk(60, 7, 15, 6, 1, 60) }],
+  diskSeries: [{ name: '读', color: colors.acc, data: walk(60, 11, 86, 26, 5, 220) }],
 };
 
 const { data: charts, live, lastUpdated } = useViewData(nasData.fetchSystemCharts, fallback);
-
-const activeNic = ref('');
-const currentNic = computed(() => activeNic.value || charts.value.nicNames[0] || 'eth0');
-const nicSeries = computed(
-  () =>
-    charts.value.netSeriesByNic[currentNic.value] ??
-    Object.values(charts.value.netSeriesByNic)[0] ??
-    []
-);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
@@ -73,6 +51,10 @@ const diskText = computed(() => {
 const cpuText = computed(() => {
   const v = realtime.snapshot?.cpu_percent;
   return v == null ? '— % · 60s 窗口' : `${Math.round(v * 10) / 10}% · 60s 窗口`;
+});
+const cpuMeterPct = computed(() => {
+  const v = realtime.snapshot?.cpu_percent;
+  return v == null ? 0 : Math.min(100, Math.max(0, v));
 });
 
 /** GPU 磁贴：实时使用率 + 滚动 spark（无卡/不可用为 0 平线） */
@@ -132,7 +114,9 @@ const dramW = computed(() => {
           <span class="x num">{{ cpuText }}</span>
         </div>
         <div class="wg-b">
-          <div class="meter" style="margin-bottom: 10px"><i class="c-ok" style="width: 23%" /></div>
+          <div class="meter" style="margin-bottom: 10px">
+            <i class="c-ok" :style="{ width: `${cpuMeterPct}%` }" />
+          </div>
           <u-line-chart
             :series="charts.cpuSeries"
             :labels="charts.labels"
@@ -167,20 +151,11 @@ const dramW = computed(() => {
         <div class="wg-h">
           <u-icon name="net" />
           <h3>网络</h3>
-          <span class="x seg">
-            <button
-              v-for="name in charts.nicNames"
-              :key="name"
-              :class="{ on: currentNic === name }"
-              @click="activeNic = name"
-            >
-              {{ name }}
-            </button>
-          </span>
+          <span class="x">全网聚合</span>
         </div>
         <div class="wg-b">
           <u-line-chart
-            :series="nicSeries"
+            :series="charts.netSeries"
             :labels="charts.labels"
             :height="170"
             :tip-fmt="(v) => `${v.toFixed(0)} KB/s`"
@@ -199,7 +174,7 @@ const dramW = computed(() => {
             :series="charts.diskSeries"
             :labels="charts.labels"
             :height="170"
-            :tip-fmt="(v) => `${v.toFixed(0)} MB/s`"
+            :tip-fmt="(v) => `${v.toFixed(0)} KB/s`"
           />
         </div>
       </div>

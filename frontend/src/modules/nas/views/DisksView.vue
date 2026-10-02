@@ -1,26 +1,32 @@
 <script setup>
 /** 硬盘 SMART：健康状态表 + 在线自检下拉 + 进行中自检进度（后端 + 演示回退） */
-import { computed, reactive, ref } from 'vue';
-import { disks as mockDisks } from '../mock';
+import { computed, reactive } from 'vue';
 import { apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
+import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UDropdown from '../components/UDropdown.vue';
-import UPop from '../components/UPop.vue';
 
 defineOptions({ name: 'NasDisks' });
 
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchDisks, mockDisks);
+// 权限铁律：设置类操作仅管理员；非管理员不渲染自检入口（写操作 POST /self-tests）
+const identity = useIdentityStore();
+identity.ensure();
+
+// 初始值用空骨架（mock 只在 live:false 整页演示时由适配层回退），避免首帧闪现假自检
+const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchDisks, {
+  list: [],
+  selftest: null,
+});
 
 /** 每行独立的自检菜单开合状态 */
 const menuOpen = reactive({});
-const stopConfirmOpen = ref(false);
-const autoRefresh = ref(true);
 
 /** 发起自检（POST /storage/self-tests），演示模式下仅收起菜单 */
 async function runSelftest(row, type = 'short') {
   menuOpen[row.slot] = false;
+  if (!identity.canWrite) return;
   if (!live.value || !row.device) return;
   try {
     await apiData('/api/v1/storage/self-tests', {
@@ -42,18 +48,7 @@ const headerTag = computed(() => {
 
 <template>
   <section>
-    <u-page-header
-      title="硬盘 SMART"
-      sub="健康状态 · 自检 · 定位"
-      :tag="headerTag"
-      :updated="lastUpdated"
-    >
-      <template #right>
-        <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
-          <span class="tr" />15s
-        </label>
-      </template>
-    </u-page-header>
+    <u-page-header title="硬盘 SMART" sub="健康状态 · 自检" :tag="headerTag" :updated="lastUpdated" />
 
     <!-- 桌面表格 -->
     <div class="wg m-hide">
@@ -89,7 +84,8 @@ const headerTag = computed(() => {
                 >
               </td>
               <td>
-                <u-dropdown v-model="menuOpen[disk.slot]" :min-width="190">
+                <!-- 写操作仅管理员：不渲染而非禁用（后端仍有最终校验） -->
+                <u-dropdown v-if="identity.canWrite" v-model="menuOpen[disk.slot]" :min-width="190">
                   <template #trigger>
                     <button class="btn sm">
                       自检<svg class="ico" style="width: 11px; height: 11px">
@@ -106,13 +102,7 @@ const headerTag = computed(() => {
                   <button @click="runSelftest(disk, 'conveyance')">
                     <u-icon name="refresh" />短修复（A · 离线）
                   </button>
-                  <hr />
-                  <button class="danger" @click="menuOpen[disk.slot] = false">
-                    <u-icon name="x" />中止当前自检
-                  </button>
                 </u-dropdown>
-                <button class="btn sm">改名</button>
-                <button class="btn sm">定位</button>
               </td>
             </tr>
           </tbody>
@@ -134,7 +124,8 @@ const headerTag = computed(() => {
             {{ disk.capacity }} · {{ disk.rpm }} · {{ disk.tempC }} °C · {{ disk.hours }}
           </div>
           <div class="chips" style="margin-top: 10px">
-            <u-dropdown v-model="menuOpen[disk.slot]" :min-width="190">
+            <!-- 写操作仅管理员：不渲染而非禁用 -->
+            <u-dropdown v-if="identity.canWrite" v-model="menuOpen[disk.slot]" :min-width="190">
               <template #trigger>
                 <button class="btn sm">自检 ▾</button>
               </template>
@@ -147,31 +138,17 @@ const headerTag = computed(() => {
               <button @click="runSelftest(disk, 'conveyance')">
                 <u-icon name="refresh" />短修复（A · 离线）
               </button>
-              <hr />
-              <button class="danger" @click="menuOpen[disk.slot] = false">
-                <u-icon name="x" />中止当前自检
-              </button>
             </u-dropdown>
-            <button class="btn sm">改名</button>
-            <button class="btn sm">定位</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 进行中的自检 -->
-    <div class="wg" style="margin-top: 14px">
+    <!-- 进行中的自检（无自检任务 = 合法真值：整卡隐藏，不显示假进度） -->
+    <div v-if="d.selftest" class="wg" style="margin-top: 14px">
       <div class="wg-h">
         <u-icon name="pulse" />
         <h3>进行中的自检</h3>
-        <span class="x">
-          <u-pop v-model="stopConfirmOpen" ok-text="中止" cancel-text="取消" danger>
-            <template #trigger>
-              <button class="btn sm stop">停止</button>
-            </template>
-            确认中止盘位 3 的进行中自检？
-          </u-pop>
-        </span>
       </div>
       <div class="wg-b">
         <div style="display: flex; justify-content: space-between; margin-bottom: 8px">
@@ -180,7 +157,7 @@ const headerTag = computed(() => {
         </div>
         <div class="bar stripes"><i :style="{ width: `${d.selftest.percent}%` }" /></div>
         <div class="small muted" style="margin-top: 9px">
-          自检类型：A 短修 / B 短检 / C 长检 · 启停均需二次确认
+          自检类型：A 短修 / B 短检 / C 长检 · 完成后健康状态在本页更新
         </div>
       </div>
     </div>

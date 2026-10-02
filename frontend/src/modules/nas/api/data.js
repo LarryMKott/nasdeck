@@ -49,13 +49,65 @@ async function safe(path, opts) {
   }
 }
 
-/** 缺数据段的统一兜底：真值非空用真值，否则演示值 */
-function withFallback(value, mockValue) {
-  const empty = value === null || value === undefined || (Array.isArray(value) && !value.length);
-  return { data: empty ? mockValue : value, live: !empty };
-}
-
 // ---------------- 总览 ----------------
+
+/**
+ * live 形态的磁贴骨架：与 mock.dashboard 同形状但全空值。
+ * fetchDashboard 从骨架出发只填真实数据——「mock 深拷贝 + 条件覆盖」会让
+ * 无 RAID/无 GPU/无温度源的机器残留演示值被当成读数。
+ */
+export function emptyDashboard() {
+  return {
+    cpu: {
+      percent: 0,
+      cores: [],
+      freqPerCore: [],
+      freqMaxMhz: null,
+      coresText: '—',
+      freqGHz: null,
+      tempC: null,
+    },
+    mem: {
+      percent: 0,
+      usedText: '—',
+      totalText: '—',
+      availText: '—',
+      buffersText: '—',
+      cachedText: '—',
+      reservedText: '—',
+    },
+    net: { rxText: '—', rxValue: '—', rxUnit: '', txText: '—' },
+    diskIo: { readText: '—', readValue: '—', readUnit: '', writeText: '—' },
+    array: { total: '—', usedPercent: 0, usedText: '未检测到阵列', status: '—', level: '—', check: '—' },
+    gpu: { percent: 0, tempC: null, vramText: '显存 —' },
+    power: { watts: '—', cpuW: '—', dramW: '—' },
+    dockerText: null,
+    storageSummary: null,
+    system: {
+      uptime: '—',
+      uptimeDays: '—',
+      uptimeRest: '',
+      osVersion: '—',
+      loadText: '—',
+      processCount: null,
+    },
+    gpuDetail: {
+      name: 'GPU',
+      percent: 0,
+      vramText: '—',
+      engineText: '—',
+      freqText: '—',
+      tempC: null,
+      watts: '—',
+      driverText: '—',
+    },
+    fans: [],
+    dockerBrief: [],
+    diskTemps: [],
+    cache: { label: '缓存卷', percent: 0, usedText: '—', tempC: '—' },
+    cloud: { label: '数据卷', percent: 0, usedText: '—', syncText: '—' },
+  };
+}
 
 /** 把实时快照的每核占用/频率并入 CPU 磁贴数据（首载与 WS 聚合共用，契约 §2.1） */
 export function applyCpuRealtime(cpu, snap) {
@@ -127,7 +179,8 @@ export function applySystemRealtime(system, snap) {
   system.uptimeDays = String(days);
   system.uptimeRest = `天 ${hours} 小时`;
   system.uptime = `${days} 天 ${hours} 小时`;
-  system.loadText = snap.load.map((x) => x.toFixed(2)).join(' / ') || system.loadText;
+  const load = Array.isArray(snap.load) ? snap.load : [];
+  system.loadText = load.map((x) => x.toFixed(2)).join(' / ') || '—';
   system.processCount = snap.process_count;
 }
 
@@ -212,12 +265,13 @@ export async function fetchDashboard() {
 
   const logical = snap.cpu_per_core.length || 1;
   const cpuTemp = temps.filter((t) => t.zone === 'cpu');
-  const d = JSON.parse(JSON.stringify(mock.dashboard));
+  // 骨架出发只填真实数据；各数据源缺失时段保持骨架空值（「—」），不残留演示值
+  const d = emptyDashboard();
 
   d.cpu.percent = Math.round(snap.cpu_percent * 10) / 10;
   applyCpuRealtime(d.cpu, snap);
-  d.cpu.coresText = `${logical} 线程 · 负载 ${snap.load[0] ?? '—'}`;
-  d.cpu.tempC = cpuTemp.length ? Math.max(...cpuTemp.map((t) => t.celsius)) : d.cpu.tempC;
+  d.cpu.coresText = `${logical} 线程 · 负载 ${snap.load?.[0] ?? '—'}`;
+  d.cpu.tempC = cpuTemp.length ? Math.max(...cpuTemp.map((t) => t.celsius)) : null;
 
   d.mem.percent = snap.mem_percent;
   applyMemRealtime(d.mem, snap);
@@ -325,18 +379,31 @@ function uptimeText(seconds) {
 
 export async function fetchActiveAlerts() {
   const events = await safe('/api/v1/alert/events?limit=5&status=firing');
-  return withFallback(
-    (events ?? []).map((e) => ({
+  if (events === null) return { data: mock.activeAlerts, live: false }; // 后端不可达才演示
+  // 空列表 = 无告警，是合法真值，必须如实展示（回退 mock 会让铃铛恒显假告警）
+  return {
+    data: events.map((e) => ({
       level: e.severity === 'critical' ? 'bad' : 'warn',
       text: e.message || e.rule_name,
       time: hhmm(e.fired_at),
       jump: { path: '/nasdeck/automation', action: '查看告警' },
     })),
-    mock.activeAlerts
-  );
+    live: true,
+  };
 }
 
 // ---------------- 存储卷 ----------------
+
+/** live 形态骨架：无阵列/无盘/无卷时段保持空值，由模板空态兜底（不残留演示阵列） */
+export function emptyStorage() {
+  return {
+    array: null,
+    devices: [],
+    volume: null,
+    dataVolume: null,
+    arrayController: null,
+  };
+}
 
 export async function fetchStorage() {
   const [raidS, disksS, volsS] = await Promise.allSettled([
@@ -347,9 +414,10 @@ export async function fetchStorage() {
   const raid = pick(raidS);
   const disks = pick(disksS);
   const vols = pick(volsS);
-  if (!raid && !disks?.length && !vols?.length) return { data: mock.storage, live: false };
+  // 三源全不可达才整页演示回退；个别源缺失保持骨架空值
+  if (!raid && !disks && !vols) return { data: mock.storage, live: false };
 
-  const d = JSON.parse(JSON.stringify(mock.storage));
+  const d = emptyStorage();
   const allVols = [...(raid?.hardware_raid ?? []), ...(raid?.software_raid ?? [])];
   if (allVols.length) {
     const vol = allVols[0];
@@ -406,6 +474,18 @@ export async function fetchStorage() {
       mount: mainVol.mount,
     };
   }
+  // 数据卷卡：最大 /vol 挂载（fnOS 数据卷）；后端无「云盘备份」数据源，不虚构云盘
+  const dataVol = (vols ?? [])
+    .filter((v) => (v.mount || '').startsWith('/vol'))
+    .sort((a, b) => (b.total_bytes ?? 0) - (a.total_bytes ?? 0))[0];
+  if (dataVol) {
+    d.dataVolume = {
+      name: dataVol.mount,
+      usedText: `${Math.round((dataVol.used_bytes / 1024 ** 4) * 10) / 10} / ${Math.round((dataVol.total_bytes / 1024 ** 4) * 10) / 10} TB`,
+      percent: dataVol.percent,
+      fs: (dataVol.fs_type || '').toUpperCase(),
+    };
+  }
   if (raid?.controller) {
     d.arrayController = {
       model: String(raid.controller.model || '').split(' [')[0] || raid.controller.model,
@@ -445,9 +525,10 @@ export async function fetchDisks() {
         '未知',
       serial: disk.serial,
     })),
+    // 无进行中自检 = 合法真值：置 null 由视图隐藏区块（回退 mock 会显示假进度条）
     selftest: running
-      ? { label: `${running.device} · ${running.type}`, percent: running.percent ?? 0 }
-      : mock.disks.selftest,
+      ? { device: running.device, label: `${running.device} · ${running.type}`, percent: running.percent ?? 0 }
+      : null,
   };
   return { data: d, live: true };
 }
@@ -463,7 +544,7 @@ const DIM_FIELDS = {
   gpu: 'gpu_avg',
 };
 
-export async function fetchHistorySeries(dim, rangeKey, seedShift = 0) {
+export async function fetchHistorySeries(dim, rangeKey) {
   const minutes = { '24h': 1440, '7d': 10080, '30d': 43200 }[rangeKey] ?? 10080;
   const points = { '24h': 144, '7d': 168, '30d': 360 }[rangeKey] ?? 168;
   try {
@@ -478,7 +559,9 @@ export async function fetchHistorySeries(dim, rangeKey, seedShift = 0) {
       return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     });
     const field = DIM_FIELDS[dim] ?? 'cpu_avg';
-    const data = rows.map((p) => Math.round(((p[field] ?? 0) + (seedShift % 1)) * 10) / 10);
+    // 真实值原样入图：mock 时代的 seedShift 固定偏移曾带进真实链路，
+    // 让内存/网络/磁盘曲线系统性偏离 WS 读数
+    const data = rows.map((p) => Math.round((p[field] ?? 0) * 10) / 10);
     if (!data.length) throw new Error('empty');
     const values = data.filter((v) => v > 0);
     const avg = values.reduce((a, b) => a + b, 0) / (values.length || 1);
@@ -504,21 +587,18 @@ export async function fetchHistorySeries(dim, rangeKey, seedShift = 0) {
 export async function fetchSystemCharts() {
   const resp = await fetchHistorySeries('cpu', '24h');
   if (!resp.live) return { data: null, live: false };
-  const [snapLive] = await Promise.allSettled([apiData('/api/v1/monitor/realtime')]);
-  const memTotalMb = pick(snapLive)?.mem_total_mb ?? null;
-  const resp2 = await fetchHistorySeries('mem', '24h', 0.3);
-  const resp3 = await fetchHistorySeries('net', '24h', 0.6);
-  const resp4 = await fetchHistorySeries('disk', '24h', 0.9);
-  const [snapS] = await Promise.allSettled([apiData('/api/v1/monitor/realtime')]);
-  const snap = pick(snapS);
+  const resp2 = await fetchHistorySeries('mem', '24h');
+  const resp3 = await fetchHistorySeries('net', '24h');
+  const resp4 = await fetchHistorySeries('disk', '24h');
   const labels = resp.data.labels;
-  const nics = snap ? Object.keys(snap.net) : ['eth0'];
   const mk = (r, name, color, extra = {}) => ({
     name,
     color,
     data: r?.data?.series ?? [],
     ...extra,
   });
+  const [snapS] = await Promise.allSettled([apiData('/api/v1/monitor/realtime')]);
+  const memTotalMb = pick(snapS)?.mem_total_mb ?? null;
   const memPct = (r2) =>
     memTotalMb
       ? (r2?.data?.series ?? []).map((mb) => Math.round((mb / memTotalMb) * 1000) / 10)
@@ -528,16 +608,10 @@ export async function fetchSystemCharts() {
       labels,
       cpuSeries: [mk(resp, 'CPU', '#F15A2C')],
       memSeries: [mk(resp2, '内存', '#5B9CF6', { data: memPct(resp2) })],
-      netSeriesByNic: Object.fromEntries(
-        nics
-          .slice(0, 2)
-          .map((n) => [
-            n,
-            [mk(resp3, '下行', '#3FB68B'), mk(resp3, '上行', '#ECA43C', { dash: true })],
-          ])
-      ),
-      diskSeries: [mk(resp4, '读', '#F15A2C'), mk(resp4, '写', '#A077E8')],
-      nicNames: nics.slice(0, 2),
+      // 后端历史只有全网聚合 net_kbps，无按网卡/上下行序列——不虚构 per-NIC 线
+      netSeries: [mk(resp3, '总吞吐', '#3FB68B')],
+      // 后端历史暂只聚合 disk_read_kbps，写序列缺数据源——只画「读」，不拿读冒充写
+      diskSeries: [mk(resp4, '读', '#F15A2C')],
     },
     live: true,
   };
@@ -562,7 +636,8 @@ export async function fetchTemps() {
   ].filter(Boolean);
   return {
     data: {
-      tiles: tiles.length ? tiles : mock.temps.tiles,
+      // 无任何传感器 = 合法真值：空磁贴 + 空温度墙（回退 mock 会显示假温度）
+      tiles,
       wall: items.map((t) => ({ label: t.label || t.key, tempC: Math.round(t.celsius) })),
     },
     live: true,
@@ -573,16 +648,12 @@ export async function fetchTemps() {
 
 export async function fetchDocker() {
   const resp = await safe('/api/v1/system/docker/containers');
-  if (!resp?.available || !resp.containers.length) {
-    return {
-      data: { ...mock.docker, available: resp?.available ?? false, reason: resp?.reason ?? null },
-      live: false,
-    };
-  }
+  if (resp === null) return { data: mock.docker, live: false }; // 后端不可达才演示
   const avClasses = ['c1', 'c2', 'c3', 'c4'];
   return {
     data: {
-      containers: resp.containers.map((c, i) => ({
+      // docker 不可用或 0 容器都是合法真值：空列表 + 不可用原因（extra），不回退假容器
+      containers: (resp.containers ?? []).map((c, i) => ({
         name: c.name,
         av: (c.name[0] || '?').toUpperCase(),
         avClass: avClasses[i % 4],
@@ -593,8 +664,11 @@ export async function fetchDocker() {
         ports: c.ports[0] ?? '—',
         up: c.status,
       })),
+      available: !!resp.available,
+      reason: resp.reason ?? null,
     },
     live: true,
+    extra: resp.available ? null : resp.reason ?? 'docker 不可用',
   };
 }
 
@@ -602,11 +676,12 @@ export async function fetchDocker() {
 
 export async function fetchPorts() {
   const entries = await safe('/api/v1/system/ports');
-  if (!entries?.length) return { data: mock.ports, live: false };
+  if (entries === null) return { data: mock.ports, live: false }; // 后端不可达才演示
   const listens = entries.filter((p) => p.status === 'LISTEN').slice(0, 20);
   const avClasses = ['c1', 'c2', 'c3', 'c4'];
   return {
     data: {
+      // 0 监听 = 合法真值：空列表，不回退演示端口
       list: listens.map((p, i) => ({
         app: p.alias || p.process || `${p.local_port}`,
         av: String(p.alias || p.process || '?')[0].toUpperCase(),
@@ -627,6 +702,16 @@ export async function fetchPorts() {
 }
 
 // ---------------- 风扇 ----------------
+
+/** 曲线编辑器缺省模板（后端无曲线时的预填形状；明确是模板，取自 mock 数据集会让
+ * 首次「保存」把演示形状写成真实默认曲线） */
+const DEFAULT_CURVE_TEMPLATE = [
+  [30, 22],
+  [38, 35],
+  [46, 50],
+  [55, 68],
+  [62, 85],
+];
 
 export async function fetchFans() {
   const [zonesS, curvesS, fcsS, chansS] = await Promise.allSettled([
@@ -659,7 +744,7 @@ export async function fetchFans() {
       channels: channels.filter(
         (c) => !zones.some((z) => z.hwmon_name === c.chip && z.pwm_channel === c.pwm_channel)
       ),
-      curveDefault: firstCurve?.points?.length ? firstCurve.points : mock.fans.curveDefault,
+      curveDefault: firstCurve?.points?.length ? firstCurve.points : DEFAULT_CURVE_TEMPLATE,
       curveMeta: firstCurve
         ? {
             name: firstCurve.name,
@@ -676,16 +761,24 @@ export async function fetchFans() {
 // ---------------- 自动化 / 关于 ----------------
 
 export async function fetchAutomation() {
-  const events = await safe('/api/v1/alert/events?limit=10');
-  const active = await fetchActiveAlerts();
+  const [eventsS, activeS, chansS] = await Promise.allSettled([
+    apiData('/api/v1/alert/events?limit=10'),
+    fetchActiveAlerts(),
+    apiData('/api/v1/alert/channels'),
+  ]);
+  const events = pick(eventsS) ?? [];
+  const active = pick(activeS) ?? { data: [], live: false };
+  const channels = pick(chansS);
   return {
     data: {
-      ...mock.automation,
       activeAlerts: active.data,
-      recentEvents: (events ?? []).map((e) => ({
+      // 日志与错误历史 = 告警事件流（后端无独立日志接口，不再展开 mock 假日志）
+      recentEvents: events.map((e) => ({
         ...e,
         time: hhmm(e.fired_at),
       })),
+      // 通知渠道真实清单（名称/type），测试通知按钮据此接线
+      channels: (channels ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type })),
     },
     live: active.live,
   };
@@ -712,6 +805,21 @@ export async function fetchAbout() {
 
 // ---------------- 硬件检测（§3.7 /hardware 只读） ----------------
 
+/** live 形态骨架：未检测到的硬件分区保持空（空 RAID 卡不显示演示 LSI 卡） */
+function emptyDetect() {
+  return {
+    system: [],
+    board: [],
+    cpu: { rows: [], cores: [] },
+    dimms: [],
+    network: [],
+    raid: { rows: [], chips: [] },
+    diskSlots: [],
+    diskChips: [],
+    env: { runtime: [], schemes: [], tools: [], drivers: [], storcli: { ok: false, path: '', desc: '' } },
+  };
+}
+
 export async function fetchDetect() {
   const [hwS, infoS, disksS, envS] = await Promise.allSettled([
     apiData('/api/v1/hardware'),
@@ -725,7 +833,7 @@ export async function fetchDetect() {
   const disks = pick(disksS) ?? [];
   const env = pick(envS);
 
-  const d = JSON.parse(JSON.stringify(mock.detect));
+  const d = emptyDetect();
   const kv = (rows) => rows.filter(Boolean);
 
   if (env) {
@@ -788,7 +896,6 @@ export async function fetchDetect() {
       empty: !m.size_mb,
       detail: { 容量: m.size_mb ? `${m.size_mb} MB` : '—', ECC: hw.memory.ecc ? '是' : '否' },
     }));
-    if (!d.dimms.length) d.dimms = mock.detect.dimms;
   }
   if (hw.nic?.available) {
     d.network = (hw.nic.nics ?? []).map((n) => [

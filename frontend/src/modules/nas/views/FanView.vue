@@ -1,7 +1,6 @@
 <script setup>
 /** 风扇控制：接管总开关 + 手动调速卡 + 曲线编辑器 + 温控规则（后端 + 演示回退） */
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { fans as mockFans } from '../mock';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue';
 import { apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
@@ -17,7 +16,15 @@ defineOptions({ name: 'NasFan' });
 const identity = useIdentityStore();
 identity.ensure();
 
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchFans, mockFans);
+// 初始空骨架；mock 仅由适配层在后端不可达时整页演示回退
+const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchFans, {
+  takeover: false,
+  cards: [],
+  channels: [],
+  curveDefault: [],
+  curveMeta: null,
+  curveId: null,
+});
 
 /** 硬件检测：未建风区的 pwm 通道列表，一键创建只读风区（mode=auto 不干预转速） */
 const addingKey = ref('');
@@ -52,27 +59,37 @@ async function addZone(ch) {
   }
 }
 
-/** 接管总开关（真实控区存在时走后端 fcs/mode；演示模式仅本地态） */
-const takeoverOverride = ref(null);
-const takeover = computed(() => takeoverOverride.value ?? d.value.takeover ?? true);
+/** 接管总开关：以后端状态为唯一事实源（本地 override 会吞掉失败请求，
+ * 让 UI 显示「已接管」而实际 BIOS 仍在控速——风扇场景这是有后果的撒谎） */
+const takeover = computed(() => d.value.takeover ?? false);
 const takeoverPopOpen = ref(false);
+
+async function takeoverOn() {
+  try {
+    await apiData('/api/v1/control/fcs/takeover', { method: 'POST' });
+  } catch {
+    /* 失败态由 refresh 体现：开关保持真实状态 */
+  }
+  await refresh();
+}
 
 function toggleTakeover() {
   if (!identity.canWrite) return;
   if (takeover.value) {
     takeoverPopOpen.value = true; // 开 → 关需二次确认
   } else {
-    takeoverOverride.value = true;
-    if (live.value) apiData('/api/v1/control/fcs/takeover', { method: 'POST' }).catch(() => null);
+    takeoverOn();
   }
 }
 
 async function confirmTakeoverOff() {
   if (!identity.canWrite) return;
-  takeoverOverride.value = false;
-  if (live.value) {
-    await apiData('/api/v1/control/fcs/release', { method: 'POST' }).catch(() => null);
+  try {
+    await apiData('/api/v1/control/fcs/release', { method: 'POST' });
+  } catch {
+    /* 失败态由 refresh 体现 */
   }
+  await refresh();
 }
 
 /** 风扇卡：滑杆 → 转速/占空比/扇叶转速联动（数据加载后重建，滑杆可编辑） */
@@ -109,7 +126,10 @@ async function togglePwm(fan) {
 
 async function onDutyCommit(fan) {
   if (!fan.pwm) return; // auto 模式下滑杆仅预览，不写
-  await pushZone(fan, { mode: 'fixed', fixed_pwm: fan.duty });
+  // 提交钳制 ≥20%：滑杆物理上可拉到 0，钉 0 会把风扇停转（与开启时的下限一致）
+  const fixed = Math.max(fan.duty, 20);
+  if (fixed !== fan.duty) fan.duty = fixed;
+  await pushZone(fan, { mode: 'fixed', fixed_pwm: fixed });
 }
 
 /** 重命名/删除气泡（按风区 id 记开合）；删除时后端自动把该通道交还 BIOS */
@@ -139,8 +159,8 @@ function visualRpm(fan) {
   return fan.rpm > 0 ? fan.rpm : Math.round(fan.duty * 26.5);
 }
 
-/** 曲线编辑器（后端有曲线时回填，保存走 PUT /control/curves/{id}） */
-const curvePts = ref(mockFans.curveDefault.map((p) => [...p]));
+/** 曲线编辑器（后端有曲线时回填，保存走 PUT /control/curves/{id}；缺省模板由适配层提供） */
+const curvePts = ref([]);
 const curveReadout = ref(null);
 const savingCurve = ref(false);
 const curveSaved = ref(false);
@@ -177,7 +197,7 @@ function curveAdd() {
 }
 
 function curveReset() {
-  curvePts.value = (d.value.curveDefault ?? mockFans.curveDefault).map((p) => [...p]);
+  curvePts.value = (d.value.curveDefault ?? []).map((p) => [...p]);
   curveReadout.value = null;
   curveSaved.value = false;
 }
@@ -234,15 +254,30 @@ async function saveCurve() {
   }
 }
 
-/** 2s 轮询：转子/调速卡跟随传感器实时转速（页头开关可暂停） */
+/** 2s 轮询：转子/调速卡跟随传感器实时转速（页头开关可暂停）。
+ * nas 路由全部 keep-alive：定时器须随 activated/deactivated 启停，
+ * 挂在 onBeforeUnmount 在 keep-alive 下永远不会执行（离开页面仍在打接口） */
 const autoRefresh = ref(true);
 let pollTimer = null;
-onMounted(() => {
+
+function startPoll() {
+  if (pollTimer) return;
   pollTimer = setInterval(() => {
     if (autoRefresh.value) refresh();
   }, 2000);
-});
-onBeforeUnmount(() => clearInterval(pollTimer));
+}
+
+function stopPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+onMounted(startPoll);
+onBeforeUnmount(stopPoll);
+onActivated(startPoll);
+onDeactivated(stopPoll);
 
 const headerTag = computed(() =>
   takeover.value

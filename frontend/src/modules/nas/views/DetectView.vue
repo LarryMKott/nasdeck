@@ -35,10 +35,7 @@ function toggle(key) {
 
 /** DIMM 详情弹窗 */
 const dimmModalOpen = ref(false);
-const activeDimm = ref(mockDetect.dimms[0]);
-
-const autoRefresh = ref(true);
-const _ = live; // 模板经 headerTag 消费
+const activeDimm = ref(null);
 
 function showDimm(dimm) {
   if (dimm.empty) return;
@@ -54,13 +51,7 @@ function showDimm(dimm) {
       sub="系统 · 主板 · CPU · 内存 · 网络 · RAID · 硬盘"
       :tag="headerTag"
       :updated="lastUpdated"
-    >
-      <template #right>
-        <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
-          <span class="tr" />自动刷新
-        </label>
-      </template>
-    </u-page-header>
+    />
 
     <!-- 系统信息 + 主板（双卡并排，紧凑布局） -->
     <div class="grid">
@@ -130,14 +121,19 @@ function showDimm(dimm) {
               v-for="(t, i) in d.env.tools"
               :key="t.name"
               class="kvrow"
-              :class="i < d.env.tools.length + d.env.drivers.length - 1 ? 'kvline' : ''"
+              :class="i < d.env.tools.length - 1 ? 'kvline' : ''"
             >
               <span class="muted small">{{ t.name }} · {{ t.desc }}</span>
               <span class="small num" :class="t.ok ? 't-ok' : 't-warn'">
                 {{ t.ok ? `✓ ${t.path}` : `✗ 缺 ${t.install}（可手动安装）` }}
               </span>
             </div>
-            <div v-for="drv in d.env.drivers" :key="drv.name" class="kvrow kvline">
+            <div
+              v-for="(drv, i) in d.env.drivers"
+              :key="drv.name"
+              class="kvrow"
+              :class="i < d.env.drivers.length - 1 ? 'kvline' : ''"
+            >
               <span class="muted small">{{ drv.name }} · {{ drv.desc }}</span>
               <span class="small num" :class="drv.loaded ? 't-ok' : 't-warn'">
                 {{ drv.loaded ? '✓ 已加载' : '未加载（对应机型风扇不可见）' }}
@@ -305,9 +301,9 @@ function showDimm(dimm) {
     </div>
 
     <!-- DIMM 详情弹窗 -->
-    <u-modal v-model="dimmModalOpen" :title="`内存详情 · ${activeDimm.slot}`" icon="layers">
+    <u-modal v-model="dimmModalOpen" :title="`内存详情 · ${activeDimm?.slot ?? ''}`" icon="layers">
       <div class="kv2">
-        <div v-for="(val, key) in activeDimm.detail" :key="key" class="kvrow kvline">
+        <div v-for="(val, key) in activeDimm?.detail" :key="key" class="kvrow kvline">
           <span class="muted small">{{ key }}</span>
           <span
             class="small"

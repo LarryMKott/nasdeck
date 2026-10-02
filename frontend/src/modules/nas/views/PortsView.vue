@@ -27,12 +27,12 @@ const popOpen = reactive({});
 const released = reactive({});
 
 async function releasePort(row) {
-  released[row.port] = true;
   if (live.value && row.pid) {
     try {
       await apiData(`/api/v1/system/processes/${row.pid}?confirm=true`, { method: 'DELETE' });
+      released[row.port] = true; // 仅成功后隐藏：失败（1004 保护名单等）刷新后原样可见
     } catch {
-      /* 1004 保护名单等：刷新后原样回来 */
+      /* 释放失败保持行可见，不假装成功 */
     }
     await refresh();
   }

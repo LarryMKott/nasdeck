@@ -17,13 +17,14 @@ export const colors = {
   gpu: '#C291F0',
 };
 
-/** 顶部导航分组（页签：总览｜存储｜监控｜服务｜系统） */
+/** 顶部导航分组（页签：总览｜存储｜监控｜服务｜系统）。不设静态角标：
+ * 硬盘/Docker/告警数量随真机变化，写死即假数据 */
 export const navGroups = [
   { items: [{ path: '/nasdeck/dash', title: '总览', icon: 'dash' }] },
   {
     items: [
       { path: '/nasdeck/storage', title: '存储卷', icon: 'array' },
-      { path: '/nasdeck/disks', title: '硬盘', icon: 'drive', badge: 6 },
+      { path: '/nasdeck/disks', title: '硬盘', icon: 'drive' },
     ],
   },
   {
@@ -36,14 +37,14 @@ export const navGroups = [
   },
   {
     items: [
-      { path: '/nasdeck/docker', title: 'Docker', icon: 'docker', badge: 4 },
+      { path: '/nasdeck/docker', title: 'Docker', icon: 'docker' },
       { path: '/nasdeck/ports', title: '端口', icon: 'net' },
       { path: '/nasdeck/fan', title: '风扇', icon: 'fan' },
     ],
   },
   {
     items: [
-      { path: '/nasdeck/automation', title: '自动化', icon: 'shield', badge: 2, badgeHot: true },
+      { path: '/nasdeck/automation', title: '自动化', icon: 'shield' },
       { path: '/nasdeck/manual', title: '手册', icon: 'book' },
       { path: '/nasdeck/about', title: '关于', icon: 'info' },
     ],

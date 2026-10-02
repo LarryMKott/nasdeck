@@ -7,7 +7,7 @@
  * 方案改时长会重启动画导致肉眼可见的跳帧，故弃用。
  * rpm=0 平滑减速停转；系统「减少动态效果」偏好时不转。
  */
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 
 defineOptions({ name: 'FanRotor' });
 
@@ -80,6 +80,19 @@ function fallbackTick() {
 onMounted(() => {
   ensureLoop();
   fallbackId = setInterval(fallbackTick, 100);
+});
+// keep-alive 下 onBeforeUnmount 不触发：隐藏页停掉 rAF 与兜底定时器，回来再启
+onDeactivated(() => {
+  running = false;
+  cancelAnimationFrame(rafId);
+  if (fallbackId) {
+    clearInterval(fallbackId);
+    fallbackId = 0;
+  }
+});
+onActivated(() => {
+  ensureLoop();
+  if (!fallbackId) fallbackId = setInterval(fallbackTick, 100);
 });
 watch(
   () => props.rpm,

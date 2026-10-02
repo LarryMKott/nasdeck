@@ -1,6 +1,6 @@
 <script setup>
 /** 历史趋势：六维度 × 三区间回看 + dataZoom 框选缩放 + 区间统计与报告导出（本地 mock） */
-import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onActivated, reactive, ref, watch } from 'vue';
 import { colors } from '../mock';
 import { walk, timeLabels } from '../utils/series';
 import * as nasData from '../api/data';
@@ -11,12 +11,12 @@ import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasSysHist' });
 
-/** 维度配置（色板/基准/波动/上下限/单位，与原型一致） */
+/** 维度配置（色板/基准/波动/上下限/单位）。单位与后端口径一致：net/disk 均为 KB/s */
 const DIMS = {
   cpu: { label: 'CPU', color: colors.acc, base: 25, vol: 14, min: 2, max: 96, unit: '%' },
   mem: { label: '内存', color: colors.purp, base: 44, vol: 7, min: 30, max: 70, unit: '%' },
   temp: { label: '温度', color: '#E8734B', base: 42, vol: 5, min: 28, max: 74, unit: '°C' },
-  net: { label: '网络', color: colors.ok, base: 9, vol: 8, min: 0, max: 60, unit: ' MB/s' },
+  net: { label: '网络', color: colors.ok, base: 9, vol: 8, min: 0, max: 60, unit: ' KB/s' },
   disk: {
     label: '磁盘 IO',
     color: colors.info,
@@ -24,7 +24,7 @@ const DIMS = {
     vol: 34,
     min: 0,
     max: 180,
-    unit: ' MB/s',
+    unit: ' KB/s',
   },
   gpu: { label: 'GPU', color: '#C291F0', base: 18, vol: 11, min: 0, max: 90, unit: '%' },
 };
@@ -76,9 +76,17 @@ async function loadRemote() {
 function exportAs(fmt) {
   window.open(nasData.historyExportUrl(activeDim.value, activeRange.value, fmt), '_blank');
 }
+// 维度/区间变化即刷新；keep-alive 回页时经 onActivated 再刷新。
+// watch immediate 覆盖首挂载，onActivated 跳过首次（否则首进页连发 3 次）
 watch([activeDim, activeRange], loadRemote, { immediate: true });
-onMounted(loadRemote);
-onActivated(loadRemote);
+let firstActivation = true;
+onActivated(() => {
+  if (firstActivation) {
+    firstActivation = false;
+    return;
+  }
+  loadRemote();
+});
 
 const histSeries = computed(() => [
   {

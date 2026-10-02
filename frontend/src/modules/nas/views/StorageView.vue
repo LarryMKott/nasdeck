@@ -1,20 +1,25 @@
 <script setup>
-/** 存储卷：Array Operation 卡 + 阵列设备表 + 卷/云盘 + 拓扑树（后端 + 演示回退） */
+/** 存储卷：Array Operation 卡 + 阵列设备表 + 卷/数据卷 + 拓扑树（后端 + 演示回退） */
 import { computed, ref } from 'vue';
-import { storage as mockStorage } from '../mock';
 import { useViewData } from '../composables/useViewData';
+import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
 
 defineOptions({ name: 'NasStorage' });
 
-const { data: s, lastUpdated } = useViewData(nasData.fetchStorage, mockStorage);
+// 权限铁律：设置类操作仅管理员；非管理员不渲染阵列操作卡
+const identity = useIdentityStore();
+identity.ensure();
+
+// 初始值用空骨架，避免首帧向非管理员闪现演示阵列操作卡；mock 仅由适配层在 live:false 整页回退
+const { data: s, lastUpdated } = useViewData(nasData.fetchStorage, nasData.emptyStorage());
 
 const stopConfirmOpen = ref(false);
 /** 手动「停止阵列」后的本地覆盖（联调阶段不动后端状态） */
 const stoppedOverride = ref(null);
-const arrayRunning = computed(() => stoppedOverride.value ?? s.value.array?.running ?? true);
+const arrayRunning = computed(() => stoppedOverride.value ?? s.value.array?.running ?? false);
 
 /** 移动端卡片展示的代表性设备（正常/警告/缓存各一） */
 const mobileCards = computed(() =>
@@ -30,13 +35,13 @@ function stopArray() {
   <section>
     <u-page-header
       title="存储卷"
-      sub="阵列设备 · 卷 · 云盘"
-      :tag="{ type: arrayRunning ? 'ok' : 'warn', text: arrayRunning ? '运行中' : '已停止' }"
+      sub="阵列设备 · 卷"
+      :tag="{ type: arrayRunning ? 'ok' : 'warn', text: arrayRunning ? '运行中' : '无阵列' }"
       :updated="lastUpdated"
     />
 
-    <!-- 阵列操作卡（UNRAID 招牌） -->
-    <div class="wg">
+    <!-- 阵列操作卡：写操作入口仅管理员可见（后端仍有最终校验） -->
+    <div v-if="identity.canWrite && s.array" class="wg">
       <div class="wg-b opcard" style="padding: 15px 16px">
         <span class="odot" :class="{ off: !arrayRunning }" />
         <div class="ot">
@@ -169,9 +174,9 @@ function stopArray() {
       </div>
     </div>
 
-    <!-- 卷 / 云盘 -->
+    <!-- 卷 / 数据卷 -->
     <div class="grid" style="margin-bottom: 0">
-      <div class="wg t6">
+      <div v-if="s.volume" class="wg t6">
         <div class="wg-h">
           <u-icon name="layers" />
           <h3>卷 {{ s.volume.name }}</h3>
@@ -200,67 +205,82 @@ function stopArray() {
         </div>
       </div>
 
-      <div class="wg t6">
+      <div v-if="s.dataVolume" class="wg t6">
         <div class="wg-h">
           <u-icon name="cloud" />
-          <h3>云盘 {{ s.cloud.name }}</h3>
+          <h3>数据卷 {{ s.dataVolume.name }}</h3>
           <span class="x"
-            ><span class="st"><span class="dot" />已连接</span></span
+            ><span class="st"><span class="dot" />实时</span></span
           >
         </div>
         <div class="wg-b">
-          <div class="kv2">
+          <div
+            class="num"
+            style="display: flex; justify-content: space-between; margin-bottom: 7px"
+          >
+            <b>{{ s.dataVolume.usedText }}</b
+            ><b>{{ s.dataVolume.percent }}%</b>
+          </div>
+          <div class="meter">
+            <i class="c-ok" :style="{ width: `${s.dataVolume.percent}%` }" />
+          </div>
+          <div class="kv2" style="margin-top: 10px">
             <div class="kvrow kvline">
-              <span class="muted small">类型</span><span class="small">{{ s.cloud.type }}</span>
+              <span class="muted small">文件系统</span
+              ><span class="small">{{ s.dataVolume.fs }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">用途</span><span class="small">{{ s.cloud.usage }}</span>
-            </div>
-            <div class="kvrow kvline">
-              <span class="muted small">最近同步</span
-              ><span class="small num">{{ s.cloud.lastSync }}</span>
-            </div>
-            <div class="kvrow kvline">
-              <span class="muted small">云端用量</span
-              ><span class="small num">{{ s.cloud.usedText }}</span>
+              <span class="muted small">挂载点</span
+              ><span class="small num">{{ s.dataVolume.name }}</span>
             </div>
           </div>
-          <div class="tree" style="margin-top: 10px">
-            <div class="row">
-              <u-icon name="server" :style="{ color: 'var(--acc)' }" />
-              <span class="nd">md126</span><span class="sub">RAID6 · 21.8 TB</span>
-            </div>
-            <ul>
-              <li>
-                <div class="row">
-                  <u-icon name="layers" :style="{ color: 'var(--purp)' }" />
-                  <span class="nd">vol1</span><span class="sub">Btrfs · 10.9 TB</span>
-                </div>
-                <ul>
-                  <li v-for="dev in s.devices.slice(0, 4)" :key="dev.name">
-                    <div class="row">
-                      <span
-                        class="ddot"
-                        :style="{
-                          background: dev.status.startsWith('警告') ? 'var(--warn)' : 'var(--ok)',
-                        }"
-                      />
-                      {{ dev.name }}
-                      <span class="sub"
-                        >盘位 {{ dev.slot }} · {{ dev.capacityText.split(' ·')[0]
-                        }}{{ dev.status.startsWith('警告') ? ' · 警告' : '' }}</span
-                      >
-                    </div>
-                  </li>
-                </ul>
-              </li>
-              <li>
-                <div class="row">
-                  <u-icon name="cloud" :style="{ color: 'var(--info)' }" />
-                  <span class="nd">backup</span><span class="sub">OSS · 异地备份</span>
-                </div>
-              </li>
-            </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- 拓扑树（真实阵列/卷/盘构成；无数据源的节点不虚构） -->
+    <div v-if="s.array || s.volume || s.devices.length" class="wg" style="margin-top: 14px">
+      <div class="wg-h">
+        <u-icon name="array" />
+        <h3>存储拓扑</h3>
+      </div>
+      <div class="wg-b">
+        <div class="tree">
+          <div v-if="s.array" class="row">
+            <u-icon name="server" :style="{ color: 'var(--acc)' }" />
+            <span class="nd">{{ s.array.name }}</span
+            ><span class="sub">{{ s.array.level }} · {{ s.array.totalText }}</span>
+          </div>
+          <ul v-if="s.array">
+            <li>
+              <div class="row">
+                <u-icon name="layers" :style="{ color: 'var(--purp)' }" />
+                <span class="nd">{{ s.volume?.name ?? '未挂载卷' }}</span
+                ><span class="sub">{{ s.volume ? `${s.volume.fs} · ${s.volume.usedText}` : '—' }}</span>
+              </div>
+              <ul>
+                <li v-for="dev in s.devices.slice(0, 8)" :key="dev.name">
+                  <div class="row">
+                    <span
+                      class="ddot"
+                      :style="{
+                        background: dev.status.startsWith('警告') ? 'var(--warn)' : 'var(--ok)',
+                      }"
+                    />
+                    {{ dev.name }}
+                    <span class="sub"
+                      >盘位 {{ dev.slot }} · {{ dev.capacityText.split(' ·')[0]
+                      }}{{ dev.status.startsWith('警告') ? ' · 警告' : '' }}</span
+                    >
+                  </div>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <div v-else-if="s.devices.length" class="row">
+            <u-icon name="drive" :style="{ color: 'var(--info)' }" />
+            <span class="nd">直连盘</span
+            ><span class="sub">{{ s.devices.length }} 块 · 无阵列</span>
           </div>
         </div>
       </div>

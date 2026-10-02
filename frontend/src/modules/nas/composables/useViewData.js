@@ -30,8 +30,14 @@ export function useViewData(loader, initial, { immediate = true } = {}) {
   }
 
   if (immediate) {
+    // keep-alive 下首挂载 onMounted 与 onActivated 都会触发：跳过首次激活，
+    // 否则每次进页请求翻倍（DashView 一次进页曾发 16 个请求）
+    let activated = false;
     onMounted(refresh);
-    onActivated(refresh);
+    onActivated(() => {
+      if (activated) refresh();
+      activated = true;
+    });
   }
   return { data, live, extra, refresh, lastUpdated };
 }
