@@ -1,14 +1,28 @@
-"""风扇统一管理：控区 CRUD + 调速输出（5s tick 由 medium_5s 任务驱动）。"""
+"""风扇统一管理：控区 CRUD + 调速输出（5s tick 由 medium_5s 任务驱动）。
+
+failsafe 约定：本模块是原生 FCS 被接管后唯一的风扇管理方，任何单点故障
+（传感器失联、曲线缺失、写失败）都不得让 PWM 静默冻结——要么保持上一值
+并上报，要么按最坏情况全速。
+"""
 
 from __future__ import annotations
+
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
+from app.db.session import session_factory
 from app.models.control import FanCurve, FanZone
 from app.services.control import curve_engine, hwmon_driver
 from app.services.monitor.temperature import temperatures
+
+logger = logging.getLogger(__name__)
+
+FAILSAFE_AFTER_TICKS = 3  # 传感器连续失联达到该 tick 数（约 15s）后强制全速
+CRITICAL_TEMP_C = 85.0  # 临界温度：无视曲线/迟滞/斜率，无条件全速
+_sensor_fail_streak: dict[int, int] = {}
 
 
 async def list_zones(db: AsyncSession) -> list[dict]:
@@ -63,8 +77,11 @@ async def update_zone(db: AsyncSession, zone_id: int, patch: dict) -> dict:
         if value is not None or key == "curve_id":
             setattr(zone, key, value)
             changed[key] = value
-    if patch.get("mode") == "auto":
+    # 退出受管状态（切回 auto / 停用控区）时必须交还内核，否则 pwm_enable 滞留
+    # 手动模式、占空比冻结在最后值且无人管理（禁用 ≠ 删除，删除走 delete_zone）
+    if patch.get("mode") == "auto" or patch.get("enabled") is False:
         hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel)
+        _sensor_fail_streak.pop(zone.id, None)
     await db.flush()
     return {"id": zone.id, **changed}
 
@@ -76,8 +93,35 @@ async def delete_zone(db: AsyncSession, zone_id: int) -> None:
         raise NotFoundError(f"fan zone {zone_id} not found")
     if zone.mode != "auto":
         hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel)
+    _sensor_fail_streak.pop(zone.id, None)
     await db.delete(zone)
     await db.flush()
+
+
+async def release_curve(db: AsyncSession, curve_id: int) -> list[int]:
+    """删除曲线前调用：引用该曲线的控区退回 auto 并交还硬件，避免调速 tick 悬空引用。"""
+    result = await db.execute(select(FanZone).where(FanZone.curve_id == curve_id))
+    released = []
+    for zone in result.scalars():
+        if zone.mode != "auto":
+            hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel)
+        zone.mode = "auto"
+        zone.curve_id = None
+        _sensor_fail_streak.pop(zone.id, None)
+        released.append(zone.id)
+    if released:
+        await db.flush()
+    return released
+
+
+async def restore_all_zones() -> None:
+    """进程优雅关停前把受管控区交还内核自动温控，避免停机窗口风扇冻结在最后占空比。"""
+    async with session_factory() as db:
+        result = await db.execute(
+            select(FanZone).where(FanZone.enabled.is_(True), FanZone.mode != "auto")
+        )
+        for zone in result.scalars():
+            hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel)
 
 
 async def apply_tick(db: AsyncSession) -> list[dict]:
@@ -87,21 +131,30 @@ async def apply_tick(db: AsyncSession) -> list[dict]:
     temps = {t["key"]: t["celsius"] for t in await temperatures()}
     outputs = []
     for zone in zones:
-        if zone.mode == "fixed":
-            target = float(zone.fixed_pwm)
-            sensor_temp = None
+        try:
+            outputs.append(await _drive_zone(db, zone, temps))
+        except Exception as exc:  # noqa: BLE001 单控区故障不拖垮整轮调速与告警评估
+            logger.warning("控区 %s(%s) 调速异常: %s", zone.id, zone.name, exc)
+            outputs.append({"zone_id": zone.id, "name": zone.name, "mode": zone.mode, "error": str(exc)[:150]})
+    return outputs
+
+
+async def _drive_zone(db: AsyncSession, zone: FanZone, temps: dict[str, float | None]) -> dict:
+    if zone.mode == "fixed":
+        target, sensor_temp = float(zone.fixed_pwm), None
+    else:
+        curve = await _find_curve(db, zone.curve_id) if zone.curve_id else None
+        if curve is None:
+            return {"zone_id": zone.id, "name": zone.name, "mode": zone.mode, "error": "curve missing"}
+        sensor_temp = temps.get(zone.sensor_key) if zone.sensor_key else next(
+            (v for k, v in temps.items() if k.startswith("coretemp")), next(iter(temps.values()), None)
+        )
+        if sensor_temp is None:
+            return await _failsafe_on_sensor_lost(zone)
+        _sensor_fail_streak.pop(zone.id, None)
+        if sensor_temp >= CRITICAL_TEMP_C:
+            target = 100.0  # 临界温度无条件全速
         else:
-            curve = await _require_curve(db, zone.curve_id) if zone.curve_id else None
-            if curve is None:
-                continue
-            sensor_temp = temps.get(zone.sensor_key) if zone.sensor_key else next(
-                (v for k, v in temps.items() if k.startswith("coretemp")), next(iter(temps.values()), None)
-            )
-            if sensor_temp is None:
-                outputs.append(
-                    {"zone_id": zone.id, "mode": zone.mode, "error": "sensor unavailable"}
-                )
-                continue
             # 当前占空比（0-255 原始值 → 0-100 pct）：迟滞与斜率限制的基准，
             # 不传则曲线引擎每 tick 可无阻尼跳变（审查 2026-09-30 P1）
             raw = hwmon_driver.read_pwm(zone.hwmon_name, zone.pwm_channel)
@@ -109,21 +162,48 @@ async def apply_tick(db: AsyncSession) -> list[dict]:
             target = curve_engine.target_pwm(
                 curve.points, sensor_temp, curve.hysteresis_c, int(curve.ramp_per_tick), current_pct
             )
-        ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, target)
-        entry = {
+    ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, target)
+    entry = {
+        "zone_id": zone.id,
+        "name": zone.name,
+        "loop": zone.loop,
+        "mode": zone.mode,
+        "target_pwm_pct": target,
+        "current_rpm": hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel) if zone.fan_channel else None,
+    }
+    if sensor_temp is not None:
+        entry["sensor_temp_c"] = sensor_temp
+    if not ok:
+        entry["error"] = "pwm write failed"
+    return entry
+
+
+async def _failsafe_on_sensor_lost(zone: FanZone) -> dict:
+    """传感器失联：短暂失联保持最后占空比并上报；持续失联按最坏情况（过热）全速。"""
+    streak = _sensor_fail_streak.get(zone.id, 0) + 1
+    _sensor_fail_streak[zone.id] = streak
+    if streak < FAILSAFE_AFTER_TICKS:
+        return {
             "zone_id": zone.id,
             "name": zone.name,
-            "loop": zone.loop,
             "mode": zone.mode,
-            "target_pwm_pct": target,
-            "current_rpm": hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel) if zone.fan_channel else None,
+            "error": "sensor unavailable",
+            "failsafe": "hold",
+            "streak": streak,
         }
-        if sensor_temp is not None:
-            entry["sensor_temp_c"] = sensor_temp
-        if not ok:
-            entry = {"zone_id": zone.id, "error": "pwm write failed"}
-        outputs.append(entry)
-    return outputs
+    ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, 100.0)
+    entry = {
+        "zone_id": zone.id,
+        "name": zone.name,
+        "mode": zone.mode,
+        "target_pwm_pct": 100.0,
+        "error": "sensor unavailable",
+        "failsafe": "full_speed",
+        "streak": streak,
+    }
+    if not ok:
+        entry["error"] = "pwm write failed (failsafe)"
+    return entry
 
 
 async def _require_curve(db: AsyncSession, curve_id: int) -> FanCurve:
@@ -132,3 +212,9 @@ async def _require_curve(db: AsyncSession, curve_id: int) -> FanCurve:
     if not curve:
         raise NotFoundError(f"curve {curve_id} not found")
     return curve
+
+
+async def _find_curve(db: AsyncSession, curve_id: int) -> FanCurve | None:
+    """调速 tick 用：曲线缺失返回 None（控区级上报），不抛错中断。"""
+    result = await db.execute(select(FanCurve).where(FanCurve.id == curve_id))
+    return result.scalar_one_or_none()

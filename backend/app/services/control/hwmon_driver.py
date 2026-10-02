@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 from app.utils.sysfs import list_dirs, read_int, read_text
@@ -64,17 +65,24 @@ def read_pwm(hwmon_name: str, pwm_channel: int) -> int | None:
 
 
 def write_pwm(hwmon_name: str, pwm_channel: int, pct: float) -> bool:
-    """写占空比（0-100 → 0-255），并把 pwm_enable 置 1（手动）。失败返回 False。"""
+    """写占空比（0-100 → 0-255），并把 pwm_enable 置 1（手动）。失败返回 False。
+
+    先写值再切手动：若先切手动后写值失败（部分芯片锁定态拒绝写），通道会
+    滞留在手动模式且占空比停在未知值。
+    """
     pwm = find_channel(hwmon_name, pwm_channel)
     if not pwm:
         return False
     try:
+        pwm.write_text(str(max(0, min(255, round(pct / 100 * 255)))))
         enable = pwm.parent / f"pwm{pwm_channel}_enable"
         if enable.exists() and read_int(enable) != 1:
             enable.write_text("1")
-        pwm.write_text(str(max(0, min(255, round(pct / 100 * 255)))))
         return True
     except OSError:
+        # 写入中途失败：尽力交还内核自动温控，避免通道滞留在手动+未知占空比
+        with contextlib.suppress(OSError):
+            restore_auto(hwmon_name, pwm_channel)
         return False
 
 

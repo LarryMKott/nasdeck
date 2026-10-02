@@ -1,22 +1,50 @@
 """飞牛 FCS 安全接管：停原生 pwm-fancontrol、交还时恢复（契约 §2.18）。
 
 非 fnOS / 非 Linux 环境所有操作返回 reason，不抛错（安全第一）。
+接管状态落盘 data/fcs_state.json：进程被 SIGKILL（升级停机是常规操作）后
+重启仍能如实上报，避免 status() 谎报未接管、原生 FCS 实际仍被禁用。
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import platform
 
+from app.core.config import APP_ROOT
 from app.utils.async_cmd import run_cmd
 from app.utils.sysfs import read_text
 
+logger = logging.getLogger(__name__)
+
 UNIT = "pwm-fancontrol"
 
+_STATE_FILE = APP_ROOT / "data" / "fcs_state.json"
 _state = {"taken_over": False, "enabled_config": False}
 
 
 def is_fnos() -> bool:
     return read_text("/usr/trim/etc/version") is not None
+
+
+def load_state() -> None:
+    """启动时从落盘状态对账（幂等）：崩溃/升级重启后 taken_over 依旧如实。"""
+    try:
+        data = json.loads(_STATE_FILE.read_text("utf-8"))
+    except (OSError, ValueError):
+        return  # 无状态文件：从未接管过（或开发机）
+    _state["taken_over"] = bool(data.get("taken_over"))
+    _state["enabled_config"] = bool(data.get("enabled_config"))
+    if _state["taken_over"]:
+        logger.warning("检测到未归还的 FCS 接管状态：原生 %s 仍处于禁用，受管控区将按配置恢复调速", UNIT)
+
+
+def _persist_state() -> None:
+    try:
+        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _STATE_FILE.write_text(json.dumps(_state), "utf-8")
+    except OSError as exc:
+        logger.warning("FCS 接管状态落盘失败: %s", exc)
 
 
 async def status() -> dict:
@@ -54,6 +82,7 @@ async def takeover() -> dict:
         return {"taken_over": False, "reason": str(exc)[:200]}
     _state["taken_over"] = True
     _state["enabled_config"] = True
+    _persist_state()
     return {"taken_over": True}
 
 
@@ -71,4 +100,5 @@ async def release() -> dict:
         return {"released": False, "reason": str(exc)[:200]}
     _state["taken_over"] = False
     _state["enabled_config"] = False
+    _persist_state()
     return {"released": True}

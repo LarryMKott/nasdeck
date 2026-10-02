@@ -89,9 +89,11 @@ async def update_curve(curve_id: int, body: CurveIn, db: AsyncSession = DbDep) -
 @router.delete("/curves/{curve_id}")
 async def delete_curve(curve_id: int, db: AsyncSession = DbDep) -> dict:
     curve = await _curve_or_404(db, curve_id)
+    # 引用该曲线的控区先退回 auto 并交还硬件：悬空 curve_id 会让调速 tick 持续失败
+    released = await fan_manager.release_curve(db, curve_id)
     await db.delete(curve)
     await db.flush()
-    return {"id": curve_id, "deleted": True}
+    return {"id": curve_id, "deleted": True, "zones_released": released}
 
 
 @router.get("/curves/preview")

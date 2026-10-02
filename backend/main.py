@@ -17,6 +17,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.db import ingest
 from app.db.init_db import init_db
+from app.services.control import fan_manager, fcs_safe_takeover
 from app.services.hardware.policy import get_policy
 from app.tasks import downsampler
 from app.tasks import scheduler as scheduler_tasks
@@ -60,10 +61,16 @@ async def lifespan(app: FastAPI):
     )
     await init_db()
     await downsampler.purge_legacy_aggregates()  # 一次性清除 v1 失真历史聚合（幂等）
+    fcs_safe_takeover.load_state()  # 接管状态落盘对账：崩溃/升级重启后如实上报
     ingest.start()  # 采集落库单写者 worker（批量攒写，先于调度器就绪）
     scheduler_tasks.start()  # 模块入口：先注册 1s/5s/60s 采集与降采样任务，再启动调度器
     yield
     scheduler_tasks.shutdown(wait=False)
+    try:
+        # 优雅关停先把受管控区交还内核自动温控：升级/重启停机窗口风扇不冻结
+        await fan_manager.restore_all_zones()
+    except Exception:  # noqa: BLE001 关停路径尽力而为，不阻塞 ingest 收尾
+        logger.warning("关停归还控区失败", exc_info=True)
     await ingest.stop()
 
 
