@@ -45,14 +45,23 @@ async def require_trim_auth(request: Request) -> None:
     """飞牛 CGI 反代形态的分级鉴权（NASDECK_TRIM_AUTH=true 时启用）。
 
     index.cgi 把飞牛注入的可信身份头原样转发（登录态已由飞牛在调 CGI 前校验）：
+    - X-Nasdeck-Proxy：本机代理共享密钥（NASDECK_PROXY_TOKEN），证明身份头来自
+      持密的 index.cgi 而非客户端/任意本机进程伪造（网关是否剥离客户端同名
+      X-Trim-* 头无法保证，此为根防线）；
     - X-Trim-Userid：证明请求属于已登录的飞牛用户，全部接口必需；
     - X-Trim-Isadmin：写操作（风扇/PWM/WOL/告警/进程/设置等，均为非 GET）必需。
     头缺失一律 403，本机直连 9800 的无头请求因此被拒。
     """
+    import hmac
+
     from app.core.config import settings
 
     if not settings.trim_auth:
         return
+    if settings.proxy_token and not hmac.compare_digest(
+        request.headers.get("X-Nasdeck-Proxy", ""), settings.proxy_token
+    ):
+        raise PermissionDeniedError("缺少代理信任凭据（X-Nasdeck-Proxy）")
     if not request.headers.get("X-Trim-Userid", "").strip():
         raise PermissionDeniedError("未登录：须经飞牛 CGI 反代访问（缺失 X-Trim-Userid）")
     if request.method in _ADMIN_METHODS:

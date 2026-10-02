@@ -43,6 +43,12 @@ export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"
 export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist"
 # 分级鉴权：读=飞牛登录用户（index.cgi 转发 X-Trim-Userid），写=管理员（X-Trim-Isadmin）
 export NASDECK_TRIM_AUTH=true
+# 代理共享密钥：install_callback 生成落 var/proxy_token（升级保留）；缺失时后端
+# 跳过代理校验（旧包升级窗口/生成失败的降级路径，见 config.proxy_token 注释）
+if [ -s "${TRIM_PKGVAR}/proxy_token" ]; then
+    NASDECK_PROXY_TOKEN="$(head -n 1 "${TRIM_PKGVAR}/proxy_token" | tr -d '[:space:]')"
+    [ -n "$NASDECK_PROXY_TOKEN" ] && export NASDECK_PROXY_TOKEN
+fi
 export PYTHONPATH="${SERVER_DIR}/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 
 log_msg() {

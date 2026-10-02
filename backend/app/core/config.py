@@ -15,12 +15,19 @@ class Settings(BaseSettings):
     )
 
     port: int = 8766
-    host: str = "0.0.0.0"
+    # 缺省仅回环：无鉴权形态（api_key 空 + trim_auth 关）绑全网卡会把杀进程/
+    # 控风扇的面板暴露到局域网；需要对外时显式设 NASDECK_HOST=0.0.0.0
+    host: str = "127.0.0.1"
     api_key: str = ""
     # 飞牛 CGI 反代形态鉴权（NASDECK_TRIM_AUTH=true）：读操作须有 index.cgi 转发的
     # X-Trim-Userid（登录用户），写操作（非 GET）还须 X-Trim-Isadmin=true（管理员）。
     # 详见 dependencies.require_trim_auth
     trim_auth: bool = False
+    # 代理共享密钥（NASDECK_PROXY_TOKEN）：index.cgi→后端本机转发凭据。飞牛网关
+    # 是否剥离客户端自带 X-Trim-* 头无法在网关侧确认，该密钥保证身份头只能由
+    # 持密的 index.cgi 注入（密钥不经过网关，客户端伪造头失效）；空 = 不校验
+    # （开发/自托管直连形态）。FPK 由 install_callback 生成落 var/，cmd/main 注入
+    proxy_token: str = ""
     db_url: str = f"sqlite+aiosqlite:///{(APP_ROOT / 'data' / 'nasdeck.db').as_posix()}"
     raw_keep_minutes: int = 120
     storcli_path: str = ""

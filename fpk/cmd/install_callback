@@ -58,6 +58,21 @@ printf '%s\n' "$wizard_port" > "$_APP_DIR/ui/port"
 chmod 644 "$_APP_DIR/ui/port" 2>/dev/null
 echo "[nasdeck] 监听端口: ${wizard_port}" >> "$LOG"
 
+# 0.3 代理共享密钥落盘（一次性生成，升级/重装保留）：index.cgi→后端本机转发凭据。
+#     飞牛网关是否剥离客户端自带 X-Trim-* 头无法保证，后端凭该密钥确认身份头只能
+#     由持密的 index.cgi 注入（密钥不经过网关，客户端伪造身份头失效）。
+#     权威副本 ${TRIM_PKGVAR}/proxy_token，镜像到 ui/proxy_token（index.cgi 读自身目录）。
+if [ ! -s "${TRIM_PKGVAR}/proxy_token" ]; then
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "${TRIM_PKGVAR}/proxy_token" \
+        || echo "[nasdeck] 警告: 代理密钥生成失败，后端将跳过代理校验" >> "$LOG"
+    chmod 600 "${TRIM_PKGVAR}/proxy_token" 2>/dev/null
+fi
+if [ -s "${TRIM_PKGVAR}/proxy_token" ]; then
+    cp -f "${TRIM_PKGVAR}/proxy_token" "$_APP_DIR/ui/proxy_token" 2>/dev/null
+    # ui 镜像 644：CGI 可能以非 root 用户拉起，读不到会把全部请求挡在代理校验外
+    chmod 644 "$_APP_DIR/ui/proxy_token" 2>/dev/null
+fi
+
 # 1. 系统工具检测（缺啥装啥）
 need_install=()
 command -v smartctl >/dev/null 2>&1 || need_install+=("smartmontools")

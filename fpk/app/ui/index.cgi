@@ -43,6 +43,14 @@ if [ -n "$target_query" ]; then
 fi
 
 curl_args=(-s --include -X "$REQUEST_METHOD")
+# 代理共享密钥（install_callback 生成，镜像到本目录）：后端凭它确认身份头只能由
+# 本脚本注入——网关是否剥离客户端自带 X-Trim-* 头无法保证，密钥不经过网关
+proxy_token_file="$(dirname "$0")/proxy_token"
+[ -r "$proxy_token_file" ] || proxy_token_file="/var/apps/com.dashboard.nasdeck/var/proxy_token"
+nasdeck_proxy_token="$(head -n 1 "$proxy_token_file" 2>/dev/null | tr -d '[:space:]')"
+if [ -n "$nasdeck_proxy_token" ]; then
+    curl_args+=(-H "X-Nasdeck-Proxy: $nasdeck_proxy_token")
+fi
 # 注入飞牛用户身份（飞牛已校验登录态，HTTP_X_TRIM_* 为可信身份，转成 header 供后端鉴权）
 if [ -n "$HTTP_X_TRIM_USERID" ]; then
     curl_args+=(-H "X-Trim-Userid: $HTTP_X_TRIM_USERID")

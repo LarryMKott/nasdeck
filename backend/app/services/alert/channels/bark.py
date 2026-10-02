@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import httpx
 
 from app.services.alert.channels.base import BaseChannel
@@ -15,10 +17,14 @@ class BarkChannel(BaseChannel):
 
     async def send(self, config: dict, title: str, body: str) -> bool:
         server = config.get("server", "https://api.day.app").rstrip("/")
+        # 路径段必须全编码：title/body 含 / ? # 时裸拼会改变路径结构或截断消息
+        key = quote(str(config["device_key"]), safe="")
+        t = quote(str(title), safe="")
+        b = quote(str(body), safe="")
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
-                    f"{server}/{config['device_key']}/{title}/{body}",
+                    f"{server}/{key}/{t}/{b}",
                 )
                 return resp.status_code == 200
         except httpx.HTTPError:

@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 
 class AlertRuleIn(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
+    # 禁 CRLF：规则名会拼进邮件 Subject（头注入）与 Bark URL 路径（定界符截断）
+    name: str = Field(min_length=1, max_length=64, pattern=r"^[^\r\n]+$")
     metric: str = Field(pattern="^(cpu_percent|mem_percent|temp_max|disk_temp|disk_failed|raid_degraded)$")
     comparator: str = Field(pattern="^(>|<|>=|<=|==)$")
     threshold: float
