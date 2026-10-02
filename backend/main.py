@@ -18,6 +18,7 @@ from app.core.logging import setup_logging
 from app.db import ingest
 from app.db.init_db import init_db
 from app.services.hardware.policy import get_policy
+from app.tasks import downsampler
 from app.tasks import scheduler as scheduler_tasks
 
 
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
         settings.static_dir or "-",
     )
     await init_db()
+    await downsampler.purge_legacy_aggregates()  # 一次性清除 v1 失真历史聚合（幂等）
     ingest.start()  # 采集落库单写者 worker（批量攒写，先于调度器就绪）
     scheduler_tasks.start()  # 模块入口：先注册 1s/5s/60s 采集与降采样任务，再启动调度器
     yield
