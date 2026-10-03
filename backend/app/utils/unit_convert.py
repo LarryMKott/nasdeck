@@ -20,14 +20,3 @@ def kbps_to_human(kbps: float) -> str:
     if kbps >= 1024:
         return f"{kbps / 1024:.1f} MB/s"
     return f"{kbps:.1f} KB/s"
-
-
-def seconds_to_uptime(seconds: int) -> str:
-    days, rest = divmod(int(seconds), 86400)
-    hours, rest = divmod(rest, 3600)
-    minutes = rest // 60
-    if days:
-        return f"{days} 天 {hours} 小时"
-    if hours:
-        return f"{hours} 小时 {minutes} 分"
-    return f"{minutes} 分钟"

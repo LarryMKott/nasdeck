@@ -75,12 +75,3 @@ def start_test(device: str, test_type: str, runner, probe=None) -> dict:
 
     _task[device] = asyncio.create_task(_run())
     return dict(state)
-
-
-def stop_test(device: str) -> None:
-    task = _task.pop(device, None)
-    if task:
-        task.cancel()
-    state = _tests.get(device)
-    if state and state["status"] == "running":
-        state.update(status="failed", completed_at=_now(), error="aborted")

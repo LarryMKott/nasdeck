@@ -17,7 +17,6 @@ identity.ensure();
 
 const keyword = ref('');
 const reachFilter = ref('');
-const autoRefresh = ref(true);
 
 const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchPorts, mockPorts);
 
@@ -51,13 +50,7 @@ const filtered = computed(() =>
 
 <template>
   <section>
-    <u-page-header title="端口占用" sub="监听端口 · 进程 · 可达性" :updated="lastUpdated">
-      <template #right>
-        <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
-          <span class="tr" />10s
-        </label>
-      </template>
-    </u-page-header>
+    <u-page-header title="端口占用" sub="监听端口 · 进程 · 可达性" :updated="lastUpdated" />
 
     <div class="wg" style="margin-bottom: 0">
       <div

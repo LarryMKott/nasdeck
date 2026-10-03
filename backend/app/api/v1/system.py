@@ -110,9 +110,8 @@ async def env_check() -> dict:
 
 
 @router.get("/docker/containers", response_model=DockerResponse)
-async def docker_containers(stats: bool = Query(default=False)) -> dict:
-    # stats=true 的逐容器资源占用较慢；当前版本透传标记，资源字段为可选（契约 §2.11）
-    return await docker_service.list_containers(with_stats=stats)
+async def docker_containers() -> dict:
+    return await docker_service.list_containers()
 
 
 @router.get("/ports", response_model=list[PortEntry])

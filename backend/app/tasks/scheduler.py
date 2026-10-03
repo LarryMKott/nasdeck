@@ -23,9 +23,6 @@ def start_jobs() -> None:
     logger.info("调度器任务注册完成")
 
 
-scheduler.add_listener(lambda *_: None, 0)
-
-
 def start() -> None:
     if not scheduler.get_jobs():
         start_jobs()

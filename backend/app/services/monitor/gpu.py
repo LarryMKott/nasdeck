@@ -203,7 +203,7 @@ class _IntelTopReader:
         self._next_try = 0.0
         self._lock = threading.Lock()
 
-    def ensure(self, card_dev: str, card_name: str) -> None:
+    def ensure(self, card_name: str) -> None:
         now = time.monotonic()
         if self._proc is not None and self._proc.poll() is None:
             return
@@ -321,7 +321,7 @@ async def collect() -> dict:
                     break
             elif card["kind"] == "intel":
                 reader = _intel_reader()
-                reader.ensure(card["dev"], card["name"])
+                reader.ensure(card["name"])
                 busy = reader.busy()
                 if busy is not None:
                     # 核显温度（i915 hwmon，真机 1.2.0701 有 temp1_input）；无则 None

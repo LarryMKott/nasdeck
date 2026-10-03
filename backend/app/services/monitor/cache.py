@@ -22,8 +22,5 @@ class TTLCache:
     def set(self, key: str, data: object, ttl: float) -> None:
         self._store[key] = (time.monotonic() + ttl, data)
 
-    def pop(self, key: str) -> None:
-        self._store.pop(key, None)
-
 
 realtime_cache = TTLCache()

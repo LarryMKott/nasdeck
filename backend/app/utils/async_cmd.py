@@ -9,10 +9,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import shutil
 import time
 
-from app.core.config import settings
 from app.core.exceptions import ExternalToolError
 
 logger = logging.getLogger(__name__)
@@ -58,14 +56,6 @@ async def run_cmd(
     return (proc.returncode or 0, out_text, err_text)
 
 
-async def run_storcli(*args: str, timeout: float = 30.0) -> tuple[int, str, str]:
-    """storcli 封装：按配置路径/PATH 探测。"""
-    if not shutil.which(settings.storcli_cmd):
-        logger.debug("storcli 不可用（探测路径 %s）", settings.storcli_cmd)
-        raise ExternalToolError("storcli not available")
-    return await run_cmd(settings.storcli_cmd, *args, timeout=timeout)
-
-
 def run_cmd_sync(*args: str, timeout: float = 15.0) -> tuple[int, str, str]:
     """同步版命令执行：专供线程池内的 storcli 采集路径（asyncio 不可用场景）。"""
     import subprocess
@@ -87,7 +77,7 @@ def run_cmd_sync(*args: str, timeout: float = 15.0) -> tuple[int, str, str]:
 
 
 def run_storcli_sync(*args: str, timeout: float = 30.0) -> tuple[int, str, str]:
-    """storcli 同步封装（与 run_storcli 同探测顺序）。"""
+    """storcli 同步封装：按配置路径/PATH 解析命令（settings.storcli_cmd）。"""
     from app.core.config import settings
 
     return run_cmd_sync(settings.storcli_cmd, *args, timeout=timeout)

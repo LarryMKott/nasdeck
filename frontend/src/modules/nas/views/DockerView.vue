@@ -1,6 +1,6 @@
 <script setup>
 /** Docker：容器运行状态与资源占用表（后端 + 演示回退） */
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { docker as mockDocker } from '../mock';
 import { useViewData } from '../composables/useViewData';
 import * as nasData from '../api/data';
@@ -20,8 +20,6 @@ const headerTag = computed(() => {
   }
   return { type: 'acc', text: '演示数据（本机无 Docker 或后端不可达）' };
 });
-
-const autoRefresh = ref(true);
 </script>
 
 <template>
@@ -31,13 +29,7 @@ const autoRefresh = ref(true);
       sub="容器运行状态 · 资源占用"
       :tag="headerTag"
       :updated="lastUpdated"
-    >
-      <template #right>
-        <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
-          <span class="tr" />8s
-        </label>
-      </template>
-    </u-page-header>
+    />
 
     <div class="wg" style="margin-bottom: 0">
       <div class="tscroll">

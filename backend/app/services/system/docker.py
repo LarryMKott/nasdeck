@@ -19,7 +19,7 @@ def docker_available() -> str | None:
     return None
 
 
-async def list_containers(with_stats: bool) -> dict:
+async def list_containers() -> dict:
     reason = docker_available()
     if reason:
         return {"available": False, "reason": reason, "containers": []}

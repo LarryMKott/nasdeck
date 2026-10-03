@@ -13,7 +13,11 @@ session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_comm
 
 @event.listens_for(engine.sync_engine, "connect")
 def _sqlite_pragma(dbapi_conn, _record):
-    """采集写密集（秒级 raw 点）场景的 SQLite 调优，仅 sqlite 方言生效：
+    """连接级 PRAGMA 调优，仅 sqlite 方言生效。
+
+    全仓「不写裸 SQL」约定的唯一豁免点：PRAGMA 是 SQLite 驱动层配置，SQLAlchemy
+    无对应抽象，故集中于此一处，业务/DDL 代码一律经 ORM 与检查器表达。采集写密集
+    （秒级 raw 点）场景的三项调优：
 
     - WAL：写事务不再阻塞读、commit 开销大幅降低——真机实测默认 journal 模式下
       fast_tick 每 commit 全量 fsync，撞上 medium_tick 连续写事务即超 1s 被调度器跳秒；
