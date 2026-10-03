@@ -102,10 +102,12 @@ const themeMeta = computed(() => {
 </script>
 
 <template>
-  <div class="nd" :data-theme="appStore.resolvedTheme">
+  <!-- 纯图标类须加在 .nd 根容器（unraid.scss 的 &.nav-icons 编译为 .nd.nav-icons）：
+       此前绑定在 .nav 上且类名不匹配，切换从未生效 -->
+  <div class="nd" :data-theme="appStore.resolvedTheme" :class="{ 'nav-icons': iconsMode }">
     <icon-sprite />
 
-    <div class="nav" :class="{ icons: iconsMode }">
+    <div class="nav">
       <button
         class="iconbtn"
         :title="iconsMode ? '页签：纯图标（点击切换完整样式）' : '页签：完整样式（点击切换纯图标）'"
