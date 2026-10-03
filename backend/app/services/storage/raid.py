@@ -26,9 +26,18 @@ async def raid_status() -> dict:
         storcli_error = str(exc)
 
     hardware: list[dict] = []
+    drives = (card or {}).get("drives", [])
     if card and card.get("ok") and card.get("virtual_drives"):
+        # PD 表只带 DG 列：DG 内多 VD 时物理盘无法唯一归属，此时不挂成员（宁缺勿错边）
+        dg_counts: dict[str, int] = {}
         for vd in card["virtual_drives"]:
             dgvd = vd.get("dgvd", "")
+            if "/" in dgvd:
+                dg_counts[dgvd.split("/")[0]] = dg_counts.get(dgvd.split("/")[0], 0) + 1
+        for vd in card["virtual_drives"]:
+            dgvd = vd.get("dgvd", "")
+            dg = dgvd.split("/")[0] if "/" in dgvd else None
+            unambiguous = dg is not None and dg_counts.get(dg, 0) == 1
             hardware.append(
                 {
                     "source": "storcli",
@@ -39,6 +48,22 @@ async def raid_status() -> dict:
                     "size_bytes": storcli.size_to_bytes(vd.get("size", "")) if vd.get("size") else None,
                     "state": vd.get("state", ""),
                     "healthy": vd.get("state") == "Optl",
+                    # PD↔VD 靠 DG 编号 join（storcli 拓扑表唯一可用关联）；专用热备
+                    # DG 同号会一并挂入并以 hotspare 标记，全局热备 DG="-" 不挂
+                    "members": [
+                        {
+                            "slot": d.get("slot"),
+                            "sn": d.get("sn") or None,
+                            "model": d.get("model") or None,
+                            "state": d.get("state"),
+                            "media": d.get("media"),
+                            "size_human": d.get("size"),
+                            "hotspare": d.get("hotspare"),
+                            "failed": bool(d.get("failed")),
+                        }
+                        for d in drives
+                        if unambiguous and str(d.get("dg")) == dg
+                    ],
                     "details": {
                         "consist": vd.get("consist", ""),
                         "cache_raw": vd.get("cache_raw", ""),
@@ -66,7 +91,7 @@ async def raid_status() -> dict:
         "software_raid": software,
         "storcli_error": storcli_error,
         "controller": controller,
-        "drives": (card or {}).get("drives", []),
+        "drives": drives,
     }
 
 
@@ -114,6 +139,25 @@ def _storcli_text_run(args: list[str], timeout: float) -> str:
     return out
 
 
+_MD_MEMBER = re.compile(r"(\S+)\[(\d+)\](\([A-Z]+\))?")
+
+
+def _md_members(rest: str) -> list[dict]:
+    """mdstat 成员段（"sda2[0] sdb2[1](F)"）→ 结构化成员（faulty/spare 标记）。"""
+    members = []
+    for match in _MD_MEMBER.finditer(rest):
+        device, index, flag = match.group(1), int(match.group(2)), match.group(3) or ""
+        members.append(
+            {
+                "device": device,
+                "index": index,
+                "faulty": "(F" in flag,
+                "spare": "(S" in flag,
+            }
+        )
+    return members
+
+
 def _mdstat_volumes(path: str = "/proc/mdstat") -> list[dict]:
     text = read_text(path)
     if not text:
@@ -147,6 +191,7 @@ def _mdstat_volumes(path: str = "/proc/mdstat") -> list[dict]:
                 "size_bytes": size_bytes,
                 "state": "clean" if healthy else "degraded",
                 "healthy": healthy,
+                "members": _md_members(rest),
                 "details": {"members": rest[:200]},
             }
         )

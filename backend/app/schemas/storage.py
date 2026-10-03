@@ -5,6 +5,14 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class PartitionItem(BaseModel):
+    name: str  # 不带 /dev/ 前缀（sda1 / dm-0）
+    size_bytes: int | None = None
+    fstype: str | None = None
+    mountpoint: str | None = None
+    type: str = "part"  # part/lvm/crypt…（lsblk TYPE，非分区形态平铺展示）
+
+
 class DiskItem(BaseModel):
     device: str  # 不带 /dev/ 前缀
     path: str
@@ -15,9 +23,10 @@ class DiskItem(BaseModel):
     size_human: str
     rotational: bool
     alias: str | None = None
-    health: str = "unknown"  # passed/warning/failing/unknown
+    health: str = "unknown"  # passed/failing/unknown（SMART 慢采集缓存回填）
     temp_c: float | None = None
     power_on_hours: int | None = None
+    partitions: list[PartitionItem] = []  # lsblk children 平铺（拓扑树层级边）
 
 
 class SmartAttribute(BaseModel):
@@ -59,6 +68,21 @@ class AliasDeleted(BaseModel):
     deleted: bool
 
 
+class RaidMemberItem(BaseModel):
+    slot: str | None = None  # storcli 槽位 "E:S"；mdadm 无此字段
+    sn: str | None = None
+    model: str | None = None
+    state: str | None = None
+    media: str | None = None  # HDD/SSD（storcli）
+    size_human: str | None = None
+    hotspare: str | None = None  # global/dedicated（storcli）
+    failed: bool = False  # storcli PD 故障；mdadm 成员用 faulty
+    device: str | None = None  # mdadm 成员分区名（sda2）
+    index: int | None = None  # mdadm 成员序号
+    faulty: bool = False  # mdadm (F)
+    spare: bool = False  # mdadm (S)
+
+
 class RaidVolumeItem(BaseModel):
     source: str  # storcli / mdadm
     controller: str
@@ -69,6 +93,7 @@ class RaidVolumeItem(BaseModel):
     state: str
     healthy: bool
     details: dict = {}
+    members: list[RaidMemberItem] = []  # 阵列成员（PD 按 DG join / mdstat 解析）
 
 
 class RaidResponse(BaseModel):

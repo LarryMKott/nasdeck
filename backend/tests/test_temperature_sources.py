@@ -40,19 +40,41 @@ def test_nvme_hwmon_items_carry_device_index(monkeypatch, tmp_path):
 
 def test_smart_disk_temps_parse_and_skip_failed(monkeypatch):
     async def fake_run_cmd(*args, **kw):
-        return (0, json.dumps({"temperature": {"current": 37}}), "") if args[-1] == "/dev/sda" else (1, "", "no")
+        dev = args[-1]
+        if dev == "/dev/sda":
+            return (
+                0,
+                json.dumps({"smart_status": {"passed": True}, "temperature": {"current": 37}}),
+                "",
+            )
+        if dev == "/dev/nvme0":
+            return (
+                0,
+                json.dumps({"smart_status": {"passed": True}, "temperature": {"current": 41}}),
+                "",
+            )
+        return (1, "", "no")
 
     def fake_glob(pattern):
-        return ["/dev/sda", "/dev/sdb"]
+        if pattern == "/dev/sd?":
+            return ["/dev/sda", "/dev/sdb"]
+        if pattern == "/dev/nvme?":
+            return ["/dev/nvme0"]
+        return []
 
     monkeypatch.setattr(temperature, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(temperature, "glob", SimpleNamespace(glob=fake_glob))
     monkeypatch.setattr(temperature.shutil, "which", lambda x: "/usr/sbin/smartctl")
-    temperature._disk_cache.update(ts=0.0, items=[])
+    temperature._disk_cache.update(ts=0.0, items=[], health={}, temps={})
     items = asyncio.run(temperature._smart_disk_temps())
+    # NVMe 温度条目不上屏（hwmon 直读已覆盖 zone=nvme），只保留 SATA 盘条目
     assert [i["label"] for i in items] == ["sda"]
     assert items[0]["zone"] == "disk"
     assert items[0]["celsius"] == 37.0
+    assert asyncio.run(temperature._smart_disk_temps()) == items  # 缓存命中，条目不变
+    # disk_health()/disk_temps() 在非 Linux 有平台守卫，直接断言扫描产出
+    assert temperature._disk_cache["health"] == {"sda": "passed", "nvme0": "passed"}
+    assert temperature._disk_cache["temps"] == {"sda": 37.0, "nvme0": 41.0}
 
 
 def test_smart_disk_temps_cached(monkeypatch):
@@ -62,10 +84,13 @@ def test_smart_disk_temps_cached(monkeypatch):
         calls.append(args)
         return (0, json.dumps({"temperature": {"current": 40}}), "")
 
+    def fake_glob(pattern):
+        return ["/dev/sda"] if pattern == "/dev/sd?" else []
+
     monkeypatch.setattr(temperature, "run_cmd", fake_run_cmd)
-    monkeypatch.setattr(temperature, "glob", SimpleNamespace(glob=lambda p: ["/dev/sda"]))
+    monkeypatch.setattr(temperature, "glob", SimpleNamespace(glob=fake_glob))
     monkeypatch.setattr(temperature.shutil, "which", lambda x: "/usr/sbin/smartctl")
-    temperature._disk_cache.update(ts=0.0, items=[])
+    temperature._disk_cache.update(ts=0.0, items=[], health={}, temps={})
     asyncio.run(temperature._smart_disk_temps())
     asyncio.run(temperature._smart_disk_temps())
     assert len(calls) == 1  # 60s 缓存内只探测一次

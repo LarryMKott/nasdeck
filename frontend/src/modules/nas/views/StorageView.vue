@@ -6,6 +6,8 @@ import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
+// unplugin 只扫 src/components：nas 组件须显式 import（此前 u-icon 未导入，图标从未渲染）
+import UIcon from '../components/UIcon.vue';
 
 defineOptions({ name: 'NasStorage' });
 
@@ -25,6 +27,65 @@ const arrayRunning = computed(() => stoppedOverride.value ?? s.value.array?.runn
 const mobileCards = computed(() =>
   [s.value.devices[0], s.value.devices[2], s.value.devices[4]].filter(Boolean)
 );
+
+// ---- 存储拓扑（真实层级；适配层已组装 arrays/standalone，见 data.js fetchStorage）----
+const topo = computed(() => s.value.topology ?? { controller: null, arrays: [], standalone: [] });
+const topoHasNodes = computed(
+  () => !!(topo.value.controller || topo.value.arrays.length || topo.value.standalone.length)
+);
+/** 根节点：阵列卡/软阵列/无阵列直连三种形态 */
+const topoRoot = computed(() => {
+  const c = topo.value.controller;
+  if (!c && topo.value.arrays.length) {
+    return { icon: 'server', color: 'var(--acc)', label: '软阵列', sub: '内核 md (mdadm)' };
+  }
+  if (!c) {
+    return {
+      icon: 'drive',
+      color: 'var(--info)',
+      label: '直连盘',
+      sub: `${topo.value.standalone.length} 块 · 无阵列`,
+    };
+  }
+  if (c.mode === 'soft') {
+    return { icon: 'server', color: 'var(--acc)', label: '软阵列', sub: '内核 md (mdadm)' };
+  }
+  return {
+    icon: 'server',
+    color: 'var(--acc)',
+    label: c.model || (c.mode === 'hba' ? 'HBA 直通' : '阵列卡'),
+    sub: c.mode === 'hba' ? 'HBA 直通' : 'MegaRAID',
+  };
+});
+
+function arrSub(arr) {
+  return [arr.levelText, arr.sizeText, arr.state, !arr.healthy ? '降级' : null]
+    .filter(Boolean)
+    .join(' · ');
+}
+function memberDot(m) {
+  if (m.failed) return 'var(--bad)';
+  if (m.hotspare) return 'var(--info)';
+  return 'var(--ok)';
+}
+function memberSub(m) {
+  return [m.model, m.sizeText, m.state].filter(Boolean).join(' · ');
+}
+function diskDot(health) {
+  if (health === 'failing') return 'var(--bad)';
+  if (health === 'warning') return 'var(--warn)';
+  return health === 'passed' ? 'var(--ok)' : 'var(--tx3)';
+}
+function diskSub(disk) {
+  return [disk.model, disk.sizeText, disk.tempC != null ? `${disk.tempC} °C` : null, disk.alias]
+    .filter(Boolean)
+    .join(' · ');
+}
+function partSub(p) {
+  return [p.fstype ? p.fstype.toUpperCase() : null, p.sizeText, p.mountpoint]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 function stopArray() {
   stoppedOverride.value = false;
@@ -128,9 +189,12 @@ function stopArray() {
                 }}</span>
                 <b>{{ dev.name }}</b> · {{ dev.model }}
               </td>
-              <td class="num">{{ dev.slot }}</td>
+              <td class="num">{{ dev.slot ?? '—' }}</td>
               <td>
-                <span class="fsbadge">{{ dev.fs }}</span>
+                <span v-if="dev.role" class="fsbadge">{{ dev.role }}</span>
+                <span v-else-if="dev.alias" class="fsbadge">{{ dev.alias }}</span>
+                <span v-else-if="dev.fsText" class="fsbadge">{{ dev.fsText }}</span>
+                <span v-else class="muted">—</span>
               </td>
               <td class="r num" :class="dev.tempC != null && dev.tempC >= 45 ? 't-warn' : 't-ok'">
                 {{ dev.tempC != null ? `${dev.tempC} °C` : '—' }}
@@ -138,8 +202,8 @@ function stopArray() {
               <td class="r num">{{ dev.readText }}</td>
               <td class="r num">{{ dev.writeText }}</td>
               <td>
-                <div class="meter thin" style="max-width: 180px">
-                  <i :class="dev.meterClass" :style="{ width: `${dev.meterPercent}%` }" />
+                <div v-if="dev.usagePercent != null" class="meter thin" style="max-width: 180px">
+                  <i :class="dev.usageClass" :style="{ width: `${dev.usagePercent}%` }" />
                 </div>
                 <span class="small muted num">{{ dev.capacityText }}</span>
               </td>
@@ -163,11 +227,12 @@ function stopArray() {
               >
             </div>
             <div class="small muted num" style="margin-bottom: 8px">
-              盘位 {{ dev.slot }} · {{ dev.fs }} · {{ dev.tempC }} °C · {{ dev.readText }}
+              {{ dev.role || dev.alias || dev.fsText || '—' }} ·
+              {{ dev.tempC != null ? `${dev.tempC} °C` : '温度 —' }} · {{ dev.readText }}
               {{ dev.writeText }}
             </div>
-            <div class="meter thin">
-              <i :class="dev.meterClass" :style="{ width: `${dev.meterPercent}%` }" />
+            <div v-if="dev.usagePercent != null" class="meter thin">
+              <i :class="dev.usageClass" :style="{ width: `${dev.usagePercent}%` }" />
             </div>
           </div>
         </div>
@@ -238,50 +303,67 @@ function stopArray() {
       </div>
     </div>
 
-    <!-- 拓扑树（真实阵列/卷/盘构成；无数据源的节点不虚构） -->
-    <div v-if="s.array || s.volume || s.devices.length" class="wg" style="margin-top: 14px">
+    <!-- 存储拓扑：控制器→阵列→成员盘/分区→挂载点，层级边均为真实数据（契约 §2.5/§2.8 v2.3.5） -->
+    <div v-if="topoHasNodes" class="wg" style="margin-top: 14px">
       <div class="wg-h">
         <u-icon name="array" />
         <h3>存储拓扑</h3>
       </div>
       <div class="wg-b">
-        <div class="tree">
-          <div v-if="s.array" class="row">
-            <u-icon name="server" :style="{ color: 'var(--acc)' }" />
-            <span class="nd">{{ s.array.name }}</span
-            ><span class="sub">{{ s.array.level }} · {{ s.array.totalText }}</span>
+        <div class="tree" style="overflow-x: auto">
+          <div class="row">
+            <u-icon :name="topoRoot.icon" :style="{ color: topoRoot.color }" />
+            <span class="tn">{{ topoRoot.label }}</span>
+            <span class="sub">{{ topoRoot.sub }}</span>
           </div>
-          <ul v-if="s.array">
-            <li>
+          <ul v-if="topo.arrays.length || topo.standalone.length">
+            <!-- 阵列：硬件 VD（成员=物理盘，槽位 E:S）与软阵列 md（成员=分区） -->
+            <li v-for="arr in topo.arrays" :key="'a' + arr.key">
               <div class="row">
-                <u-icon name="layers" :style="{ color: 'var(--purp)' }" />
-                <span class="nd">{{ s.volume?.name ?? '未挂载卷' }}</span
-                ><span class="sub">{{ s.volume ? `${s.volume.fs} · ${s.volume.usedText}` : '—' }}</span>
+                <u-icon
+                  name="layers"
+                  :style="{ color: arr.healthy ? 'var(--purp)' : 'var(--bad)' }"
+                />
+                <span class="tn">{{ arr.name }}</span>
+                <span class="sub">{{ arrSub(arr) }}</span>
               </div>
-              <ul>
-                <li v-for="dev in s.devices.slice(0, 8)" :key="dev.name">
+              <ul v-if="arr.members.length || arr.volume">
+                <li v-for="(m, mi) in arr.members" :key="mi">
                   <div class="row">
-                    <span
-                      class="ddot"
-                      :style="{
-                        background: dev.status.startsWith('警告') ? 'var(--warn)' : 'var(--ok)',
-                      }"
-                    />
-                    {{ dev.name }}
-                    <span class="sub"
-                      >盘位 {{ dev.slot }} · {{ dev.capacityText.split(' ·')[0]
-                      }}{{ dev.status.startsWith('警告') ? ' · 警告' : '' }}</span
-                    >
+                    <span class="ddot" :style="{ background: memberDot(m) }" />
+                    <span class="tn">{{ m.label }}</span>
+                    <span class="sub">{{ memberSub(m) }}</span>
+                    <span v-if="m.hotspare" class="fsbadge">热备</span>
+                  </div>
+                </li>
+                <li v-if="arr.volume">
+                  <div class="row">
+                    <u-icon name="layers" :style="{ color: 'var(--info)' }" />
+                    <span class="tn">{{ arr.volume.mount }}</span>
+                    <span class="sub">
+                      {{ [arr.volume.fs, arr.volume.usedText].filter(Boolean).join(' · ') }}
+                    </span>
+                  </div>
+                </li>
+              </ul>
+            </li>
+            <!-- 直连/未归属盘：分区与挂载点为叶子 -->
+            <li v-for="disk in topo.standalone" :key="'d' + disk.name">
+              <div class="row">
+                <span class="ddot" :style="{ background: diskDot(disk.health) }" />
+                <span class="tn">{{ disk.name }}</span>
+                <span class="sub">{{ diskSub(disk) }}</span>
+              </div>
+              <ul v-if="disk.partitions.length">
+                <li v-for="p in disk.partitions" :key="p.name">
+                  <div class="row">
+                    <span class="tn" style="font-weight: 500">{{ p.name }}</span>
+                    <span class="sub">{{ partSub(p) }}</span>
                   </div>
                 </li>
               </ul>
             </li>
           </ul>
-          <div v-else-if="s.devices.length" class="row">
-            <u-icon name="drive" :style="{ color: 'var(--info)' }" />
-            <span class="nd">直连盘</span
-            ><span class="sub">{{ s.devices.length }} 块 · 无阵列</span>
-          </div>
         </div>
       </div>
     </div>

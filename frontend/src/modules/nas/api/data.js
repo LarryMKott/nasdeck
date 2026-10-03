@@ -49,6 +49,16 @@ async function safe(path, opts) {
   }
 }
 
+// firing 告警 30s 请求级缓存：进总览一次有 fetchDashboard / 告警卡 / 布局铃铛三处同 URL 请求
+let _firingEvents = { ts: 0, data: null };
+async function firingEvents() {
+  const now = Date.now();
+  if (_firingEvents.data && now - _firingEvents.ts < 30000) return _firingEvents.data;
+  const data = await apiData('/api/v1/alert/events?limit=5&status=firing');
+  _firingEvents = { ts: now, data };
+  return data;
+}
+
 // ---------------- 总览 ----------------
 
 /**
@@ -78,7 +88,14 @@ export function emptyDashboard() {
     },
     net: { rxText: '—', rxValue: '—', rxUnit: '', txText: '—' },
     diskIo: { readText: '—', readValue: '—', readUnit: '', writeText: '—' },
-    array: { total: '—', usedPercent: 0, usedText: '未检测到阵列', status: '—', level: '—', check: '—' },
+    array: {
+      total: '—',
+      usedPercent: 0,
+      usedText: '未检测到阵列',
+      status: '—',
+      level: '—',
+      check: '—',
+    },
     gpu: { percent: 0, tempC: null, vramText: '显存 —' },
     power: { watts: '—', cpuW: '—', dramW: '—' },
     dockerText: null,
@@ -248,7 +265,7 @@ export async function fetchDashboard() {
     apiData('/api/v1/storage/raid'),
     apiData('/api/v1/system/docker/containers'),
     apiData('/api/v1/system/info'),
-    apiData('/api/v1/alert/events?limit=5&status=firing'),
+    firingEvents(),
     apiData('/api/v1/control/fans'),
     apiData('/api/v1/storage/volumes'),
   ]);
@@ -378,7 +395,8 @@ function uptimeText(seconds) {
 }
 
 export async function fetchActiveAlerts() {
-  const events = await safe('/api/v1/alert/events?limit=5&status=firing');
+  // 复用 firingEvents 30s 缓存（fetchDashboard / 布局铃铛 / 本函数三处同源请求）
+  const events = await firingEvents().catch(() => null);
   if (events === null) return { data: mock.activeAlerts, live: false }; // 后端不可达才演示
   // 空列表 = 无告警，是合法真值，必须如实展示（回退 mock 会让铃铛恒显假告警）
   return {
@@ -402,7 +420,18 @@ export function emptyStorage() {
     volume: null,
     dataVolume: null,
     arrayController: null,
+    topology: { controller: null, arrays: [], standalone: [] },
   };
+}
+
+/** 字节数 → TB 文本（拓扑/容量展示统一口径） */
+function tbText(bytes) {
+  return `${Math.round((bytes / 1024 ** 4) * 10) / 10} TB`;
+}
+
+/** md 成员分区名 → 父盘名（sda2→sda；nvme0n1p2→nvme0n1） */
+function diskOfPartition(dev) {
+  return (dev || '').replace(/p?\d+$/, '');
 }
 
 export async function fetchStorage() {
@@ -419,6 +448,27 @@ export async function fetchStorage() {
 
   const d = emptyStorage();
   const allVols = [...(raid?.hardware_raid ?? []), ...(raid?.software_raid ?? [])];
+  const drives = raid?.drives ?? [];
+  // 成员归属（拓扑 + 设备表角色共用）：storcli PD 按 sn 认领；md 成员分区按父盘认领。
+  // VD 块设备与 PD 无可靠 join（契约 §2.8），按直连形态展示
+  const memberSns = new Set(drives.filter((x) => x.sn).map((x) => x.sn));
+  const hotspareSns = new Set(drives.filter((x) => x.hotspare && x.sn).map((x) => x.sn));
+  const claimedDevices = new Set(
+    (raid?.software_raid ?? []).flatMap((v) =>
+      (v.members ?? []).map((m) => diskOfPartition(m.device))
+    )
+  );
+  const volByMount = new Map((vols ?? []).map((v) => [v.mount, v]));
+  const volByDevice = new Map(
+    (vols ?? []).map((v) => [String(v.device || '').replace('/dev/', ''), v])
+  );
+  // md 成员是分区（sda2），容量从所属盘的分区清单取
+  const partSizes = new Map();
+  for (const disk of disks ?? []) {
+    for (const p of disk.partitions ?? []) {
+      if (p.size_bytes != null) partSizes.set(p.name, tbText(p.size_bytes));
+    }
+  }
   if (allVols.length) {
     const vol = allVols[0];
     const cardDrives = raid?.drives ?? [];
@@ -445,22 +495,41 @@ export async function fetchStorage() {
   }
 
   if (disks?.length) {
-    d.devices = disks.map((disk, i) => ({
-      name: disk.device,
-      model: disk.model || disk.device,
-      slot: i + 1,
-      fs: disk.alias || '物理盘',
-      tempC: disk.temp_c != null ? Math.round(disk.temp_c) : null,
-      readText: '—',
-      writeText: '—',
-      meterPercent: 100,
-      meterClass:
-        disk.health === 'failing' ? 'c-bad' : disk.health === 'warning' ? 'c-warn' : 'c-ok',
-      capacityText: `${disk.size_human}${disk.serial ? ` · SN ${String(disk.serial).slice(-4)}` : ''}`,
-      status:
-        { passed: '正常', warning: '警告', failing: '故障', unknown: '未知' }[disk.health] ??
-        '未知',
-    }));
+    d.devices = disks.map((disk) => {
+      const isHot = disk.serial && hotspareSns.has(disk.serial);
+      const isMember =
+        (disk.serial && memberSns.has(disk.serial)) || claimedDevices.has(disk.device);
+      const fsPart = (disk.partitions ?? []).find((p) => p.fstype);
+      const usagePart = (disk.partitions ?? []).find(
+        (p) => p.mountpoint && volByMount.has(p.mountpoint)
+      );
+      const usage = usagePart ? volByMount.get(usagePart.mountpoint) : null;
+      const usagePercent = usage ? Math.round(usage.percent) : null;
+      return {
+        name: disk.device,
+        model: disk.model || disk.device,
+        slot: null, // 无真实槽位数据源（storcli PD 不经 lsblk）：显式 '—'，不虚构盘位序号
+        role: isHot ? '热备' : isMember ? 'RAID 成员' : null,
+        alias: disk.alias || null,
+        fsText: fsPart ? fsPart.fstype.toUpperCase() : null,
+        tempC: disk.temp_c != null ? Math.round(disk.temp_c) : null,
+        readText: '—',
+        writeText: '—',
+        usagePercent, // 仅挂载卷可计算真实用量；RAID 成员盘无独立用量，不显示 meter
+        usageClass:
+          usagePercent == null
+            ? null
+            : usagePercent >= 90
+              ? 'c-bad'
+              : usagePercent >= 75
+                ? 'c-warn'
+                : 'c-ok',
+        capacityText: `${disk.size_human}${disk.serial ? ` · SN ${String(disk.serial).slice(-4)}` : ''}`,
+        status:
+          { passed: '正常', warning: '警告', failing: '故障', unknown: '未知' }[disk.health] ??
+          '未知',
+      };
+    });
   }
 
   const mainVol =
@@ -496,6 +565,59 @@ export async function fetchStorage() {
       note: raid.controller.note,
     };
   }
+
+  // ---- 存储拓扑（真实层级：控制器→阵列→成员→分区/挂载点；契约 §2.5/§2.8 v2.3.5）----
+  d.topology.arrays = allVols.map((vol) => {
+    const mounted = volByDevice.get(vol.name) || volByDevice.get(vol.volume_id) || null;
+    return {
+      key: vol.volume_id || vol.name,
+      name: vol.name,
+      levelText: `RAID ${vol.level}`.replace('RAID unknown', 'RAID'),
+      sizeText: vol.size_bytes ? tbText(vol.size_bytes) : null,
+      state: vol.state || null,
+      healthy: !!vol.healthy,
+      source: vol.source,
+      members: (vol.members ?? []).map((m) => ({
+        label: m.slot || m.device || '成员',
+        model: m.model || null,
+        sizeText: m.size_human || (m.device ? partSizes.get(m.device) || null : null),
+        state: m.state || null,
+        hotspare: m.hotspare || (m.spare ? 'spare' : null),
+        failed: !!(m.failed || m.faulty),
+      })),
+      volume: mounted
+        ? {
+            mount: mounted.mount,
+            fs: mounted.fs_type,
+            usedText: `${tbText(mounted.used_bytes)} / ${tbText(mounted.total_bytes)}`,
+            percent: mounted.percent,
+          }
+        : null, // storcli VD 块设备与 PD 无可靠 join：卷信息经直连盘分区挂载点呈现
+    };
+  });
+  d.topology.standalone = (disks ?? [])
+    .filter(
+      (disk) => !(disk.serial && memberSns.has(disk.serial)) && !claimedDevices.has(disk.device)
+    )
+    .map((disk) => ({
+      name: disk.device,
+      model: disk.model || null,
+      sizeText: disk.size_human || null,
+      alias: disk.alias || null,
+      health: disk.health || 'unknown',
+      tempC: disk.temp_c != null ? Math.round(disk.temp_c) : null,
+      partitions: (disk.partitions ?? []).map((p) => ({
+        name: p.name,
+        fstype: p.fstype || null,
+        sizeText: p.size_bytes != null ? tbText(p.size_bytes) : null,
+        mountpoint: p.mountpoint || null,
+      })),
+    }));
+  d.topology.controller = d.arrayController
+    ? { mode: d.arrayController.mode, model: d.arrayController.model }
+    : d.topology.arrays.length
+      ? { mode: 'soft', model: null }
+      : null;
   return { data: d, live: true };
 }
 
@@ -527,7 +649,11 @@ export async function fetchDisks() {
     })),
     // 无进行中自检 = 合法真值：置 null 由视图隐藏区块（回退 mock 会显示假进度条）
     selftest: running
-      ? { device: running.device, label: `${running.device} · ${running.type}`, percent: running.percent ?? 0 }
+      ? {
+          device: running.device,
+          label: `${running.device} · ${running.type}`,
+          percent: running.percent ?? 0,
+        }
       : null,
   };
   return { data: d, live: true };
@@ -585,11 +711,19 @@ export async function fetchHistorySeries(dim, rangeKey) {
 }
 
 export async function fetchSystemCharts() {
-  const resp = await fetchHistorySeries('cpu', '24h');
-  if (!resp.live) return { data: null, live: false };
-  const resp2 = await fetchHistorySeries('mem', '24h');
-  const resp3 = await fetchHistorySeries('net', '24h');
-  const resp4 = await fetchHistorySeries('disk', '24h');
+  // 4 个 history 序列 + realtime 内存总量并发取（此前串行瀑布 5×RTT）
+  const [cpuS, memS, netS, diskS, snapS] = await Promise.allSettled([
+    fetchHistorySeries('cpu', '24h'),
+    fetchHistorySeries('mem', '24h'),
+    fetchHistorySeries('net', '24h'),
+    fetchHistorySeries('disk', '24h'),
+    apiData('/api/v1/monitor/realtime'),
+  ]);
+  const resp = pick(cpuS);
+  if (!resp?.live) return { data: null, live: false };
+  const resp2 = pick(memS);
+  const resp3 = pick(netS);
+  const resp4 = pick(diskS);
   const labels = resp.data.labels;
   const mk = (r, name, color, extra = {}) => ({
     name,
@@ -597,7 +731,6 @@ export async function fetchSystemCharts() {
     data: r?.data?.series ?? [],
     ...extra,
   });
-  const [snapS] = await Promise.allSettled([apiData('/api/v1/monitor/realtime')]);
   const memTotalMb = pick(snapS)?.mem_total_mb ?? null;
   const memPct = (r2) =>
     memTotalMb
@@ -668,7 +801,7 @@ export async function fetchDocker() {
       reason: resp.reason ?? null,
     },
     live: true,
-    extra: resp.available ? null : resp.reason ?? 'docker 不可用',
+    extra: resp.available ? null : (resp.reason ?? 'docker 不可用'),
   };
 }
 
@@ -816,7 +949,13 @@ function emptyDetect() {
     raid: { rows: [], chips: [] },
     diskSlots: [],
     diskChips: [],
-    env: { runtime: [], schemes: [], tools: [], drivers: [], storcli: { ok: false, path: '', desc: '' } },
+    env: {
+      runtime: [],
+      schemes: [],
+      tools: [],
+      drivers: [],
+      storcli: { ok: false, path: '', desc: '' },
+    },
   };
 }
 

@@ -1509,7 +1509,9 @@
       height: 14px;
     }
 
-    .nd {
+    // 树节点标签用 .tn：不可复用根容器类名 .nd（min-height:100vh 会经 flex 子项
+    // 块化把每行撑到一屏高，unraid.scss:43）
+    .tn {
       font-weight: 600;
       color: var(--tx0);
     }
