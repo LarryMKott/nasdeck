@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from app.db import ingest
 from app.services.monitor import system_resources
+from app.services.monitor import temperature as temperature_service
 from app.services.monitor.cache import realtime_cache
 
 logger = logging.getLogger(__name__)
@@ -15,10 +16,12 @@ logger = logging.getLogger(__name__)
 async def fast_tick() -> None:
     try:
         snap = await system_resources.snapshot()
-        # GPU 分量由 medium_5s 以 5s 采样维护（本 tick 只并入缓存与落库，不重复采集）
+        # GPU / 温度分量由 medium_5s 采样维护缓存，本 tick 只并入与落库，不重复采集
         snap["gpu"] = realtime_cache.get("gpu")
+        temps = realtime_cache.get("temperatures")
         realtime_cache.set("realtime", snap, ttl=5)  # WS 实时源，每秒更新
-        # 指标行投递单写者通道攒批落盘（秒级时间戳唯一键，冲突由 ON CONFLICT 跳过）
+        # 温度内嵌进插入行（读缓存，滞后 ≤15s 对 1m/10m 聚合无感）：
+        # 替代旧「medium_tick 每 5s 回填最新行 UPDATE」——此前 raw 表仅 1/5 行有温度
         ingest.submit(
             "metrics",
             {
@@ -27,7 +30,7 @@ async def fast_tick() -> None:
                 "cpu": snap["cpu_percent"],
                 "mem_mb": snap["mem_used_mb"],
                 "net_kbps": round(sum(i["rx_kbps"] + i["tx_kbps"] for i in snap["net"].values()), 1),
-                "temp_max": None,  # 温度由 medium_5s 回填到缓存与下轮落库
+                "temp_max": temperature_service.max_celsius(temps) if temps else None,
                 "gpu": (snap["gpu"] or {}).get("percent"),
                 "disk_read_kbps": snap["disk_io"].get("read_kbps"),
                 "disk_write_kbps": snap["disk_io"].get("write_kbps"),

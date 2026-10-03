@@ -127,3 +127,50 @@ async def test_week_window_selects_10m_granularity(client):
     async with session_factory() as db:
         _, granularity = await query_history(db, minutes=8 * 24 * 60, points=168)
     assert granularity == "10m"
+
+
+@pytest.mark.asyncio
+async def test_stats_long_window_merges_aggregates_and_raw(client):
+    """长窗口 stats：老区段 1m + raw 尾段加权合并（此前恒查 raw，长窗只算到 raw 保留期）。"""
+    from sqlalchemy import delete
+
+    from app.models.metrics import MetricPoint
+    from app.services.monitor.history import stats
+
+    newest = await _seed_raw(10, step_seconds=1, cpu=7.5)
+    async with session_factory() as db:
+        await db.execute(delete(MetricPoint).where(MetricPoint.granularity == "1m"))
+        db.add_all(
+            MetricPoint(
+                ts=(newest - timedelta(minutes=m)).strftime(FMT),
+                granularity="1m",
+                cpu=3.0,
+                mem_mb=900.0,
+                net_kbps=50.0,
+            )
+            for m in (300, 240, 180, 150, 130)
+        )
+        await db.commit()
+    async with session_factory() as db:
+        result = await stats(db, minutes=1440, dim="cpu")
+    # 1m 段 5 点 cpu=3.0 + raw 段 10 点 cpu=7.5 → 加权均值 6.0，max 7.5，n=15
+    assert result["n"] == 15
+    assert result["avg"] == pytest.approx(6.0)
+    assert result["max"] == pytest.approx(7.5)
+
+
+@pytest.mark.asyncio
+async def test_stats_long_window_without_aggregates_counts_raw_only(client):
+    """聚合表为空时 n 只含 raw 段：不用 raw 冒充全窗口统计（诚实口径）。"""
+    from sqlalchemy import delete
+
+    from app.models.metrics import MetricPoint
+    from app.services.monitor.history import stats
+
+    await _seed_raw(5, step_seconds=1)
+    async with session_factory() as db:
+        await db.execute(delete(MetricPoint).where(MetricPoint.granularity == "1m"))
+        await db.commit()
+        result = await stats(db, minutes=1440, dim="cpu")
+    assert result["n"] == 5
+    assert result["avg"] == pytest.approx(7.5)

@@ -1,4 +1,4 @@
-"""5 秒级采集：温度 → 缓存；风扇调速输出（含告警引擎一轮评估）。"""
+"""5 秒级采集：温度 → 缓存（fast_tick 落库时内嵌，不再回填 UPDATE）；风扇调速 + 告警评估。"""
 
 from __future__ import annotations
 
@@ -25,28 +25,8 @@ async def medium_tick() -> None:
                 ",".join(sorted({t["chip"] for t in items})),
                 temperature.max_celsius(items) or 0.0,
             )
-        # 单事务完成温度回填 + 风扇输出 + 告警评估（三段逻辑内部只 flush）：
-        # 一次 commit 一次 fsync，缩短单写者锁持有窗口（真机跳秒修复的另一环）
+        # 风扇调速输出 + 告警评估同事务，一次 commit 一次 fsync（真机跳秒修复的另一环）
         async with session_factory() as db:
-            if items:
-                from sqlalchemy import select, update
-
-                from app.models.metrics import MetricPoint
-
-                temp_max = temperature.max_celsius(items)
-                latest = await db.execute(
-                    select(MetricPoint.id)
-                    .where(MetricPoint.granularity == "raw")
-                    .order_by(MetricPoint.id.desc())
-                    .limit(1)
-                )
-                row_id = latest.scalar_one_or_none()
-                if row_id:
-                    await db.execute(
-                        update(MetricPoint).where(MetricPoint.id == row_id).values(temp_max=temp_max)
-                    )
-
-            # 风扇调速输出（WS fans 事件源）
             outputs = await fan_manager.apply_tick(db)
 
             # 告警评估上下文

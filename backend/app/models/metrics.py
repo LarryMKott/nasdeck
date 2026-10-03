@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Float, String, UniqueConstraint
+from sqlalchemy import Float, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -10,11 +10,17 @@ from app.db.base import Base
 
 class MetricPoint(Base):
     __tablename__ = "metric_points"
-    __table_args__ = (UniqueConstraint("ts", "granularity", name="uq_ts_granularity"),)
+    __table_args__ = (
+        UniqueConstraint("ts", "granularity", name="uq_ts_granularity"),
+        # 热点查询全是 WHERE granularity=? AND ts 区间（history/downsampler 的
+        # SELECT 与 DELETE）：复合索引直达；原 ts/granularity 单列索引冗余
+        # （ts 被 uq 最左前缀覆盖、granularity 仅 3 个值），见 init_db 幂等收敛
+        Index("ix_metric_points_gran_ts", "granularity", "ts"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    ts: Mapped[str] = mapped_column(String(20), index=True)  # 无时区后缀 UTC ISO（契约 §1.5）
-    granularity: Mapped[str] = mapped_column(String(4), default="raw", index=True)  # raw/1m/10m
+    ts: Mapped[str] = mapped_column(String(20))  # 无时区后缀 UTC ISO（契约 §1.5）
+    granularity: Mapped[str] = mapped_column(String(4), default="raw")  # raw/1m/10m
     cpu: Mapped[float | None] = mapped_column(Float)
     mem_mb: Mapped[float | None] = mapped_column(Float)
     net_kbps: Mapped[float | None] = mapped_column(Float)

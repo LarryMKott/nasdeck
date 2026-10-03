@@ -54,6 +54,7 @@ async def summary(db: AsyncSession = DbDep) -> dict:
     temps = realtime_cache.get("temperatures")
     if temps is None:
         temps = await temperature.temperatures()
+        realtime_cache.set("temperatures", temps, ttl=15)  # 回写与 realtime/temperatures 分支对齐，并发请求不重复扫描
     disks = await volume_service.list_disks()
     # 磁盘健康来自 SMART 扫描缓存（slow_tick 维护）；缓存未热时按 unknown 计，
     # 不回退 unknown 之外的猜测值

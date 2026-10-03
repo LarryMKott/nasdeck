@@ -130,10 +130,14 @@ def _point_dict(row: MetricPoint) -> dict:
 
 
 async def stats(db: AsyncSession, minutes: int, dim: str) -> dict:
-    """区间统计（/monitor/history/stats 的服务，见契约 §3.1）。"""
-    from datetime import UTC, datetime, timedelta
+    """区间统计（/monitor/history/stats 的服务，见契约 §3.1）。
 
-    since = (datetime.now(UTC) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
+    粒度选择与 query_history 同口径：raw 保留期内只查 raw；更长窗口老区段走
+    1m/10m 聚合表、raw 尾段单独聚合，Python 端按点数加权合并（此前恒查 raw，
+    长窗口既全 raw 段扫描、算出的又只是最近 raw_keep 分钟）。
+    """
+    minutes = min(minutes, MAX_MINUTES)
+    raw_keep = max(settings.raw_keep_minutes, 1)
     column = {
         "cpu": MetricPoint.cpu,
         "mem": MetricPoint.mem_mb,
@@ -142,12 +146,33 @@ async def stats(db: AsyncSession, minutes: int, dim: str) -> dict:
         "disk": MetricPoint.disk_read_kbps,
         "gpu": MetricPoint.gpu,
     }.get(dim, MetricPoint.cpu)
-    result = await db.execute(
-        select(func.avg(column), func.max(column), func.count()).where(
-            MetricPoint.granularity == "raw", MetricPoint.ts >= since
+
+    async def _agg(granularity: str, since: str, until: str | None) -> tuple[float | None, float | None, int]:
+        conds = [MetricPoint.granularity == granularity, MetricPoint.ts >= since]
+        if until is not None:
+            conds.append(MetricPoint.ts < until)
+        result = await db.execute(
+            select(func.avg(column), func.max(column), func.count()).where(*conds)
         )
-    )
-    avg, mx, n = result.one()
+        avg, mx, n = result.one()
+        return avg, mx, int(n or 0)
+
+    if minutes <= raw_keep:
+        avg, mx, n = await _agg("raw", _iso_minutes_ago(minutes), None)
+        return {"dim": dim, "minutes": minutes, "n": n, "avg": avg, "max": mx}
+
+    granularity = "1m" if minutes <= 7 * 24 * 60 else "10m"
+    raw_since = _iso_minutes_ago(raw_keep)
+    older_avg, older_max, older_n = await _agg(granularity, _iso_minutes_ago(minutes), raw_since)
+    raw_avg, raw_max, raw_n = await _agg("raw", raw_since, None)
+    n = older_n + raw_n
+    if not n:
+        return {"dim": dim, "minutes": minutes, "n": 0, "avg": None, "max": None}
+    pairs = [(older_avg, older_n), (raw_avg, raw_n)]
+    weighted = sum((v or 0.0) * c for v, c in pairs if v is not None)
+    weight = sum(c for v, c in pairs if v is not None)
+    avg = weighted / weight if weight else None
+    mx = max((v for v in (older_max, raw_max) if v is not None), default=None)
     return {"dim": dim, "minutes": minutes, "n": n, "avg": avg, "max": mx}
 
 

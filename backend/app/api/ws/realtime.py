@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 from urllib.parse import urlsplit
 
@@ -23,6 +24,17 @@ from app.services.monitor.cache import realtime_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# 同一秒的快照对象全连接共享，序列化一次（N 客户端 = 1 次 dumps/秒，而非 N 次）
+_last_snap_text = {"key": None, "text": ""}
+
+
+def _snapshot_text(snap: dict) -> str:
+    key = snap.get("ts")
+    if key != _last_snap_text["key"]:
+        _last_snap_text["key"] = key
+        _last_snap_text["text"] = json.dumps({"type": "realtime", "data": snap}, separators=(",", ":"))
+    return _last_snap_text["text"]
 
 
 def _loopback_bind() -> bool:
@@ -62,11 +74,11 @@ async def realtime_ws(ws: WebSocket) -> None:
     stop = asyncio.Event()
 
     async def push_realtime() -> None:
-        # 连接建立即补发一条（缓存存在时），之后每 1s
+        # 连接建立即补发一条（缓存存在时），之后每 1s；同秒快照共享同一份序列化文本
         while not stop.is_set():
             snap = realtime_cache.get("realtime")
             if snap is not None:
-                await ws.send_json({"type": "realtime", "data": snap})
+                await ws.send_text(_snapshot_text(snap))
             await asyncio.sleep(1)
 
     async def push_fans_and_alerts() -> None:
