@@ -317,6 +317,12 @@ async def _enabled_channels(db: AsyncSession) -> dict[int, AlertChannel]:
     return {c.id: c for c in result.scalars()}
 
 
+async def notify_broadcast(db: AsyncSession, title: str, body: str) -> None:
+    """向全部启用渠道广播（容器退出/巡检异常等系统级事件，无规则归属）。"""
+    channels = await _enabled_channels(db)
+    _queue_notify(channels, list(channels.keys()), title=title, body=body)
+
+
 def _queue_notify(channels: dict[int, AlertChannel], channel_ids: list[int], title: str, body: str) -> None:
     for channel_id in channel_ids or []:
         channel = channels.get(channel_id)

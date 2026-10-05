@@ -1,10 +1,12 @@
-"""60 秒级采集：硬件信息落库（SMART 依赖 smartctl，不可用即跳过）+ 磁盘/阵列健康刷新。"""
+"""60 秒级采集：硬件信息落库（SMART 依赖 smartctl，不可用即跳过）+ 磁盘/阵列健康刷新 + 容器退出检测。"""
 
 from __future__ import annotations
 
 import logging
 
 from app.db import ingest
+from app.db.session import session_factory
+from app.services.alert import engine as alert_engine
 from app.services.hardware.cpu import CpuCollector
 from app.services.hardware.gpu import GpuCollector
 from app.services.hardware.memory import MemoryCollector
@@ -15,6 +17,7 @@ from app.services.monitor import temperature
 from app.services.monitor.cache import realtime_cache
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
+from app.services.system import docker_watch
 
 logger = logging.getLogger(__name__)
 
@@ -55,3 +58,16 @@ async def slow_tick() -> None:
         logger.debug("磁盘清单 %d 块（failing=%d），阵列降级 %d 卷", len(disks), failed, degraded)
     except Exception as exc:  # noqa: BLE001
         logger.warning("slow_tick 异常: %s", exc)
+
+    # 容器退出检测（独立段：docker 不可用 watch_tick 返回空，不影响上段）
+    try:
+        exits = await docker_watch.watch_tick()
+        if exits:
+            async with session_factory() as db:
+                await docker_watch.persist_and_notify(db, exits)
+                await db.commit()
+            alert_engine.schedule_drain()
+            realtime_cache.set("docker_exits", exits, ttl=120)
+            logger.warning("容器退出 %d 个：%s", len(exits), "; ".join(e["name"] for e in exits))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("docker_watch 异常: %s", exc)

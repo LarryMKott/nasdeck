@@ -91,6 +91,46 @@ def mem_human(bytes_used: int | None) -> str | None:
     return f"{bytes_used} B"
 
 
+async def list_all_states() -> dict[str, dict] | None:
+    """全部容器（含已退出）cid → {name, state, status}；docker 不可用返回 None。
+
+    供退出检测（M2.3）做状态对比：docker ps 默认不显示 exited，必须 -a。
+    """
+    reason = docker_available()
+    if reason:
+        return None
+    import asyncio
+    import contextlib
+
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "-a", "--format", "{{json .}}", "--no-trunc",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+    except (FileNotFoundError, TimeoutError):
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                proc.kill()
+                await proc.wait()
+        return None
+    states: dict[str, dict] = {}
+    for line in stdout.decode().splitlines():
+        if not line.strip():
+            continue
+        try:
+            c = json.loads(line)
+        except ValueError:
+            continue
+        states[c.get("ID", "")[:12]] = {
+            "name": c.get("Names", ""),
+            "state": c.get("State", ""),
+            "status": c.get("Status", ""),
+        }
+    return states
+
+
 async def list_containers() -> dict:
     reason = docker_available()
     if reason:
