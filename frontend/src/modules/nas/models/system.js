@@ -27,8 +27,8 @@
  * @property {string} status
  * @property {string} created
  * @property {string[]} [ports]
- * @property {number|null} [cpu_percent]
- * @property {string|null} [mem_usage]
+ * @property {number|null} [cpu_percent] cgroup 增量口径；首轮采样无增量为 null
+ * @property {string|null} [mem_usage] working set 人读串（docker stats 同口径）
  */
 
 /** @typedef {object} DockerResponse
