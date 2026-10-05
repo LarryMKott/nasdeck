@@ -75,3 +75,24 @@ export function exportConfigBackup(includeSecrets = false) {
 export function importConfigBackup(payload) {
   return apiData('/api/v1/system/config-import', { method: 'POST', body: payload });
 }
+
+/** 周报推送计划
+ * @returns {Promise<import('../../models/system').ReportSchedule>} */
+export function getReportSchedule() {
+  return apiData('/api/v1/system/report-schedule');
+}
+
+/** 保存周报推送计划（仅管理员）
+ * @param {import('../../models/system').ReportSchedule} cfg */
+export function putReportSchedule(cfg) {
+  return apiData('/api/v1/system/report-schedule', {
+    method: 'PUT',
+    body: { enabled: cfg.enabled, weekday: cfg.weekday, hour: cfg.hour },
+  });
+}
+
+/** 立即生成并广播周报（调试/验收；仅管理员）
+ * @returns {Promise<{digest: string}>} */
+export function sendReportNow() {
+  return apiData('/api/v1/system/report/send', { method: 'POST', body: {} });
+}

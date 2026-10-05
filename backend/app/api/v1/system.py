@@ -21,6 +21,8 @@ from app.schemas.system import (
     PortAliasOut,
     PortEntry,
     ProcessItem,
+    ReportScheduleIn,
+    ReportScheduleOut,
     SelftestScheduleIn,
     SelftestScheduleOut,
     SettingPut,
@@ -29,6 +31,7 @@ from app.schemas.system import (
     WhitelistItem,
 )
 from app.services.hardware.policy import TOOLS, get_policy
+from app.services.report import digest as report_digest
 from app.services.storage import selftest_schedule
 from app.services.system import backup as backup_service
 from app.services.system import docker as docker_service
@@ -357,3 +360,32 @@ async def import_config(body: dict, db: AsyncSession = DbDep) -> dict:
         dict: 各表导入计数。
     """
     return await backup_service.import_config(db, body)
+
+
+@router.get("/report-schedule", response_model=ReportScheduleOut)
+async def get_report_schedule(db: AsyncSession = DbDep) -> dict:
+    """周报推送计划（selftest-schedule 同款形态；weekday 0=周一）。"""
+    cfg = await report_digest.load_schedule(db)
+    cfg["last_run"] = await report_digest.last_run_date(db) or None
+    return cfg
+
+
+@router.put("/report-schedule", response_model=ReportScheduleOut)
+async def put_report_schedule(body: ReportScheduleIn, db: AsyncSession = DbDep) -> dict:
+    """保存周报推送计划（写操作仅管理员，路由级 trim 鉴权强校验）。"""
+    cfg = await report_digest.save_schedule(db, {"enabled": body.enabled, "weekday": body.weekday, "hour": body.hour})
+    cfg["last_run"] = await report_digest.last_run_date(db) or None
+    return cfg
+
+
+@router.post("/report/send")
+async def send_report_now(db: AsyncSession = DbDep) -> dict:
+    """立即生成并广播周报（调试/验收按钮；仅管理员）。
+
+    Args:
+        db (AsyncSession): 请求级会话。
+
+    Returns:
+        dict: {digest: 摘要文本}（前端回显，渠道侧同文推送）。
+    """
+    return {"digest": await report_digest.push_now(db)}

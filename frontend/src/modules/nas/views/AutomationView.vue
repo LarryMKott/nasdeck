@@ -15,7 +15,9 @@ import {
 import {
   exportConfigBackup,
   importConfigBackup,
+  putReportSchedule,
   putSelftestSchedule,
+  sendReportNow,
 } from '../api/endpoints/system';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
@@ -46,6 +48,7 @@ const {
   channels: [],
   rules: [],
   selftestSchedule: { enabled: false, weekday: 6, hour: 4, type: 'short', last_run: null },
+  reportSchedule: { enabled: false, weekday: 0, hour: 9, last_run: null },
 });
 const alerts = computed(() => d.value.activeAlerts ?? []);
 
@@ -131,6 +134,52 @@ async function downloadBackup() {
     backupOk.value = false;
   } finally {
     backupBusy.value = false;
+  }
+}
+
+// ---- 周报推送计划（M3.1）：调度为 10 分钟拍周去重；手动发送调试按钮 ----
+const reportForm = reactive({ enabled: false, weekday: 0, hour: 9 });
+const reportLoaded = ref(false);
+const reportSending = ref(false);
+const reportSaved = ref(false);
+const reportSent = ref('');
+
+watch(
+  () => d.value.reportSchedule,
+  (s) => {
+    if (s && !reportLoaded.value) {
+      Object.assign(reportForm, { enabled: !!s.enabled, weekday: s.weekday, hour: s.hour });
+      reportLoaded.value = true;
+    }
+  },
+  { immediate: true }
+);
+
+async function saveReportSchedule() {
+  if (!identity.canWrite || reportSending.value) return;
+  reportSending.value = true;
+  reportSaved.value = false;
+  try {
+    await putReportSchedule({ ...reportForm });
+    reportSaved.value = true;
+    await refresh();
+  } catch {
+    /* 失败静默，刷新以实际为准 */
+  } finally {
+    reportSending.value = false;
+  }
+}
+
+async function sendReportNowClick() {
+  if (!identity.canWrite || reportSending.value) return;
+  reportSending.value = true;
+  try {
+    const r = await sendReportNow();
+    reportSent.value = r.digest;
+  } catch {
+    reportSent.value = '发送失败，请稍后重试';
+  } finally {
+    reportSending.value = false;
   }
 }
 
@@ -700,6 +749,52 @@ const headerTag = computed(() => ({
               </span>
             </span>
           </div>
+
+          <!-- 周报推送计划 -->
+          <div class="small" style="margin: 22px 0 8px; font-weight: 600">周报推送</div>
+          <div class="frm">
+            <label>启用推送</label>
+            <label
+              class="switch"
+              :class="{ on: reportForm.enabled }"
+              @click="reportForm.enabled = !reportForm.enabled"
+            >
+              <span class="tr" />
+            </label>
+            <label>推送时间</label>
+            <div style="display: flex; gap: 8px">
+              <select v-model="reportForm.weekday" style="width: auto">
+                <option v-for="(w, i) in WEEKDAYS" :key="w" :value="i">{{ w }}</option>
+              </select>
+              <select v-model="reportForm.hour" style="width: auto">
+                <option v-for="h in 24" :key="h - 1" :value="h - 1">
+                  {{ `${h - 1}`.padStart(2, '0') }} 时
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="small muted" style="margin-top: 9px">
+            每周{{ WEEKDAYS[reportForm.weekday] }}
+            {{ `${reportForm.hour}`.padStart(2, '0') }} 点汇总上周告警 / 最高温 / 容量预测 / SMART
+            变化，向全部启用渠道推送。{{
+              d.reportSchedule?.last_run ? `上次推送：${d.reportSchedule.last_run}。` : ''
+            }}
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 12px">
+            <button class="btn pri" :disabled="reportSending" @click="saveReportSchedule">
+              <u-icon name="check" />{{
+                reportSending ? '保存中…' : reportSaved ? '已保存' : '保存计划'
+              }}
+            </button>
+            <button class="btn" :disabled="reportSending" @click="sendReportNowClick">
+              <u-icon name="send" />立即发送
+            </button>
+          </div>
+          <pre
+            v-if="reportSent"
+            class="small num"
+            style="margin-top: 10px; color: var(--tx2); white-space: pre-wrap"
+            >{{ reportSent }}</pre>
 
           <!-- 配置备份/恢复 -->
           <div class="small" style="margin: 22px 0 8px; font-weight: 600">配置备份与恢复</div>

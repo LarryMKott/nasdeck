@@ -6,7 +6,7 @@
 
 import * as mock from '../mock';
 import { getChannels, getEvents, getFiringEvents, getRules } from '../api/endpoints/alert';
-import { getSelftestSchedule } from '../api/endpoints/system';
+import { getReportSchedule, getSelftestSchedule } from '../api/endpoints/system';
 import { hhmm, pick } from './shared';
 
 /** firing 告警 → 铃铛/告警卡形状。复用 30s 缓存（fetchDashboard / 布局铃铛 / 本函数）；
@@ -29,12 +29,13 @@ export async function fetchActiveAlerts() {
 /** 自动化页取数：事件流（limit=10）+ firing 告警 + 通知渠道 + 规则 + 巡检计划
  * @returns {Promise<{data: object, live: boolean}>} */
 export async function fetchAutomation() {
-  const [eventsS, activeS, chansS, rulesS, schedS] = await Promise.allSettled([
+  const [eventsS, activeS, chansS, rulesS, schedS, reportS] = await Promise.allSettled([
     getEvents(10),
     fetchActiveAlerts(),
     getChannels(),
     getRules(),
     getSelftestSchedule(),
+    getReportSchedule(),
   ]);
   const events = pick(eventsS) ?? [];
   const active = pick(activeS) ?? { data: [], live: false };
@@ -55,6 +56,8 @@ export async function fetchAutomation() {
       rules: demo && !rules ? mock.alertRules : (rules ?? []),
       // 巡检计划（live 时真实值；演示回退用缺省关闭态，不虚构"上周已跑"）
       selftestSchedule: schedule ?? mock.selftestSchedule,
+      // 周报推送计划（单路失败为 null，视图按关闭态渲染）
+      reportSchedule: pick(reportS) ?? null,
     },
     live: active.live,
   };

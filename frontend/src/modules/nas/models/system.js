@@ -83,4 +83,12 @@
  * @property {string|null} [last_run] ISO 日期；未跑过为 null
  */
 
+/** 周报推送计划（GET/PUT /system/report-schedule；PUT 仅管理员）
+ * @typedef {object} ReportSchedule
+ * @property {boolean} enabled
+ * @property {number} weekday 0=周一 … 6=周日
+ * @property {number} hour 0-23（UTC）
+ * @property {string|null} [last_run] ISO 日期；未推送过为 null
+ */
+
 export {};
