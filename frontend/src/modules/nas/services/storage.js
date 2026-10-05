@@ -31,6 +31,18 @@ function tbText(bytes) {
   return `${Math.round((bytes / 1024 ** 4) * 10) / 10} TB`;
 }
 
+/** 卷写满预测文案（VolumeForecast，契约 §2.9）：
+ * forecast=null 接入不足 6h；days_to_full=null 增速≈0——均合法真值不造假 */
+function forecastText(v) {
+  if (!v?.forecast) return null;
+  if (v.forecast.days_to_full == null) return null;
+  const days = v.forecast.days_to_full;
+  return {
+    text: `按当前增速约 ${days >= 10 ? Math.round(days) : days} 天写满`,
+    warn: days <= 30,
+  };
+}
+
 /** md 成员分区名 → 父盘名（sda2→sda；nvme0n1p2→nvme0n1） */
 function diskOfPartition(dev) {
   return (dev || '').replace(/p?\d+$/, '');
@@ -141,6 +153,7 @@ export async function fetchStorage() {
       percent: mainVol.percent,
       fs: mainVol.fs_type,
       mount: mainVol.mount,
+      forecast: forecastText(mainVol),
     };
   }
   // 数据卷卡：最大 /vol 挂载（fnOS 数据卷）；后端无「云盘备份」数据源，不虚构云盘
@@ -153,6 +166,7 @@ export async function fetchStorage() {
       usedText: `${Math.round((dataVol.used_bytes / 1024 ** 4) * 10) / 10} / ${Math.round((dataVol.total_bytes / 1024 ** 4) * 10) / 10} TB`,
       percent: dataVol.percent,
       fs: (dataVol.fs_type || '').toUpperCase(),
+      forecast: forecastText(dataVol),
     };
   }
   if (raid?.controller) {

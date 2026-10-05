@@ -266,6 +266,12 @@ function stopArray() {
               <span class="muted small">挂载点</span
               ><span class="small num">{{ s.volume.mount }}</span>
             </div>
+            <div class="kvrow kvline">
+              <span class="muted small">写满预测</span>
+              <span class="small" :class="s.volume.forecast?.warn ? 't-warn' : ''">
+                {{ s.volume.forecast?.text || '—' }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -297,6 +303,12 @@ function stopArray() {
             <div class="kvrow kvline">
               <span class="muted small">挂载点</span
               ><span class="small num">{{ s.dataVolume.name }}</span>
+            </div>
+            <div class="kvrow kvline">
+              <span class="muted small">写满预测</span>
+              <span class="small" :class="s.dataVolume.forecast?.warn ? 't-warn' : ''">
+                {{ s.dataVolume.forecast?.text || '—' }}
+              </span>
             </div>
           </div>
         </div>

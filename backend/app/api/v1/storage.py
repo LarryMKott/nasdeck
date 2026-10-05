@@ -20,7 +20,7 @@ from app.schemas.storage import (
     VolumeItem,
 )
 from app.services.monitor import temperature
-from app.services.storage import disk_name, self_test, smart, smart_history
+from app.services.storage import capacity, disk_name, self_test, smart, smart_history
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
 from app.utils.async_cmd import run_cmd
@@ -79,8 +79,13 @@ async def get_raid() -> dict:
 
 
 @router.get("/volumes", response_model=list[VolumeItem])
-async def get_volumes() -> list[dict]:
-    return volume_service.list_volumes()
+async def get_volumes(db: AsyncSession = DbDep) -> list[dict]:
+    volumes = volume_service.list_volumes()
+    # 写满预测（volume_15m 15 分钟一轮回归）按挂载点合并；无采样记录 forecast=None
+    forecasts = {f["mount"]: f for f in await capacity.forecast_all(db)}
+    for v in volumes:
+        v["forecast"] = forecasts.get(v["mount"])
+    return volumes
 
 
 @router.get("/trend", response_model=SmartTrendResponse)

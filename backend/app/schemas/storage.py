@@ -106,6 +106,15 @@ class RaidResponse(BaseModel):
     drives: list[dict] = []
 
 
+class VolumeForecast(BaseModel):
+    """挂载点写满预测（volume_15m 每 15 分钟回归一次；days_to_full=None=增速≈0）。"""
+
+    days_to_full: float | None = None
+    slope_percent_per_day: float = 0.0
+    last_percent: float
+    sampled_hours: int
+
+
 class VolumeItem(BaseModel):
     device: str
     mount: str
@@ -115,6 +124,8 @@ class VolumeItem(BaseModel):
     free_bytes: int
     percent: float
     opts: list[str]
+    # 数据不足（接入 <6h）时无预测条目 → None，前端显式"—"
+    forecast: VolumeForecast | None = None
 
 
 class SelfTestIn(BaseModel):

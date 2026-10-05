@@ -234,6 +234,78 @@ async def evaluate_smart_rate_rules(db: AsyncSession) -> list[dict]:
     return fired_events
 
 
+async def evaluate_capacity_rules(db: AsyncSession, forecasts: list[dict]) -> list[dict]:
+    """容量预测规则（metric=capacity_forecast）按挂载点评估：days_to_full 与阈值比较。
+
+    由 volume_15m 采集任务驱动（15 分钟一格）。事件键 "{rule_id}:{mount}"——
+    一规则可同时 fire 多个卷。与 smart_rate 不同：增速放缓后 days_to_full
+    回升到阈值外（或归 None）会自然走恢复分支。
+    """
+    result = await db.execute(
+        select(AlertRule).where(AlertRule.enabled.is_(True), AlertRule.metric == "capacity_forecast")
+    )
+    rules = result.scalars().all()
+    if not rules:
+        return []
+    enabled_channels = await _enabled_channels(db)
+    forecast_map = {f["mount"]: f for f in forecasts}
+    fired_events: list[dict] = []
+    now = _now()
+
+    for rule in rules:
+        # 评估范围 = 有预测的卷 ∪ 正在 firing 的卷（卷消失/增速归零时走恢复分支）
+        firing_mounts = {
+            str(k).split(":", 1)[1]
+            for k in _firing
+            if isinstance(k, str) and k.startswith(f"{rule.id}:")
+        }
+        for mount in sorted(set(forecast_map) | firing_mounts):
+            f = forecast_map.get(mount)
+            days = f["days_to_full"] if f else None
+            hit = days is not None and compare(days, rule.comparator, rule.threshold)
+            key = f"{rule.id}:{mount}"
+            count = _tick_counters.get(key, 0)
+            count = count + 1 if hit else 0
+            _tick_counters[key] = count
+
+            message = (
+                f"{rule.name}: {mount} 按当前增速约 {days:g} 天写满（已用 {f['last_percent'] if f else '?'}%）"
+                if days is not None
+                else f"{rule.name}: {mount} 无写满预测（增速≈0 或数据不足）"
+            )
+            if hit and count >= rule.duration_ticks and key not in _firing:
+                event = AlertEvent(
+                    rule_id=rule.id,
+                    rule_name=rule.name,
+                    metric=rule.metric,
+                    value=days,
+                    threshold=rule.threshold,
+                    severity=rule.severity,
+                    status="firing",
+                    message=message,
+                    fired_at=now,
+                )
+                db.add(event)
+                await db.flush()
+                _firing[key] = event.id
+                fired_events.append(event_dict(event))
+                _queue_notify(
+                    enabled_channels, rule.channels,
+                    title=f"告警触发 · {rule.name}", body=message,
+                )
+            elif not hit and key in _firing:
+                event = await db.get(AlertEvent, _firing.pop(key))
+                if event:
+                    event.status = "resolved"
+                    event.resolved_at = now
+                    fired_events.append(event_dict(event))
+                    _queue_notify(
+                        enabled_channels, rule.channels,
+                        title=f"告警恢复 · {rule.name}", body=f"{mount} 写满预测已回到阈值内",
+                    )
+    return fired_events
+
+
 async def _enabled_channels(db: AsyncSession) -> dict[int, AlertChannel]:
     result = await db.execute(select(AlertChannel).where(AlertChannel.enabled.is_(True)))
     return {c.id: c for c in result.scalars()}

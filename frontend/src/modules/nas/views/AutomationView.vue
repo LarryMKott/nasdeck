@@ -71,6 +71,8 @@ const METRICS = [
   { value: 'smart_rate:reallocated', label: 'SMART 重映射增速（7 天）' },
   { value: 'smart_rate:pending', label: 'SMART 待定扇区增速（7 天）' },
   { value: 'smart_rate:uncorrectable', label: 'SMART 不可修正增速（7 天）' },
+  // 容量预测：threshold=写满剩余天数（days_to_full 低于阈值即告警）
+  { value: 'capacity_forecast', label: '容量写满剩余天数（低于）' },
 ];
 const METRIC_LABELS = {
   cpu_percent: '负载',
@@ -82,6 +84,7 @@ const METRIC_LABELS = {
   'smart_rate:reallocated': '重映射增速',
   'smart_rate:pending': '待定扇区增速',
   'smart_rate:uncorrectable': '不可修正增速',
+  capacity_forecast: '写满剩余天数',
 };
 const ruleForm = ref({ metric: 'temp_max', comparator: '>', threshold: 60, duration: 12 });
 const ruleSaving = ref(false);
@@ -119,9 +122,9 @@ async function saveRule() {
   }
 }
 
-/** 规则列表：条件可读化（阈值规则 tick 为 5s 调速轮；smart_rate 为 15 分钟采集轮） */
+/** 规则列表：条件可读化（阈值规则 tick 为 5s 调速轮；smart_rate/capacity 为 15 分钟采集轮） */
 function condText(r) {
-  if (r.metric?.startsWith('smart_rate:')) {
+  if (r.metric?.startsWith('smart_rate:') || r.metric === 'capacity_forecast') {
     return `${METRIC_LABELS[r.metric] ?? r.metric} ${r.comparator} ${r.threshold} · 连续 ${r.duration_ticks} 轮（15 分钟/轮）`;
   }
   return `${METRIC_LABELS[r.metric] ?? r.metric} ${r.comparator} ${r.threshold} · 持续 ${r.duration_ticks * 5}s`;
