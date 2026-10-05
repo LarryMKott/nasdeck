@@ -2,7 +2,7 @@
 
 **0.1.0**（正式版） · 飞牛OS（fnOS）NAS 硬件监控面板
 
-[下载 fpk](https://github.com/LarryMKott/nasdeck/releases/latest) · [操作手册](docs/使用手册.md) · [前后端接口约定](docs/前后端数据接口约定.md) · [项目 Wiki](docs/wiki/Home.md) · [FPK 打包说明](fpk/README.md) · [飞牛社区讨论帖](https://club.fnnas.com/forum.php?mod=viewthread&tid=67060)
+[下载 fpk](https://github.com/LarryMKott/nasdeck/releases/latest) · [操作手册](docs/使用手册.md) · [前后端接口约定](docs/前后端数据接口约定.md) · [项目 Wiki](docs/wiki/Home.md) · [FPK 打包说明](fpk/README.md)
 
 把原本要 SSH 敲命令才能看到的硬件状态——CPU、内存、温度、风扇、硬盘 SMART、阵列卡、存储卷、Docker、端口占用——装进一块 UNRAID 风格的网页面板。FastAPI 采集、Vue 3 展示，以标准 FPK 应用包装进飞牛桌面，打开即用。
 
