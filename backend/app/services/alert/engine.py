@@ -2,6 +2,9 @@
 
 metric 取值来源：实时快照（cpu_percent/mem_percent）、温度 max（temp_max）、
 磁盘失败计数（disk_failed）、阵列降级数（raid_degraded）——后两者由慢采集刷新。
+另有一类慢速规则 smart_rate:<指标>（SMART 变化速率，7 天窗口）由 smart_15m
+采集任务驱动 evaluate_smart_rate_rules 评估——事件键 rule_id:device，同一规则
+可同时 fire 多块盘。
 
 通知发送与 DB 事务解耦：evaluate_tick 只把待发通知入队（事务内零网络 IO），
 调用方提交事务后经 schedule_drain 在后台 task 发送——慢渠道（email 15s 超时）
@@ -23,6 +26,7 @@ from app.services.alert.channels.base import CHANNEL_TYPES
 from app.services.alert.channels.email import EmailChannel
 from app.services.alert.channels.telegram import TelegramChannel
 from app.services.alert.channels.webhook import WebhookChannel
+from app.services.storage import smart_history
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +86,14 @@ async def reconcile_on_startup(db: AsyncSession) -> int:
 
 
 async def resolve_rule_events(db: AsyncSession, rule_id: int) -> None:
-    """删除规则时收尾其活跃事件，避免事件流悬挂 firing（rule_id 已无主）。"""
-    _tick_counters.pop(rule_id, None)
-    _firing.pop(rule_id, None)
+    """删除规则时收尾其活跃事件，避免事件流悬挂 firing（rule_id 已无主）。
+
+    计数键含设备后缀（smart_rate 规则一格多盘："{rule_id}:{device}"），
+    按前缀清理；"{rule_id}:" 带冒号不会与其它规则 id 前缀混淆。"""
+    for key in [k for k in _tick_counters if k == rule_id or str(k).startswith(f"{rule_id}:")]:
+        _tick_counters.pop(key, None)
+    for key in [k for k in _firing if k == rule_id or str(k).startswith(f"{rule_id}:")]:
+        _firing.pop(key, None)
     result = await db.execute(select(AlertEvent).where(AlertEvent.rule_id == rule_id, AlertEvent.status == "firing"))
     now = _now()
     count = 0
@@ -146,6 +155,82 @@ async def evaluate_tick(db: AsyncSession, ctx: dict) -> list[dict]:
                     enabled_channels, rule.channels,
                     title=f"告警恢复 · {rule.name}", body=f"{rule.metric} 已回落正常",
                 )
+    return fired_events
+
+
+async def evaluate_smart_rate_rules(db: AsyncSession) -> list[dict]:
+    """SMART 变化速率规则（metric=smart_rate:<指标>，7 天窗口）按设备评估增量。
+
+    由 smart_15m 采集任务驱动（15 分钟一格）：从 1d 桶取窗口首末点算 delta，
+    与阈值比较。事件键 "{rule_id}:{device}"——同一规则可同时 fire 多块盘。
+    计数器类指标增量不会回落，事件保持 firing 至规则删除（resolve_rule_events 收尾）；
+    旧点滑出窗口使 delta 缩回阈值内时照常走恢复分支。
+    """
+    result = await db.execute(select(AlertRule).where(AlertRule.enabled.is_(True)))
+    rules = [r for r in result.scalars() if r.metric.startswith("smart_rate:")]
+    if not rules:
+        return []
+    enabled_channels = await _enabled_channels(db)
+    fired_events: list[dict] = []
+    by_metric: dict[str, list[AlertRule]] = {}
+    for rule in rules:
+        by_metric.setdefault(rule.metric.split(":", 1)[1], []).append(rule)
+
+    now = _now()
+    for metric_name, metric_rules in by_metric.items():
+        deltas = {d["device"]: d for d in await smart_history.rate_deltas(db, metric_name)}
+        for rule in metric_rules:
+            # 评估范围 = 有窗口增量的盘 ∪ 正在 firing 的盘：盘数据滑出窗口
+            # （删除/换盘）时走恢复分支，事件不悬挂
+            firing_devices = {
+                str(k).split(":", 1)[1]
+                for k in _firing
+                if isinstance(k, str) and k.startswith(f"{rule.id}:")
+            }
+            for device in sorted(set(deltas) | firing_devices):
+                d = deltas.get(device)
+                hit = compare(d["delta"], rule.comparator, rule.threshold) if d else False
+                key = f"{rule.id}:{device}"
+                count = _tick_counters.get(key, 0)
+                count = count + 1 if hit else 0
+                _tick_counters[key] = count
+
+                message = (
+                    f"{rule.name}: {device} {metric_name} {smart_history.RATE_WINDOW_DAYS} 天 "
+                    f"{d['old']:g} → {d['new']:g}（Δ{d['delta']:+g}）"
+                    if d
+                    else f"{rule.name}: {device} {metric_name} 窗口内无数据"
+                )
+                if hit and count >= rule.duration_ticks and key not in _firing:
+                    event = AlertEvent(
+                        rule_id=rule.id,
+                        rule_name=rule.name,
+                        metric=rule.metric,
+                        value=d["delta"],
+                        threshold=rule.threshold,
+                        severity=rule.severity,
+                        status="firing",
+                        message=message,
+                        fired_at=now,
+                    )
+                    db.add(event)
+                    await db.flush()
+                    _firing[key] = event.id
+                    fired_events.append(event_dict(event))
+                    _queue_notify(
+                        enabled_channels, rule.channels,
+                        title=f"告警触发 · {rule.name}", body=message,
+                    )
+                elif not hit and key in _firing:
+                    event = await db.get(AlertEvent, _firing.pop(key))
+                    if event:
+                        event.status = "resolved"
+                        event.resolved_at = now
+                        fired_events.append(event_dict(event))
+                        _queue_notify(
+                            enabled_channels, rule.channels,
+                            title=f"告警恢复 · {rule.name}", body=f"{device} {metric_name} 变化已回落阈值内",
+                        )
     return fired_events
 
 

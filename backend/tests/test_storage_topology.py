@@ -12,6 +12,7 @@ import pytest
 
 from app.api.v1 import storage as storage_api
 from app.services.storage import raid as raid_service
+from app.services.storage import smart_history
 from app.services.storage import volumes as volume_service
 
 
@@ -274,6 +275,7 @@ def test_disk_items_health_and_temp_backfilled(monkeypatch):
 
 
 def test_smart_key_fallback():
-    assert storage_api._smart_key("sda") == "sda"
-    assert storage_api._smart_key("nvme0n1") == "nvme0"
-    assert storage_api._smart_key("nvme12n1") == "nvme12"
+    # lsblk 盘名 → SMART 探测键（原 storage_api._smart_key 收敛至 smart_history.smart_key）
+    assert smart_history.smart_key("sda") == "sda"
+    assert smart_history.smart_key("nvme0n1") == "nvme0"
+    assert smart_history.smart_key("nvme12n1") == "nvme12"

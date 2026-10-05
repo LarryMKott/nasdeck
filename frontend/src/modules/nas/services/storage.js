@@ -5,7 +5,13 @@
  */
 
 import * as mock from '../mock';
-import { getDisks, getRaid, getSelfTests, getVolumes } from '../api/endpoints/storage';
+import {
+  getDisks,
+  getRaid,
+  getSelfTests,
+  getSmartTrend,
+  getVolumes,
+} from '../api/endpoints/storage';
 import { pick } from './shared';
 
 /** live 形态骨架：无阵列/无盘/无卷时段保持空值，由模板空态兜底（不残留演示阵列） */
@@ -248,4 +254,17 @@ export async function fetchDisks() {
       : null,
   };
   return { data: d, live: true };
+}
+
+/** 硬盘 SMART 趋势取数：live 取真实序列（smart_15m 采集），后端不可达回退演示序列
+ * @param {string} device 不带 /dev/ 前缀
+ * @param {string} metric 白名单见契约 §3.2
+ * @param {number} [days] 窗口天数
+ * @returns {Promise<{data: import('../../models/storage').SmartTrendResponse, live: boolean}>} */
+export async function fetchDiskTrend(device, metric, days = 30) {
+  try {
+    return { data: await getSmartTrend(device, metric, days), live: true };
+  } catch {
+    return { data: mock.smartTrendDemo(device, metric, days), live: false };
+  }
 }

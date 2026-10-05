@@ -67,6 +67,10 @@ const METRICS = [
   { value: 'temp_max', label: '温度' },
   { value: 'disk_failed', label: 'SMART 属性' },
   { value: 'cpu_percent', label: '负载' },
+  // SMART 变化速率（smart_rate:<指标>）：7 天窗口增量按盘评估，threshold=最小增量
+  { value: 'smart_rate:reallocated', label: 'SMART 重映射增速（7 天）' },
+  { value: 'smart_rate:pending', label: 'SMART 待定扇区增速（7 天）' },
+  { value: 'smart_rate:uncorrectable', label: 'SMART 不可修正增速（7 天）' },
 ];
 const METRIC_LABELS = {
   cpu_percent: '负载',
@@ -75,6 +79,9 @@ const METRIC_LABELS = {
   disk_temp: '盘温',
   disk_failed: 'SMART',
   raid_degraded: '阵列',
+  'smart_rate:reallocated': '重映射增速',
+  'smart_rate:pending': '待定扇区增速',
+  'smart_rate:uncorrectable': '不可修正增速',
 };
 const ruleForm = ref({ metric: 'temp_max', comparator: '>', threshold: 60, duration: 12 });
 const ruleSaving = ref(false);
@@ -112,8 +119,11 @@ async function saveRule() {
   }
 }
 
-/** 规则列表：条件可读化（tick 为 5s 调速轮）与渠道名映射 */
+/** 规则列表：条件可读化（阈值规则 tick 为 5s 调速轮；smart_rate 为 15 分钟采集轮） */
 function condText(r) {
+  if (r.metric?.startsWith('smart_rate:')) {
+    return `${METRIC_LABELS[r.metric] ?? r.metric} ${r.comparator} ${r.threshold} · 连续 ${r.duration_ticks} 轮（15 分钟/轮）`;
+  }
   return `${METRIC_LABELS[r.metric] ?? r.metric} ${r.comparator} ${r.threshold} · 持续 ${r.duration_ticks * 5}s`;
 }
 

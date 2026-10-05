@@ -286,7 +286,8 @@ const themeMeta = computed(() => {
       </div>
     </div>
 
-    <!-- 小屏抽屉导航（<1100px）：遮罩 + 左滑面板，Esc/遮罩/选中项均可关闭 -->
+    <!-- 小屏抽屉导航（<1100px）：遮罩 + 左滑面板，Esc/遮罩/选中项均可关闭；
+         关闭态加 inert——面板虽移出屏外但仍可被读屏/Tab 聚焦到 -->
     <div class="ndrawer-back" :class="{ show: drawerOpen }" @click="closeDrawer" />
     <aside
       class="ndrawer"
@@ -294,6 +295,7 @@ const themeMeta = computed(() => {
       role="dialog"
       aria-modal="true"
       aria-label="导航菜单"
+      :inert="!drawerOpen"
     >
       <div class="ndrawer-h">
         <span class="brand">

@@ -131,3 +131,17 @@ class SelfTestState(BaseModel):
     percent: int | None = None
     result: str | None = None
     error: str | None = None
+
+
+class SmartTrendPoint(BaseModel):
+    ts: str
+    value: float
+    raw_text: str | None = None
+
+
+class SmartTrendResponse(BaseModel):
+    device: str
+    metric: str
+    granularity: str  # 1h（days≤30）/ 1d（更长）
+    days: int
+    points: list[SmartTrendPoint]

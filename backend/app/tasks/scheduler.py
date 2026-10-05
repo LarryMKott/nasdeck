@@ -9,6 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.tasks.collectors.fast_1s import fast_tick
 from app.tasks.collectors.medium_5s import medium_tick
 from app.tasks.collectors.slow_60s import slow_tick
+from app.tasks.collectors.smart_15m import smart_15m_tick
 from app.tasks.downsampler import downsample_tick
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ def start_jobs() -> None:
     scheduler.add_job(fast_tick, "interval", seconds=1, id="fast_1s", max_instances=1, coalesce=True)
     scheduler.add_job(medium_tick, "interval", seconds=5, id="medium_5s", max_instances=1, coalesce=True)
     scheduler.add_job(slow_tick, "interval", seconds=60, id="slow_60s", max_instances=1, coalesce=True)
+    scheduler.add_job(smart_15m_tick, "interval", minutes=15, id="smart_15m", max_instances=1, coalesce=True)
     scheduler.add_job(downsample_tick, "interval", minutes=5, id="downsample", max_instances=1)
     logger.info("调度器任务注册完成")
 

@@ -1,10 +1,10 @@
 <script setup>
-/** 硬盘 SMART：健康状态表 + 在线自检下拉 + 进行中自检进度（后端 + 演示回退） */
-import { computed, reactive } from 'vue';
+/** 硬盘 SMART：健康状态表 + 在线自检下拉 + 进行中自检进度 + 健康趋势（后端 + 演示回退） */
+import { computed, reactive, ref, watch } from 'vue';
 import { startSelfTest } from '../api/endpoints/storage';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
-import { fetchDisks } from '../services/storage';
+import { fetchDisks, fetchDiskTrend } from '../services/storage';
 import UPageHeader from '../components/UPageHeader.vue';
 import UDropdown from '../components/UDropdown.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
@@ -46,6 +46,70 @@ const headerTag = computed(() => {
   const warned = d.value.list.filter((x) => x.health !== '正常').length;
   if (!live.value) return { type: 'acc', text: '演示数据' };
   return { type: warned ? 'warn' : 'ok', text: warned ? `${warned} 块警告` : '全部正常' };
+});
+
+// ---- SMART 健康趋势（smart_15m 每 15 分钟落 1h/1d 桶；近 30 天用 1h 桶） ----
+const TREND_METRICS = [
+  { key: 'reallocated', label: '重映射扇区' },
+  { key: 'pending', label: '待定扇区' },
+  { key: 'uncorrectable', label: '不可修正扇区' },
+  { key: 'wear_leveling', label: '磨损均衡' },
+  { key: 'percent_used', label: '寿命已用 %' },
+  { key: 'media_errors', label: '介质错误' },
+  { key: 'temp_c', label: '温度 °C' },
+  { key: 'power_on_hours', label: '通电小时' },
+];
+const trendDevice = ref('');
+const trendMetric = ref('reallocated');
+const trend = ref(null); // SmartTrendResponse + live 标记
+const trendLoading = ref(false);
+
+async function loadTrend() {
+  if (!trendDevice.value) return;
+  trendLoading.value = true;
+  try {
+    const r = await fetchDiskTrend(trendDevice.value, trendMetric.value, 30);
+    trend.value = { ...r.data, live: r.live };
+  } finally {
+    trendLoading.value = false;
+  }
+}
+
+// 磁盘清单到达后缺省选第一块（演示回退无 device 字段，用 sdN 占位键走演示序列）
+watch(
+  () => d.value.list?.length,
+  (n) => {
+    if (n && !trendDevice.value)
+      trendDevice.value = d.value.list[0].device || `sd${d.value.list[0].slot}`;
+  },
+  { immediate: true }
+);
+watch([trendDevice, trendMetric], loadTrend);
+
+/** 折线坐标（viewBox 0 0 100 30 归一化） */
+const trendLine = computed(() => {
+  const pts = trend.value?.points ?? [];
+  if (pts.length < 2) return '';
+  const vals = pts.map((p) => p.value);
+  const min = Math.min(...vals);
+  const span = Math.max(...vals) - min || 1;
+  return pts
+    .map((p, i) => `${(i / (pts.length - 1)) * 100},${28 - ((p.value - min) / span) * 26}`)
+    .join(' ');
+});
+
+const trendDelta = computed(() => {
+  const pts = trend.value?.points ?? [];
+  if (pts.length < 2) return null;
+  const first = pts[0].value;
+  const last = pts[pts.length - 1].value;
+  const delta = Math.round((last - first) * 10) / 10;
+  return {
+    first,
+    last,
+    delta,
+    text: `${delta > 0 ? '+' : ''}${Number.isInteger(delta) ? delta : delta.toFixed(1)}`,
+  };
 });
 </script>
 
@@ -148,6 +212,62 @@ const headerTag = computed(() => {
               </button>
             </u-dropdown>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SMART 健康趋势：1h 桶 × 近 30 天；无数据为合法真值（盘接入后逐桶积累），不造假曲线 -->
+    <div class="wg" style="margin-top: 14px">
+      <div class="wg-h">
+        <u-icon name="hist" />
+        <h3>健康趋势</h3>
+        <span v-if="trend && !trend.live" class="tag acc" style="margin-left: auto">演示数据</span>
+      </div>
+      <div class="wg-b">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px">
+          <label class="small muted" style="align-self: center">
+            磁盘
+            <select v-model="trendDevice" style="margin-left: 6px">
+              <option
+                v-for="disk in d.list"
+                :key="disk.slot"
+                :value="disk.device || `sd${disk.slot}`"
+              >
+                盘位 {{ disk.slot }} · {{ disk.model.split(' ').pop() }}
+              </option>
+            </select>
+          </label>
+          <label class="small muted" style="align-self: center">
+            指标
+            <select v-model="trendMetric" style="margin-left: 6px">
+              <option v-for="m in TREND_METRICS" :key="m.key" :value="m.key">{{ m.label }}</option>
+            </select>
+          </label>
+          <span class="small muted num" style="align-self: center">近 30 天 · 1h 桶</span>
+        </div>
+
+        <template v-if="trend && trend.points.length >= 2">
+          <svg
+            viewBox="0 0 100 30"
+            preserveAspectRatio="none"
+            style="display: block; width: 100%; height: 80px"
+          >
+            <polyline
+              :points="trendLine"
+              fill="none"
+              stroke="var(--acc)"
+              stroke-width="1.4"
+              vector-effect="non-scaling-stroke"
+            />
+          </svg>
+          <div v-if="trendDelta" class="small num" style="margin-top: 9px">
+            窗口变化
+            <b :class="trendDelta.delta > 0 ? 't-warn' : 't-ok'">{{ trendDelta.text }}</b>
+            · {{ trendDelta.first }} → {{ trendDelta.last }}
+          </div>
+        </template>
+        <div v-else-if="!trendLoading" class="small muted">
+          该盘暂无趋势数据（—）：功能上线后按 1h 桶逐渐积累，休眠盘不采样
         </div>
       </div>
     </div>

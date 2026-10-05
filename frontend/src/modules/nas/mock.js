@@ -419,6 +419,51 @@ export const disks = {
   selftest: { label: '盘位 3 · 短自检（B）', percent: 62 },
 };
 
+/**
+ * 硬盘 SMART 趋势演示序列（仅后端不可达的演示回退；确定性阶梯+正弦扰动，非真实数据）。
+ * 形状与后端 SmartTrendResponse 一致（契约 §3.2），points 按天铺 ~45 点。
+ * @param {string} device
+ * @param {string} metric
+ * @param {number} [days]
+ * @returns {{ device: string, metric: string, granularity: '1h'|'1d', days: number, points: Array<{ts: string, value: number, raw_text: string|null}> }}
+ */
+export function smartTrendDemo(device, metric, days = 30) {
+  const base =
+    {
+      reallocated: 4,
+      pending: 1,
+      uncorrectable: 0,
+      wear_leveling: 91,
+      percent_used: 37,
+      media_errors: 12,
+      temp_c: 38,
+      power_on_hours: 18240,
+    }[metric] ?? 0;
+  const step =
+    {
+      reallocated: 0.04,
+      pending: 0.02,
+      uncorrectable: 0,
+      wear_leveling: -0.03,
+      percent_used: 0.05,
+      media_errors: 0.04,
+      temp_c: 0.1,
+      power_on_hours: 12,
+    }[metric] ?? 0;
+  const n = 45;
+  const start = Date.now() - n * 24 * 3600 * 1000;
+  const points = Array.from({ length: n }, (_, i) => {
+    const jitter = Math.round(Math.sin(i * 1.7) * 10) / 10; // 确定性扰动（不闪变）
+    const value = Math.round((base + step * i + jitter * (step === 0 ? 1 : 0.4)) * 10) / 10;
+    return {
+      ts: new Date(start + i * 24 * 3600 * 1000).toISOString().slice(0, 19),
+      value: Math.max(0, value),
+      raw_text: null,
+    };
+  });
+  return { device, metric, granularity: '1h', days, points };
+}
+
 /** 硬件检测页 */
 export const detect = {
   system: [

@@ -36,3 +36,13 @@ export function startSelfTest(device, type) {
 export function getSelfTests() {
   return apiData('/api/v1/storage/self-tests');
 }
+
+/** SMART 指标趋势（smart_15m 每 15 分钟落一桶；days≤30 回 1h 桶，否则 1d 桶）
+ * @param {string} device 不带 /dev/ 前缀（nvme0n1 后端自动回退控制器键）
+ * @param {string} metric 白名单见契约 §3.2（reallocated/pending/…/power_on_hours）
+ * @param {number} days 1-90
+ * @returns {Promise<import('../../models/storage').SmartTrendResponse>} */
+export function getSmartTrend(device, metric, days = 30) {
+  const q = `device=${encodeURIComponent(device)}&metric=${encodeURIComponent(metric)}&days=${days}`;
+  return apiData(`/api/v1/storage/trend?${q}`);
+}

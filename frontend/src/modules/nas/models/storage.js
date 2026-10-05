@@ -124,4 +124,20 @@
  * @property {string|null} [error]
  */
 
+/** SMART 趋势点（GET /storage/trend，smart_15m 采集）
+ * @typedef {object} SmartTrendPoint
+ * @property {string} ts 桶起点 UTC ISO
+ * @property {number} value
+ * @property {string|null} [raw_text] ATA 原始串
+ */
+
+/** SMART 趋势序列（days≤30 回 1h 桶，否则 1d 桶）
+ * @typedef {object} SmartTrendResponse
+ * @property {string} device
+ * @property {string} metric
+ * @property {'1h'|'1d'} granularity
+ * @property {number} days
+ * @property {SmartTrendPoint[]} points 按 ts 升序；无数据为空数组
+ */
+
 export {};

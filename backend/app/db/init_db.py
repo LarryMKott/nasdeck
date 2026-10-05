@@ -26,6 +26,7 @@ _REQUIRED_COLUMNS = {
     "alert_events": {"rule_id", "status", "fired_at", "created_at"},
     "fan_zones": {"mode", "curve_id", "created_at"},
     "alert_channels": {"config", "created_at"},
+    "smart_points": {"ts", "granularity", "device", "metric"},
 }
 
 # 重建白名单：仅登记过的表可被整库重建
@@ -33,7 +34,7 @@ _REBUILD_TABLES = (
     "alert_events", "alert_channels", "alert_rules",
     "fan_zones", "fan_curves", "metric_points",
     "hardware_items", "disk_aliases", "port_aliases",
-    "kill_whitelist", "system_settings",
+    "kill_whitelist", "system_settings", "smart_points",
 )
 
 # 历史版本建过、已从模型移除的 metric_points 单列索引

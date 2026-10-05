@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import re
-
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
@@ -18,10 +16,11 @@ from app.schemas.storage import (
     SelfTestIn,
     SelfTestState,
     SmartReport,
+    SmartTrendResponse,
     VolumeItem,
 )
 from app.services.monitor import temperature
-from app.services.storage import disk_name, self_test, smart
+from app.services.storage import disk_name, self_test, smart, smart_history
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
 from app.utils.async_cmd import run_cmd
@@ -39,16 +38,11 @@ async def _disk_items(db: AsyncSession) -> list[DiskItem]:
     items = []
     for d in disks:
         d["alias"] = aliases.get(d.get("serial") or "")
-        key = _smart_key(d.get("device") or "")
+        key = smart_history.smart_key(d.get("device") or "")
         d["health"] = health_map.get(key, "unknown")
         d["temp_c"] = temps.get(key)
         items.append(DiskItem(**d))
     return items
-
-
-def _smart_key(device: str) -> str:
-    """lsblk 盘名 → SMART 探测键：sda 原样；nvme0n1 回退控制器名 nvme0 匹配。"""
-    return re.sub(r"n\d+$", "", device) if device.startswith("nvme") else device
 
 
 @router.get("/disks", response_model=list[DiskItem])
@@ -87,6 +81,21 @@ async def get_raid() -> dict:
 @router.get("/volumes", response_model=list[VolumeItem])
 async def get_volumes() -> list[dict]:
     return volume_service.list_volumes()
+
+
+@router.get("/trend", response_model=SmartTrendResponse)
+async def get_trend(
+    device: str = Query(..., description="SMART 探测键（sda / nvme0）"),
+    metric: str = Query("reallocated", description=f"指标名，白名单：{'/'.join(smart_history.TRACKED_METRICS)}"),
+    days: int = Query(30, ge=1, le=90, description="窗口天数；≤30 用 1h 桶，否则 1d 桶"),
+    db: AsyncSession = DbDep,
+) -> dict:
+    """SMART 指标趋势序列（smart_15m 采集落库）。无数据返回空 points（盘接入后逐桶积累）。"""
+    # 校验针对 lsblk 盘名（nvme0n1 合法、nvme0 非法），查询键回退控制器名（nvme0）
+    name = smart_history.smart_key(validate_device_name(device))
+    if metric not in smart_history.TRACKED_METRICS:
+        raise NotFoundError(f"unknown smart metric: {metric}")
+    return await smart_history.trend_series(db, name, metric, days)
 
 
 @router.post("/self-tests", response_model=SelfTestState)
