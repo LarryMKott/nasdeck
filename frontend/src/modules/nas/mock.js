@@ -44,6 +44,7 @@ export const navGroups = [
   },
   {
     items: [
+      { path: '/nasdeck/timeline', title: '事件', icon: 'clock' },
       { path: '/nasdeck/automation', title: '自动化', icon: 'shield' },
       { path: '/nasdeck/manual', title: '手册', icon: 'book' },
       { path: '/nasdeck/about', title: '关于', icon: 'info' },
@@ -386,6 +387,49 @@ export const storage = {
     ],
   },
 };
+
+/** 事件时间线演示回退（形状与 AlertEventItem 一致；倒序混排规则/系统事件） */
+export const timeline = [
+  {
+    id: 3,
+    rule_id: null,
+    rule_name: '日志哨兵',
+    metric: 'log_alert',
+    value: null,
+    threshold: null,
+    severity: 'warning',
+    status: 'resolved',
+    message: 'blk_update_request: I/O error, dev sdb, sector 12345',
+    fired_at: '2026-01-05T02:12:00+00:00',
+    resolved_at: '2026-01-05T02:12:00+00:00',
+  },
+  {
+    id: 2,
+    rule_id: 1,
+    rule_name: '规则 · 温度',
+    metric: 'temp_max',
+    value: 61.5,
+    threshold: 60,
+    severity: 'warning',
+    status: 'resolved',
+    message: '温度超阈值后回落',
+    fired_at: '2026-01-04T14:03:00+00:00',
+    resolved_at: '2026-01-04T14:31:00+00:00',
+  },
+  {
+    id: 1,
+    rule_id: null,
+    rule_name: 'SMART 周期巡检',
+    metric: 'selftest',
+    value: null,
+    threshold: null,
+    severity: 'info',
+    status: 'resolved',
+    message: 'sda short 巡检 → completed',
+    fired_at: '2026-01-04T04:07:00+00:00',
+    resolved_at: '2026-01-04T04:07:00+00:00',
+  },
+];
 
 /** 硬盘 SMART 页 */
 export const disks = {

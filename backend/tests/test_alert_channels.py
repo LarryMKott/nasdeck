@@ -12,6 +12,7 @@ from app.services.alert import engine
 from app.services.alert.channels import webhook as webhook_mod
 from app.services.alert.channels.base import CHANNEL_TYPES
 from app.services.alert.channels.webhook import WebhookChannel
+from tests.conftest import ok
 
 
 def test_webhook_registered():
@@ -73,3 +74,32 @@ def test_send_network_error_returns_false(monkeypatch):
     _patch_transport(monkeypatch, handler)
     ok = asyncio.run(WebhookChannel().send({"url": "https://example.com/hook"}, "t", "b"))
     assert ok is False
+
+
+# ---- M3.2：GET /alert/events 的 source 过滤（统一事件时间线数据源） ----
+
+
+async def test_events_source_filter(client):
+    from app.db.session import session_factory
+    from app.models.alert import AlertEvent
+
+    async with session_factory() as db:
+        db.add(AlertEvent(rule_id=1, rule_name="温度规则", metric="temp_max", value=61.0,
+                          threshold=60, severity="warning", status="resolved",
+                          message="规则触发", fired_at="2026-01-03T10:00:00+00:00"))
+        db.add(AlertEvent(rule_id=None, rule_name="日志哨兵", metric="log_alert", value=None,
+                          threshold=None, severity="warning", status="resolved",
+                          message="I/O error", fired_at="2026-01-03T11:00:00+00:00",
+                          resolved_at="2026-01-03T11:00:00+00:00"))
+        await db.commit()
+
+    alert_side = ok(await client.get("/api/v1/alert/events?source=alert&limit=100"))
+    assert all(e["rule_id"] is not None for e in alert_side)
+    assert any(e["metric"] == "temp_max" for e in alert_side)
+
+    system_side = ok(await client.get("/api/v1/alert/events?source=system&limit=100"))
+    assert all(e["rule_id"] is None for e in system_side)
+    assert any(e["metric"] == "log_alert" for e in system_side)
+
+    everything = ok(await client.get("/api/v1/alert/events?limit=100"))
+    assert len(everything) >= len(alert_side) + len(system_side) - 2  # 全量包含两侧

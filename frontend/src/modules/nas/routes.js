@@ -75,6 +75,12 @@ export const nasRoutes = [
         meta: { title: '风扇控制', keepAlive: true },
       },
       {
+        path: 'timeline',
+        name: 'NasTimeline',
+        component: view('TimelineView'),
+        meta: { title: '事件时间线', keepAlive: true },
+      },
+      {
         path: 'automation',
         name: 'NasAutomation',
         component: view('AutomationView'),

@@ -129,21 +129,28 @@ async def delete_rule(rule_id: int, db: AsyncSession = DbDep) -> dict:
 async def list_events(
     limit: int = Query(default=50, ge=1, le=500),
     status: str = Query(default="all", pattern="^(firing|resolved|all)$"),
+    source: str = Query(default="all", pattern="^(alert|system|all)$"),
     db: AsyncSession = DbDep,
 ) -> list[dict]:
-    """列出告警事件，按 id 倒序（契约 §3.5）。
+    """列出事件（统一时间线数据源，契约 §3.5）。
 
     Args:
         limit (int): 返回条数上限，1-500，默认 50。
         status (str): 状态过滤，firing / resolved / all，默认 all。
+        source (str): 来源过滤——alert（规则触发，rule_id 非空）/ system（系统级
+            一次性事件：巡检/容器退出/端口异动/日志哨兵等，rule_id 为空）/ all。
         db (AsyncSession): 数据库会话（框架注入）。
 
     Returns:
-        list[dict]: 见 schemas.alert.AlertEventItem。
+        list[dict]: 见 schemas.alert.AlertEventItem，按 id 倒序。
     """
     query = select(AlertEvent).order_by(AlertEvent.id.desc()).limit(limit)
     if status != "all":
         query = query.where(AlertEvent.status == status)
+    if source == "alert":
+        query = query.where(AlertEvent.rule_id.isnot(None))
+    elif source == "system":
+        query = query.where(AlertEvent.rule_id.is_(None))
     result = await db.execute(query)
     return [engine.event_dict(e) for e in result.scalars()]
 

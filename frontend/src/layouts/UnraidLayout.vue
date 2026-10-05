@@ -39,12 +39,12 @@ function toggleIconsMode() {
 }
 
 /**
- * 响应式三档（阈值与 unraid.scss 媒体查询保持一致）：
- * ≥1560 文本页签；1100–1559 强制纯图标（文本 13 项约需 1495px，放不下）；
- * <1100 隐藏页签条，改用抽屉导航（小屏/手机）。
+ * 响应式三档（阈值与 unraid.scss 媒体查询保持一致，14 页签实测标定）：
+ * ≥1600 文本页签；1165–1599 强制纯图标（文本 14 项实测 1600 起才放得下）；
+ * <1165 隐藏页签条，改用抽屉导航（小屏/手机；纯图标 14 项实测 1163 起放得下）。
  */
-const mqTextTabs = window.matchMedia('(min-width: 1560px)');
-const mqDrawer = window.matchMedia('(max-width: 1099px)');
+const mqTextTabs = window.matchMedia('(min-width: 1600px)');
+const mqDrawer = window.matchMedia('(max-width: 1164px)');
 const wideEnough = ref(mqTextTabs.matches);
 const isNarrow = ref(mqDrawer.matches);
 

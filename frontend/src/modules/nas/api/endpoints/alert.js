@@ -22,8 +22,8 @@ export async function getFiringEvents() {
 /** 告警事件流（自动化页日志/错误历史数据源）
  * @param {number} [limit]
  * @returns {Promise<import('../../models/alert').AlertEventItem[]>} */
-export function getEvents(limit) {
-  return apiData(`/api/v1/alert/events?limit=${limit ?? 10}`);
+export function getEvents(limit, source = 'all') {
+  return apiData(`/api/v1/alert/events?limit=${limit ?? 10}&source=${source}`);
 }
 
 /** 告警规则清单

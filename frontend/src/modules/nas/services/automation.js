@@ -62,3 +62,16 @@ export async function fetchAutomation() {
     live: active.live,
   };
 }
+
+/** 事件时间线取数（M3.2 统一时间线）：source 过滤 + mock 演示回退
+ * @param {'all'|'alert'|'system'} [source]
+ * @param {number} [limit]
+ * @returns {Promise<{data: {list: Array}, live: boolean}>} */
+export async function fetchTimeline(source = 'all', limit = 200) {
+  try {
+    const events = await getEvents(limit, source);
+    return { data: { list: events.map((e) => ({ ...e, time: hhmm(e.fired_at) })) }, live: true };
+  } catch {
+    return { data: { list: mock.timeline }, live: false };
+  }
+}
