@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.exceptions import NotFoundError
 from app.models.system import KillWhitelist, SystemSetting
 from app.schemas.system import (
+    ConfigExportIn,
     DockerResponse,
     PortAliasIn,
     PortAliasOut,
@@ -29,6 +30,7 @@ from app.schemas.system import (
 )
 from app.services.hardware.policy import TOOLS, get_policy
 from app.services.storage import selftest_schedule
+from app.services.system import backup as backup_service
 from app.services.system import docker as docker_service
 from app.services.system import ports as port_service
 from app.services.system import process as process_service
@@ -327,3 +329,31 @@ async def put_selftest_schedule(body: SelftestScheduleIn, db: AsyncSession = DbD
     )
     cfg["last_run"] = await selftest_schedule.last_run_date(db) or None
     return cfg
+
+
+@router.post("/config-export")
+async def export_config(body: ConfigExportIn, db: AsyncSession = DbDep) -> dict:
+    """导出用户配置备份（POST 动词语义：trim 路由级鉴权对非 GET 强校验管理员）。
+
+    Args:
+        body (ConfigExportIn): include_secrets=True 时渠道凭据明文导出。
+        db (AsyncSession): 请求级会话。
+
+    Returns:
+        dict: 备份 JSON（schema_version 锚定导入兼容性）。
+    """
+    return await backup_service.export_config(db, include_secrets=body.include_secrets)
+
+
+@router.post("/config-import")
+async def import_config(body: dict, db: AsyncSession = DbDep) -> dict:
+    """导入配置备份（replace-all 单事务；schema_version 不匹配整体拒绝 1002）。
+
+    Args:
+        body (dict): config-export 输出的备份 JSON。
+        db (AsyncSession): 请求级会话（get_db 统一 commit / 异常回滚）。
+
+    Returns:
+        dict: 各表导入计数。
+    """
+    return await backup_service.import_config(db, body)

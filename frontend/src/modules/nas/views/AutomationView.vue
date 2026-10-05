@@ -12,7 +12,11 @@ import {
   updateChannel,
   updateRule,
 } from '../api/endpoints/alert';
-import { putSelftestSchedule } from '../api/endpoints/system';
+import {
+  exportConfigBackup,
+  importConfigBackup,
+  putSelftestSchedule,
+} from '../api/endpoints/system';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
 import { fetchAutomation } from '../services/automation';
@@ -99,6 +103,52 @@ async function exportReport() {
     exportFailed.value = true; // 失败可见，不静默
   } finally {
     exporting.value = false;
+  }
+}
+
+// ---- 配置备份/恢复（M3.5）：POST 动词语义仅管理员；导入 replace-all 有二次确认 ----
+const backupFile = ref(null);
+const backupBusy = ref(false);
+const backupMsg = ref('');
+const backupOk = ref(false);
+
+async function downloadBackup() {
+  if (!identity.canWrite || backupBusy.value) return;
+  backupBusy.value = true;
+  backupMsg.value = '';
+  try {
+    const data = await exportConfigBackup(true); // 本机归档：带明文凭据
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `nasdeck-config-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    backupMsg.value = '已下载备份文件（含渠道凭据明文，请妥善保管）';
+    backupOk.value = true;
+  } catch {
+    backupMsg.value = '导出失败，请稍后重试';
+    backupOk.value = false;
+  } finally {
+    backupBusy.value = false;
+  }
+}
+
+async function restoreBackup() {
+  if (!identity.canWrite || backupBusy.value || !backupFile.value) return;
+  backupBusy.value = true;
+  backupMsg.value = '';
+  try {
+    const text = await backupFile.value.text();
+    const counts = await importConfigBackup(JSON.parse(text));
+    backupMsg.value = `恢复完成：风扇 ${counts.fan_zones ?? 0} / 规则 ${counts.alert_rules ?? 0} / 渠道 ${counts.alert_channels ?? 0}（掩码备份的渠道需重填凭据）`;
+    backupOk.value = true;
+    await refresh();
+  } catch {
+    backupMsg.value = '恢复失败：文件格式不符或 schema 版本不支持';
+    backupOk.value = false;
+  } finally {
+    backupBusy.value = false;
   }
 }
 
@@ -649,6 +699,44 @@ const headerTag = computed(() => ({
                 生成失败，请稍后重试
               </span>
             </span>
+          </div>
+
+          <!-- 配置备份/恢复 -->
+          <div class="small" style="margin: 22px 0 8px; font-weight: 600">配置备份与恢复</div>
+          <div class="small muted" style="margin-bottom: 10px">
+            整体导出风扇控区/曲线、告警规则/渠道、别名/白名单与巡检/静音计划为 JSON；恢复为
+            <b>整体替换</b>（现配置将被备份文件覆盖）。导出含渠道凭据明文，请妥善保管。
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+            <button class="btn" :disabled="backupBusy" @click="downloadBackup">
+              <u-icon name="dl" />导出配置
+            </button>
+            <input
+              ref="backupFile"
+              type="file"
+              accept="application/json,.json"
+              style="display: none"
+              @change="backupFile = $event.target.files[0] || null"
+            />
+            <button class="btn" :disabled="backupBusy" @click="$refs.backupFile.click()">
+              <u-icon name="layers" />选择备份文件
+            </button>
+            <u-pop ok-text="覆盖恢复" cancel-text="取消" danger @confirm="restoreBackup">
+              <template #trigger>
+                <button class="btn" :disabled="backupBusy || !backupFile">
+                  <u-icon name="refresh" />恢复
+                </button>
+              </template>
+              恢复将<b>整体替换</b>当前全部配置（风扇/告警/别名/计划），确认覆盖？
+            </u-pop>
+          </div>
+          <div
+            v-if="backupMsg"
+            class="small"
+            :class="backupOk ? 't-ok' : ''"
+            style="margin-top: 9px"
+          >
+            {{ backupMsg }}
           </div>
         </div>
       </div>

@@ -58,3 +58,20 @@ export function putSelftestSchedule(cfg) {
     body: { enabled: cfg.enabled, weekday: cfg.weekday, hour: cfg.hour, type: cfg.type },
   });
 }
+
+/** 导出用户配置备份（POST 动词语义：仅管理员；include_secrets 带明文凭据）
+ * @param {boolean} [includeSecrets]
+ * @returns {Promise<object>} 备份 JSON（schema_version 锚定导入兼容性） */
+export function exportConfigBackup(includeSecrets = false) {
+  return apiData('/api/v1/system/config-export', {
+    method: 'POST',
+    body: { include_secrets: includeSecrets },
+  });
+}
+
+/** 导入配置备份（replace-all 单事务；schema_version 不匹配整体拒绝）
+ * @param {object} payload 备份 JSON
+ * @returns {Promise<object>} 各表导入计数 */
+export function importConfigBackup(payload) {
+  return apiData('/api/v1/system/config-import', { method: 'POST', body: payload });
+}

@@ -130,3 +130,9 @@ class SettingEntry(BaseModel):
     """系统设置条目。"""
     value: Any
     description: str | None = None
+
+
+class ConfigExportIn(BaseModel):
+    """配置备份导出选项（include_secrets=True 带明文凭据，仅管理员 POST 可达）。"""
+
+    include_secrets: bool = False
