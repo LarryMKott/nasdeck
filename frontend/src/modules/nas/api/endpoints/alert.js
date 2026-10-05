@@ -26,16 +26,54 @@ export function getEvents(limit) {
   return apiData(`/api/v1/alert/events?limit=${limit ?? 10}`);
 }
 
+/** 告警规则清单
+ * @returns {Promise<import('../../models/alert').AlertRuleItem[]>} */
+export function getRules() {
+  return apiData('/api/v1/alert/rules');
+}
+
 /** 创建告警规则
  * @param {import('../../models/alert').AlertRuleIn} body */
 export function createRule(body) {
   return apiData('/api/v1/alert/rules', { method: 'POST', body });
 }
 
-/** 通知渠道清单
+/** 更新告警规则（全量更新：未传字段会被后端重置为默认值）
+ * @param {number} ruleId
+ * @param {import('../../models/alert').AlertRuleIn} body */
+export function updateRule(ruleId, body) {
+  return apiData(`/api/v1/alert/rules/${ruleId}`, { method: 'PUT', body });
+}
+
+/** 删除告警规则
+ * @param {number} ruleId */
+export function deleteRule(ruleId) {
+  return apiData(`/api/v1/alert/rules/${ruleId}`, { method: 'DELETE' });
+}
+
+/** 通知渠道清单（config 脱敏回显）
  * @returns {Promise<import('../../models/alert').AlertChannelItem[]>} */
 export function getChannels() {
   return apiData('/api/v1/alert/channels');
+}
+
+/** 创建通知渠道
+ * @param {import('../../models/alert').AlertChannelIn} body */
+export function createChannel(body) {
+  return apiData('/api/v1/alert/channels', { method: 'POST', body });
+}
+
+/** 更新通知渠道（config 中仍带掩码 **** 的字段由后端合并回旧值）
+ * @param {number} channelId
+ * @param {import('../../models/alert').AlertChannelIn} body */
+export function updateChannel(channelId, body) {
+  return apiData(`/api/v1/alert/channels/${channelId}`, { method: 'PUT', body });
+}
+
+/** 删除通知渠道
+ * @param {number} channelId */
+export function deleteChannel(channelId) {
+  return apiData(`/api/v1/alert/channels/${channelId}`, { method: 'DELETE' });
 }
 
 /** 发送测试通知

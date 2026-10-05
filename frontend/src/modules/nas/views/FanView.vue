@@ -13,7 +13,7 @@ import {
 import * as controlApi from '../api/endpoints/control';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
-import { fetchFans } from '../services/control';
+import { DEFAULT_CURVE_TEMPLATE, fetchFans } from '../services/control';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
 import UCurveEditor from '../components/UCurveEditor.vue';
@@ -36,6 +36,7 @@ const {
   takeover: false,
   cards: [],
   channels: [],
+  sensors: [],
   curveDefault: [],
   curveMeta: null,
   curveId: null,
@@ -125,24 +126,99 @@ async function pushZone(fan, patch) {
   }
 }
 
+/** PWM 开关 = 接管/交还 BIOS：开=定速（apply_tick 每 5s 写 pwm），关=auto 交还内核。
+ * 乐观更新写后端，失败回退；后端状态为唯一事实源 */
 async function togglePwm(fan) {
   if (!identity.canWrite) return;
-  const next = !fan.pwm;
-  fan.pwm = next; // 乐观更新
+  const turningOn = fan.mode === 'auto';
+  const prev = fan.mode;
+  fan.mode = turningOn ? 'fixed' : 'auto';
   // 开启时占空比下限 20%：抓到的当前值可能是 BIOS 闲置的 0%，钉 0 会停转风扇
-  const fixed = next ? Math.max(fan.duty, 20) : undefined;
-  if (next) fan.duty = fixed;
-  const ok = await pushZone(fan, next ? { mode: 'fixed', fixed_pwm: fixed } : { mode: 'auto' });
-  if (!ok) fan.pwm = !next;
+  const fixed = Math.max(fan.duty, 20);
+  if (turningOn) fan.duty = fixed;
+  const ok = await pushZone(
+    fan,
+    turningOn ? { mode: 'fixed', fixed_pwm: fixed } : { mode: 'auto' }
+  );
+  if (!ok) fan.mode = prev;
+}
+
+/** 调速方式切换（接管后）：定速=滑杆手动；曲线温控=按默认曲线+调速依据传感器自动调速 */
+async function onModeChange(fan, ev) {
+  const next = ev.target.value;
+  const prev = fan.mode;
+  fan.mode = next;
+  let patch;
+  if (next === 'fixed') {
+    const fixed = Math.max(fan.duty, 20); // 与 PWM 开启同一下限，钉 0 会停转
+    fan.duty = fixed;
+    patch = { mode: 'fixed', fixed_pwm: fixed };
+  } else {
+    // 首次切曲线：把曲线编辑器当前形状落库为默认曲线，避免调速 tick 悬空引用
+    if (d.value.curveId == null) {
+      try {
+        const created = await controlApi.createCurve({
+          name: '默认曲线',
+          points: curvePts.value?.length ? curvePts.value : DEFAULT_CURVE_TEMPLATE,
+          hysteresis_c: curveHysteresis.value,
+          ramp_per_tick: curveRamp.value,
+        });
+        d.value.curveId = created.id;
+      } catch {
+        fan.mode = prev; // 建曲线失败（校验/网络）回退原模式
+        return;
+      }
+    }
+    patch = { mode: 'curve', curve_id: d.value.curveId };
+  }
+  const ok = await pushZone(fan, patch);
+  if (!ok) fan.mode = prev;
 }
 
 async function onDutyCommit(fan) {
-  if (!fan.pwm) return; // auto 模式下滑杆仅预览，不写
+  if (fan.mode !== 'fixed') return; // 曲线温控下滑杆仅展示后端输出，不写
   // 提交钳制 ≥20%：滑杆物理上可拉到 0，钉 0 会把风扇停转（与开启时的下限一致）
   const fixed = Math.max(fan.duty, 20);
   if (fixed !== fan.duty) fan.duty = fixed;
   await pushZone(fan, { mode: 'fixed', fixed_pwm: fixed });
 }
+
+/** 调速依据候选：实时传感器按温度域分组（固定域序，下拉分组稳定） */
+const ZONE_NAMES = { cpu: 'CPU', board: '主板', nvme: 'NVMe', disk: '硬盘', other: '其它' };
+const ZONE_ORDER = ['cpu', 'board', 'nvme', 'disk', 'other'];
+
+const sensorGroups = computed(() => {
+  const groups = {};
+  for (const s of d.value.sensors ?? []) (groups[s.zone] ??= []).push(s);
+  return ZONE_ORDER.filter((z) => groups[z]?.length).map((z) => [ZONE_NAMES[z] ?? z, groups[z]]);
+});
+
+const sensorMap = computed(() => new Map((d.value.sensors ?? []).map((s) => [s.key, s])));
+
+function sensorText(s) {
+  // smart/nvme 条目的 label 已带设备名（sda / nvme0 Composite），其余补芯片前缀
+  const name =
+    s.chip === 'smart' || s.chip === 'nvme' ? s.label : [s.chip, s.label].filter(Boolean).join(' ');
+  return `${name} · ${s.celsius} °C`;
+}
+
+/** 风区当前依据的可读名（查看态；传感器暂无读数时回退原始 key） */
+function sensorName(key) {
+  if (!key) return '自动 · CPU 最高温';
+  const s = sensorMap.value.get(key);
+  return s ? sensorText(s) : `${key}（无读数）`;
+}
+
+/** 指定调速依据传感器；空 = 清除回退「自动 · CPU 最高温」（后端显式 null 语义） */
+async function onSensorChange(fan, ev) {
+  const key = ev.target.value || null;
+  const prev = fan.sensorKey;
+  fan.sensorKey = key;
+  const ok = await pushZone(fan, { sensor_key: key });
+  if (!ok) fan.sensorKey = prev;
+}
+
+const MODE_TEXT = { auto: 'BIOS 自动', fixed: '定速', curve: '曲线温控' };
 
 /** 重命名/删除气泡（按风区 id 记开合）；删除时后端自动把该通道交还 BIOS */
 const popOpen = reactive({});
@@ -471,19 +547,64 @@ const headerTag = computed(() =>
             type="range"
             min="0"
             max="100"
-            :disabled="!takeover"
+            :disabled="!takeover || fan.mode !== 'fixed'"
             @change="onDutyCommit(fan)"
           />
           <div class="dutyrow">
             <label
               v-if="identity.canWrite"
               class="switch"
-              :class="{ on: fan.pwm }"
+              :class="{ on: fan.mode !== 'auto' }"
               @click="togglePwm(fan)"
             >
               <span class="tr" />PWM
             </label>
+            <select
+              v-if="identity.canWrite && fan.mode !== 'auto'"
+              :value="fan.mode"
+              title="调速方式"
+              style="width: auto"
+              @change="onModeChange(fan, $event)"
+            >
+              <option value="fixed">定速</option>
+              <option value="curve">曲线温控</option>
+            </select>
+            <span v-if="!identity.canWrite" class="small muted">{{
+              MODE_TEXT[fan.mode] ?? fan.mode
+            }}</span>
             <span>DC 12V</span>
+          </div>
+          <!-- 曲线温控的调速依据：手动指定温度传感器（空 = 自动 · CPU 最高温） -->
+          <div v-if="fan.mode === 'curve'" class="dutyrow" style="margin-top: 8px">
+            <span class="small muted" style="flex: none">依据</span>
+            <select
+              v-if="identity.canWrite"
+              :value="fan.sensorKey ?? ''"
+              title="调速依据温度传感器"
+              style="flex: 1; width: auto; min-width: 0"
+              @change="onSensorChange(fan, $event)"
+            >
+              <option value="">自动 · CPU 最高温</option>
+              <optgroup v-for="[zoneName, items] in sensorGroups" :key="zoneName" :label="zoneName">
+                <option v-for="s in items" :key="s.key" :value="s.key">{{ sensorText(s) }}</option>
+              </optgroup>
+              <option v-if="fan.sensorKey && !sensorMap.has(fan.sensorKey)" :value="fan.sensorKey">
+                {{ fan.sensorKey }}（无读数）
+              </option>
+            </select>
+            <span v-else class="small" style="flex: 1; min-width: 0">{{
+              sensorName(fan.sensorKey)
+            }}</span>
+            <span class="small num" style="flex: none">{{
+              fan.sensorTempC != null ? `${fan.sensorTempC} °C` : '—'
+            }}</span>
+          </div>
+          <div
+            v-if="fan.mode === 'curve' && identity.canWrite && fan.sensorKey?.startsWith('smart:')"
+            class="small muted"
+            style="margin-top: 4px"
+          >
+            机械盘休眠时该传感器无读数，持续失联约 15 秒后触发全速保护
           </div>
         </div>
       </div>
@@ -521,6 +642,10 @@ const headerTag = computed(() =>
         <div class="wg-b">
           <div class="small" style="margin-bottom: 8px; font-weight: 600">
             {{ d.curveMeta?.name ?? '默认曲线（首次保存时创建）' }}
+          </div>
+          <div class="small muted" style="margin-bottom: 10px">
+            调速方式为「曲线温控」的风区按此曲线运行；各风区跟随的温度传感器在其卡片「依据」中指定，缺省为
+            CPU 最高温。
           </div>
           <div class="frm">
             <label>迟滞 °C</label>

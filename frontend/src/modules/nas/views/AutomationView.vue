@@ -1,9 +1,17 @@
 <script setup>
-/** 控制与自动化：活动告警 / 告警规则与通知 / 报告导出 三个页内页签 + 事件历史弹窗 */
-import { computed, ref } from 'vue';
+/** 控制与自动化：活动告警 / 告警规则与通知（渠道管理+多渠道推送）/ 报告导出 三个页内页签 + 事件历史弹窗 */
+import { computed, reactive, ref } from 'vue';
 import { apiBase } from '../api/client';
 import { exportHealthReport } from '../api/endpoints/report';
-import { createRule, testChannel } from '../api/endpoints/alert';
+import {
+  createChannel,
+  createRule,
+  deleteChannel,
+  deleteRule,
+  testChannel,
+  updateChannel,
+  updateRule,
+} from '../api/endpoints/alert';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
 import { fetchAutomation } from '../services/automation';
@@ -14,7 +22,7 @@ import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasAutomation' });
 
-// 权限铁律：设置类操作仅管理员；非管理员不渲染规则表单/测试通知/报告导出（写操作）
+// 权限铁律：设置类操作仅管理员；非管理员不渲染规则表单/渠道管理/报告导出（写操作）
 const identity = useIdentityStore();
 identity.ensure();
 
@@ -25,11 +33,13 @@ const activeTab = ref('t1');
 const {
   data: d,
   live,
+  refresh,
   lastUpdated,
 } = useViewData(fetchAutomation, {
   activeAlerts: [],
   recentEvents: [],
   channels: [],
+  rules: [],
 });
 const alerts = computed(() => d.value.activeAlerts ?? []);
 
@@ -51,16 +61,32 @@ async function exportReport() {
   }
 }
 
-/** 告警规则：表单值 + 保存（POST /alert/rules）。选项值直接用后端 metric/comparator 枚举，
- * 不做中文名→键映射（映射断链会静默提交错规则） */
+/** 告警规则表单：选项值直接用后端 metric/comparator 枚举，不做中文名→键映射
+ *（映射断链会静默提交错规则） */
 const METRICS = [
   { value: 'temp_max', label: '温度' },
   { value: 'disk_failed', label: 'SMART 属性' },
   { value: 'cpu_percent', label: '负载' },
 ];
-const ruleForm = ref({ metric: 'temp_max', comparator: '>', threshold: 60, duration: 60 });
+const METRIC_LABELS = {
+  cpu_percent: '负载',
+  mem_percent: '内存',
+  temp_max: '温度',
+  disk_temp: '盘温',
+  disk_failed: 'SMART',
+  raid_degraded: '阵列',
+};
+const ruleForm = ref({ metric: 'temp_max', comparator: '>', threshold: 60, duration: 12 });
 const ruleSaving = ref(false);
 const ruleSaved = ref(false);
+
+/** 推送渠道多选（chips）：一规则可同时推多个渠道，引擎逐渠道分发 */
+const ruleChannels = ref([]);
+function toggleRuleChannel(id) {
+  const i = ruleChannels.value.indexOf(id);
+  if (i >= 0) ruleChannels.value.splice(i, 1);
+  else ruleChannels.value.push(id);
+}
 
 async function saveRule() {
   if (!identity.canWrite) return;
@@ -72,12 +98,13 @@ async function saveRule() {
       metric: ruleForm.value.metric,
       comparator: ruleForm.value.comparator,
       threshold: Number(ruleForm.value.threshold) || 60,
-      duration_ticks: parseInt(String(ruleForm.value.duration), 10) || 60,
+      duration_ticks: parseInt(String(ruleForm.value.duration), 10) || 12,
       severity: 'warning',
-      channel_ids: [],
+      channel_ids: [...ruleChannels.value],
       enabled: true,
     });
     ruleSaved.value = true;
+    refresh(); // 规则列表回显（含刚保存的多渠道选择）
   } catch {
     /* 2000 校验失败静默，按钮态回落体现 */
   } finally {
@@ -85,18 +112,183 @@ async function saveRule() {
   }
 }
 
-/** 发送测试通知：POST /alert/channels/{id}/test（需已配置通知渠道） */
-const testState = ref(''); // '' | 'sending' | 'ok' | 'fail'
-async function sendTestNotice() {
-  if (!identity.canWrite || testState.value === 'sending') return;
-  const channel = d.value.channels?.[0];
-  if (!channel) return;
-  testState.value = 'sending';
+/** 规则列表：条件可读化（tick 为 5s 调速轮）与渠道名映射 */
+function condText(r) {
+  return `${METRIC_LABELS[r.metric] ?? r.metric} ${r.comparator} ${r.threshold} · 持续 ${r.duration_ticks * 5}s`;
+}
+
+function channelNames(ids) {
+  return (
+    (ids ?? [])
+      .map((id) => d.value.channels?.find((c) => c.id === id)?.name)
+      .filter(Boolean)
+      .join('、') || '—'
+  );
+}
+
+function hasDeletedChannel(ids) {
+  return (ids ?? []).some((id) => !d.value.channels?.some((c) => c.id === id));
+}
+
+/** 规则启停：PUT 全量更新（未提及字段按后端默认重置，必须整份带上） */
+async function toggleRule(r) {
+  if (!identity.canWrite) return;
+  const next = !r.enabled;
+  const prev = r.enabled;
+  r.enabled = next;
   try {
-    const result = await testChannel(channel.id);
-    testState.value = result?.success ? 'ok' : 'fail';
+    await updateRule(r.id, {
+      name: r.name,
+      metric: r.metric,
+      comparator: r.comparator,
+      threshold: r.threshold,
+      duration_ticks: r.duration_ticks,
+      severity: r.severity,
+      channel_ids: [...(r.channel_ids ?? [])],
+      enabled: next,
+    });
   } catch {
-    testState.value = 'fail';
+    r.enabled = prev;
+  }
+}
+
+async function deleteRuleRow(r) {
+  try {
+    await deleteRule(r.id);
+  } catch {
+    /* 静默，刷新以实际为准 */
+  }
+  refresh();
+}
+
+/** 通知渠道类型与各类型配置字段（与后端 channels/*.required_fields 对齐；
+ * secret 字段以 password 框呈现，编辑时回显掩码串，原样保存=保留旧凭据） */
+const CHANNEL_TYPES = [
+  {
+    value: 'telegram',
+    label: 'Telegram',
+    fields: [
+      { key: 'bot_token', label: 'Bot Token', secret: true, required: true },
+      { key: 'chat_id', label: 'Chat ID', required: true },
+    ],
+  },
+  {
+    value: 'bark',
+    label: 'Bark (iOS)',
+    fields: [
+      { key: 'device_key', label: 'Device Key', secret: true, required: true },
+      { key: 'server', label: '自建服务器（可选）', placeholder: 'https://api.day.app' },
+    ],
+  },
+  {
+    value: 'email',
+    label: '邮件 SMTP',
+    fields: [
+      { key: 'host', label: 'SMTP 服务器', required: true, placeholder: 'smtp.example.com' },
+      { key: 'port', label: '端口', required: true, placeholder: '587' },
+      { key: 'username', label: '账号', required: true },
+      { key: 'password', label: '密码 / 授权码', secret: true, required: true },
+      { key: 'to', label: '收件邮箱', required: true },
+    ],
+  },
+  {
+    value: 'webhook',
+    label: 'Webhook',
+    fields: [{ key: 'url', label: 'URL', required: true, placeholder: 'https://example.com/hook' }],
+  },
+];
+const TYPE_LABELS = Object.fromEntries(CHANNEL_TYPES.map((t) => [t.value, t.label]));
+const typeMeta = computed(() => CHANNEL_TYPES.find((t) => t.value === chanForm.value.type));
+
+function configSummary(cfg) {
+  return (
+    Object.values(cfg ?? {})
+      .filter((v) => v !== '' && v != null)
+      .join(' · ') || '—'
+  );
+}
+
+/** 渠道编辑弹窗：新建空表单 / 编辑回填脱敏配置（掩码串原样回传，后端合并旧凭据） */
+const chanModalOpen = ref(false);
+const chanSaving = ref(false);
+const chanForm = ref({ id: null, name: '', type: 'bark', enabled: true, config: {} });
+
+function openChannelCreate() {
+  chanForm.value = { id: null, name: '', type: 'bark', enabled: true, config: {} };
+  chanModalOpen.value = true;
+}
+
+function openChannelEdit(c) {
+  chanForm.value = {
+    id: c.id,
+    name: c.name,
+    type: c.type,
+    enabled: c.enabled,
+    config: { ...c.config_masked },
+  };
+  chanModalOpen.value = true;
+}
+
+/** 切换类型：各类型配置字段不同，清空避免残留其它类型的键 */
+function onChanTypeChange() {
+  chanForm.value.config = {};
+}
+
+async function saveChannel() {
+  if (!identity.canWrite || chanSaving.value) return;
+  const f = chanForm.value;
+  if (!f.name.trim()) return;
+  chanSaving.value = true;
+  try {
+    const body = { name: f.name.trim(), type: f.type, config: { ...f.config }, enabled: f.enabled };
+    if (f.id == null) await createChannel(body);
+    else await updateChannel(f.id, body);
+    chanModalOpen.value = false;
+    refresh();
+  } catch {
+    /* 校验失败（缺字段 / url 非法 → 1002）静默，弹窗留在原地可改 */
+  } finally {
+    chanSaving.value = false;
+  }
+}
+
+/** 渠道启停：掩码配置原样回传（后端合并旧凭据） */
+async function toggleChannel(c) {
+  if (!identity.canWrite) return;
+  const next = !c.enabled;
+  const prev = c.enabled;
+  c.enabled = next;
+  try {
+    await updateChannel(c.id, {
+      name: c.name,
+      type: c.type,
+      config: { ...c.config_masked },
+      enabled: next,
+    });
+  } catch {
+    c.enabled = prev;
+  }
+}
+
+async function deleteChan(c) {
+  try {
+    await deleteChannel(c.id);
+  } catch {
+    /* 静默，刷新以实际为准 */
+  }
+  refresh();
+}
+
+/** 渠道连通性测试：逐渠道行内按钮（发送真实测试通知） */
+const chanTestState = reactive({});
+async function testChan(c) {
+  if (!identity.canWrite || chanTestState[c.id] === 'sending') return;
+  chanTestState[c.id] = 'sending';
+  try {
+    const result = await testChannel(c.id);
+    chanTestState[c.id] = result?.success ? 'ok' : 'fail';
+  } catch {
+    chanTestState[c.id] = 'fail';
   }
 }
 
@@ -159,6 +351,75 @@ const headerTag = computed(() => ({
 
         <!-- 告警规则与通知：设置类操作仅管理员，非管理员整块不渲染 -->
         <div v-else-if="activeTab === 't2' && identity.canWrite" style="padding: 15px 0">
+          <!-- 通知渠道管理 -->
+          <div class="small" style="margin-bottom: 8px; font-weight: 600">通知渠道</div>
+          <table v-if="d.channels?.length" class="u" style="margin-bottom: 10px">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>类型</th>
+                <th>配置</th>
+                <th>启用</th>
+                <th class="r">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in d.channels" :key="c.id">
+                <td>{{ c.name }}</td>
+                <td class="small">{{ TYPE_LABELS[c.type] ?? c.type }}</td>
+                <td
+                  class="small muted num"
+                  style="
+                    max-width: 280px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                  "
+                  :title="configSummary(c.config_masked)"
+                >
+                  {{ configSummary(c.config_masked) }}
+                </td>
+                <td>
+                  <label class="switch" :class="{ on: c.enabled }" @click="toggleChannel(c)">
+                    <span class="tr" />
+                  </label>
+                </td>
+                <td class="r" style="white-space: nowrap">
+                  <button
+                    class="btn sm"
+                    :disabled="chanTestState[c.id] === 'sending'"
+                    :title="`发送测试通知到「${c.name}」`"
+                    @click="testChan(c)"
+                  >
+                    <u-icon name="send" />{{
+                      chanTestState[c.id] === 'sending'
+                        ? '发送中'
+                        : chanTestState[c.id] === 'ok'
+                          ? '已送达'
+                          : chanTestState[c.id] === 'fail'
+                            ? '失败'
+                            : '测试'
+                    }}
+                  </button>
+                  <button class="btn sm" @click="openChannelEdit(c)">编辑</button>
+                  <u-pop ok-text="删除" cancel-text="取消" danger @confirm="deleteChan(c)">
+                    <template #trigger>
+                      <button class="btn sm">删除</button>
+                    </template>
+                    删除渠道「{{ c.name }}」？引用它的规则将不再经它推送。
+                  </u-pop>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="small muted" style="margin-bottom: 10px">
+            尚未配置通知渠道——先添加一个（Telegram / Bark / 邮件 /
+            Webhook），才能在规则中勾选推送目标
+          </div>
+          <button class="btn sm" @click="openChannelCreate"><u-icon name="plus" />添加渠道</button>
+
+          <!-- 告警规则表单 -->
+          <div class="small" style="margin: 18px 0 8px; font-weight: 600">告警规则</div>
           <div class="frm">
             <label>监控指标</label>
             <select v-model="ruleForm.metric">
@@ -171,38 +432,66 @@ const headerTag = computed(() => ({
             </select>
             <label>阈值</label>
             <input v-model="ruleForm.threshold" type="text" />
-            <label>持续时间</label>
+            <label>持续时间（轮 ×5s）</label>
             <input v-model="ruleForm.duration" type="text" />
-            <label />
-            <span>
+            <label>通知渠道（可多选）</label>
+            <span v-if="d.channels?.length" class="chips" style="align-self: center">
               <button
-                v-if="d.channels?.length"
-                class="btn sm"
-                :disabled="testState === 'sending'"
-                @click="sendTestNotice"
+                v-for="c in d.channels"
+                :key="c.id"
+                type="button"
+                :class="{ on: ruleChannels.includes(c.id) }"
+                @click="toggleRuleChannel(c.id)"
               >
-                <u-icon name="send" />{{
-                  testState === 'sending'
-                    ? '发送中…'
-                    : testState === 'ok'
-                      ? '已送达'
-                      : testState === 'fail'
-                        ? '发送失败'
-                        : `发送测试通知（${d.channels[0].name}）`
-                }}
+                {{ c.name }}
               </button>
-              <span v-else class="small muted">尚未配置通知渠道，保存规则后到渠道配置添加</span>
+            </span>
+            <span v-else class="small muted" style="align-self: center">
+              暂无渠道可推——先在上方「添加渠道」
             </span>
           </div>
-          <button
-            v-if="identity.canWrite"
-            class="btn pri"
-            style="margin-top: 15px"
-            :disabled="ruleSaving"
-            @click="saveRule"
-          >
+          <button class="btn pri" style="margin-top: 15px" :disabled="ruleSaving" @click="saveRule">
             <u-icon name="check" />{{ ruleSaving ? '保存中…' : ruleSaved ? '已保存' : '保存规则' }}
           </button>
+
+          <!-- 已有规则列表 -->
+          <table v-if="d.rules?.length" class="u" style="margin-top: 15px">
+            <thead>
+              <tr>
+                <th>规则</th>
+                <th>条件</th>
+                <th>通知渠道</th>
+                <th>启用</th>
+                <th class="r">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in d.rules" :key="r.id">
+                <td>{{ r.name }}</td>
+                <td class="num small">{{ condText(r) }}</td>
+                <td class="small">
+                  {{ channelNames(r.channel_ids) }}
+                  <span v-if="hasDeletedChannel(r.channel_ids)" class="muted">（含已删渠道）</span>
+                </td>
+                <td>
+                  <label class="switch" :class="{ on: r.enabled }" @click="toggleRule(r)">
+                    <span class="tr" />
+                  </label>
+                </td>
+                <td class="r">
+                  <u-pop ok-text="删除" cancel-text="取消" danger @confirm="deleteRuleRow(r)">
+                    <template #trigger>
+                      <button class="btn sm">删除</button>
+                    </template>
+                    删除规则「{{ r.name }}」？其活跃告警将自动收尾。
+                  </u-pop>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="small muted" style="margin-top: 15px">
+            还没有规则——上方表单保存后在此列出，触发时按勾选渠道推送
+          </div>
         </div>
         <div v-else-if="activeTab === 't2'" class="small muted" style="padding: 15px 0">
           告警规则为管理员设置项 · 如需调整请联系管理员
@@ -267,6 +556,51 @@ const headerTag = computed(() => ({
           清空后仅影响本页显示，重新打开页面即恢复（事件记录存于后端）。
         </u-pop>
         <button class="btn sm pri" @click="logOpen = false">关闭</button>
+      </div>
+    </u-modal>
+
+    <!-- 渠道编辑弹窗 -->
+    <u-modal
+      v-model="chanModalOpen"
+      :title="chanForm.id == null ? '添加通知渠道' : `编辑渠道 · ${chanForm.name}`"
+      icon="send"
+    >
+      <div class="frm">
+        <label>名称</label>
+        <input v-model="chanForm.name" type="text" maxlength="64" placeholder="如 手机 Bark" />
+        <label>类型</label>
+        <select v-model="chanForm.type" @change="onChanTypeChange">
+          <option v-for="t in CHANNEL_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+        </select>
+        <template v-for="f in typeMeta?.fields ?? []" :key="f.key">
+          <label>{{ f.label }}</label>
+          <input
+            v-model="chanForm.config[f.key]"
+            :type="f.secret ? 'password' : 'text'"
+            :placeholder="f.placeholder ?? ''"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </template>
+        <label>启用</label>
+        <label
+          class="switch"
+          :class="{ on: chanForm.enabled }"
+          style="align-self: center"
+          @click.prevent="chanForm.enabled = !chanForm.enabled"
+        >
+          <span class="tr" />
+        </label>
+      </div>
+      <div class="small muted" style="margin-top: 10px">
+        编辑时带 ****
+        的掩码值原样保存即保留旧凭据；保存后点列表「测试」验证连通性。规则触发时按所选渠道逐个推送。
+      </div>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px">
+        <button class="btn" @click="chanModalOpen = false">取消</button>
+        <button class="btn pri" :disabled="chanSaving" @click="saveChannel">
+          <u-icon name="check" />{{ chanSaving ? '保存中…' : '保存渠道' }}
+        </button>
       </div>
     </u-modal>
   </section>

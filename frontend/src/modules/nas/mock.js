@@ -152,6 +152,63 @@ export const activeAlerts = [
   },
 ];
 
+/** 通知渠道（自动化页渠道管理演示回退；config_masked 形状与 GET /alert/channels 一致） */
+export const alertChannels = [
+  {
+    id: 1,
+    name: '手机 Bark',
+    type: 'bark',
+    enabled: true,
+    config_masked: { device_key: 'AbCd****', server: 'https://api.day.app' },
+  },
+  {
+    id: 2,
+    name: '运维邮箱',
+    type: 'email',
+    enabled: true,
+    config_masked: {
+      host: 'smtp.example.com',
+      port: '587',
+      username: 'a***@example.com',
+      password: '****',
+      to: 'o***@example.com',
+    },
+  },
+  {
+    id: 3,
+    name: '家庭 webhook',
+    type: 'webhook',
+    enabled: false,
+    config_masked: { url: 'http://192.168.1.5:8080/hook' },
+  },
+];
+
+/** 告警规则（自动化页规则列表演示回退，形状与 AlertRuleItem 一致） */
+export const alertRules = [
+  {
+    id: 1,
+    name: '规则 · 温度',
+    metric: 'temp_max',
+    comparator: '>',
+    threshold: 60,
+    duration_ticks: 12,
+    severity: 'warning',
+    channel_ids: [1, 2],
+    enabled: true,
+  },
+  {
+    id: 2,
+    name: '规则 · SMART 属性',
+    metric: 'disk_failed',
+    comparator: '>',
+    threshold: 0,
+    duration_ticks: 1,
+    severity: 'critical',
+    channel_ids: [1],
+    enabled: true,
+  },
+];
+
 /** 存储卷页 */
 /** 存储卷页（与 live 适配层同形状：devices 新字段 + topology 真实层级演示） */
 export const storage = {
@@ -618,9 +675,85 @@ export const ports = {
 export const fans = {
   takeover: true,
   cards: [
-    { name: 'CPU_FAN', rpm: 1220, duty: 46, pwm: true },
-    { name: '前板_FAN', rpm: 980, duty: 38, pwm: false },
-    { name: '后板_FAN', rpm: 1450, duty: 52, pwm: true },
+    {
+      id: 1,
+      name: 'CPU_FAN',
+      rpm: 1220,
+      duty: 46,
+      pwm: true,
+      mode: 'curve',
+      curveId: 1,
+      sensorKey: 'coretemp:Package id 0',
+      sensorTempC: 45,
+    },
+    {
+      id: 2,
+      name: '前板_FAN',
+      rpm: 980,
+      duty: 38,
+      pwm: false,
+      mode: 'auto',
+      curveId: null,
+      sensorKey: null,
+      sensorTempC: null,
+    },
+    {
+      id: 3,
+      name: '后板_FAN',
+      rpm: 1450,
+      duty: 52,
+      pwm: true,
+      mode: 'fixed',
+      curveId: null,
+      sensorKey: null,
+      sensorTempC: null,
+    },
+  ],
+  /** 调速依据候选（形状与 /monitor/temperatures 条目一致，仅演示回退用） */
+  sensors: [
+    {
+      key: 'coretemp:Package id 0',
+      chip: 'coretemp',
+      label: 'Package id 0',
+      celsius: 45,
+      zone: 'cpu',
+      grade: 'normal',
+    },
+    {
+      key: 'coretemp:Core 1',
+      chip: 'coretemp',
+      label: 'Core 1',
+      celsius: 44,
+      zone: 'cpu',
+      grade: 'normal',
+    },
+    {
+      key: 'coretemp:Core 3',
+      chip: 'coretemp',
+      label: 'Core 3',
+      celsius: 52,
+      zone: 'cpu',
+      grade: 'normal',
+    },
+    { key: 'acpitz:1', chip: 'acpitz', label: '1', celsius: 38, zone: 'board', grade: 'normal' },
+    {
+      key: 'pch:Composite',
+      chip: 'pch',
+      label: 'Composite',
+      celsius: 41,
+      zone: 'board',
+      grade: 'normal',
+    },
+    {
+      key: 'nvme0:Composite',
+      chip: 'nvme',
+      label: 'nvme0 Composite',
+      celsius: 41,
+      zone: 'nvme',
+      grade: 'normal',
+    },
+    { key: 'smart:sda', chip: 'smart', label: 'sda', celsius: 34, zone: 'disk', grade: 'normal' },
+    { key: 'smart:sdb', chip: 'smart', label: 'sdb', celsius: 35, zone: 'disk', grade: 'normal' },
   ],
   curveDefault: [
     [30, 22],

@@ -41,7 +41,13 @@ async def create_fan(body: FanZoneIn, db: AsyncSession = DbDep) -> dict:
 
 @router.put("/fans/{zone_id}")
 async def update_fan(zone_id: int, body: FanZoneUpdate, db: AsyncSession = DbDep) -> dict:
-    patch = {k: v for k, v in body.model_dump().items() if v is not None or k == "curve_id"}
+    # exclude_unset：只应用请求体显式出现的字段，未提及的 curve_id/sensor_key 不得被默认值清掉；
+    # 这两者为可空语义字段，显式 null = 清除（调速依据回退 CPU 最高温）
+    patch = {
+        k: v
+        for k, v in body.model_dump(exclude_unset=True).items()
+        if v is not None or k in ("curve_id", "sensor_key")
+    }
     return await fan_manager.update_zone(db, zone_id, patch)
 
 

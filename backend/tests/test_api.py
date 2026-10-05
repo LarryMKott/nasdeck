@@ -86,6 +86,47 @@ async def test_fan_zone_crud(client):
     assert deleted["deleted"] is True
 
 
+async def test_fan_zone_sensor_key(client):
+    """调速依据 sensor_key：建区指定 → 显式 null 清除回退「自动 · CPU 最高温」。
+
+    sensor_key 与 curve_id 同为可空语义字段，PUT 过滤器不得吞掉显式 null。"""
+    zid = ok(
+        await client.post(
+            "/api/v1/control/fans",
+            json={
+                "name": "依据风扇",
+                "loop": "chassis",
+                "hwmon_name": "nct-test",
+                "pwm_channel": 2,
+                "mode": "auto",
+                "sensor_key": "coretemp:Package id 0",
+            },
+        )
+    )["id"]
+    listed = ok(await client.get("/api/v1/control/fans"))
+    zone = next(z for z in listed if z["id"] == zid)
+    assert zone["sensor_key"] == "coretemp:Package id 0"
+
+    cleared = ok(await client.put(f"/api/v1/control/fans/{zid}", json={"sensor_key": None}))
+    assert cleared["sensor_key"] is None
+    listed = ok(await client.get("/api/v1/control/fans"))
+    zone = next(z for z in listed if z["id"] == zid)
+    assert zone["sensor_key"] is None
+
+    # 再指定一次后删除（覆盖 set → clear → set 全路径）
+    again = ok(await client.put(f"/api/v1/control/fans/{zid}", json={"sensor_key": "smart:sda"}))
+    assert again["sensor_key"] == "smart:sda"
+
+    # 局部更新（仅改名）不得吞掉未提及的 sensor_key / curve_id（exclude_unset 语义）
+    renamed = ok(await client.put(f"/api/v1/control/fans/{zid}", json={"name": "改名依据"}))
+    assert "sensor_key" not in renamed and "curve_id" not in renamed
+    listed = ok(await client.get("/api/v1/control/fans"))
+    zone = next(z for z in listed if z["id"] == zid)
+    assert zone["sensor_key"] == "smart:sda"
+
+    ok(await client.delete(f"/api/v1/control/fans/{zid}"))
+
+
 async def test_alert_rule_invalid_metric(client):
     err(
         await client.post(
@@ -187,3 +228,50 @@ async def test_history_stats_and_export(client):
     assert "ts,value" in resp.text
     resp = await client.get("/api/v1/monitor/history/export?minutes=60&dim=cpu&fmt=bogus")
     assert resp.status_code == 422
+
+
+async def test_channel_update_masks_merge(client):
+    """编辑渠道回显脱敏值：带 **** 的字段合并回旧配置（真凭据不丢），明文字段照常更新。"""
+    from sqlalchemy import select
+
+    from app.db.session import session_factory
+    from app.models.alert import AlertChannel
+
+    cid = ok(
+        await client.post(
+            "/api/v1/alert/channels",
+            json={
+                "name": "tg",
+                "type": "telegram",
+                "config": {"bot_token": "123456:ABC-real-token", "chat_id": "42"},
+                "enabled": True,
+            },
+        )
+    )["id"]
+    try:
+        masked = next(
+            c for c in ok(await client.get("/api/v1/alert/channels")) if c["id"] == cid
+        )["config_masked"]
+        assert masked["bot_token"].endswith("****")
+
+        # 编辑表单整份回传：bot_token 是回显掩码串，chat_id 明文修改，name/enabled 照常
+        ok(
+            await client.put(
+                f"/api/v1/alert/channels/{cid}",
+                json={
+                    "name": "tg2",
+                    "type": "telegram",
+                    "config": {"bot_token": masked["bot_token"], "chat_id": "77"},
+                    "enabled": False,
+                },
+            )
+        )
+        async with session_factory() as db:
+            row = (
+                await db.execute(select(AlertChannel).where(AlertChannel.id == cid))
+            ).scalar_one()
+        assert row.config["bot_token"] == "123456:ABC-real-token"
+        assert row.config["chat_id"] == "77"
+        assert row.name == "tg2" and row.enabled is False
+    finally:
+        ok(await client.delete(f"/api/v1/alert/channels/{cid}"))

@@ -5,7 +5,7 @@
  */
 
 import * as mock from '../mock';
-import { getChannels, getEvents, getFiringEvents } from '../api/endpoints/alert';
+import { getChannels, getEvents, getFiringEvents, getRules } from '../api/endpoints/alert';
 import { hhmm, pick } from './shared';
 
 /** firing 告警 → 铃铛/告警卡形状。复用 30s 缓存（fetchDashboard / 布局铃铛 / 本函数）；
@@ -25,17 +25,20 @@ export async function fetchActiveAlerts() {
   };
 }
 
-/** 自动化页取数：事件流（limit=10）+ firing 告警 + 通知渠道
+/** 自动化页取数：事件流（limit=10）+ firing 告警 + 通知渠道 + 规则
  * @returns {Promise<{data: object, live: boolean}>} */
 export async function fetchAutomation() {
-  const [eventsS, activeS, chansS] = await Promise.allSettled([
+  const [eventsS, activeS, chansS, rulesS] = await Promise.allSettled([
     getEvents(10),
     fetchActiveAlerts(),
     getChannels(),
+    getRules(),
   ]);
   const events = pick(eventsS) ?? [];
   const active = pick(activeS) ?? { data: [], live: false };
   const channels = pick(chansS);
+  const rules = pick(rulesS);
+  const demo = !active.live; // 整页演示回退时渠道/规则也取演示值；live 时单路失败如实为空
   return {
     data: {
       activeAlerts: active.data,
@@ -44,8 +47,9 @@ export async function fetchAutomation() {
         ...e,
         time: hhmm(e.fired_at),
       })),
-      // 通知渠道真实清单（名称/type），测试通知按钮据此接线
-      channels: (channels ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type })),
+      // 通知渠道真实清单（含启用态与脱敏配置，渠道管理/规则多选数据源）
+      channels: demo && !channels ? mock.alertChannels : (channels ?? []),
+      rules: demo && !rules ? mock.alertRules : (rules ?? []),
     },
     live: active.live,
   };

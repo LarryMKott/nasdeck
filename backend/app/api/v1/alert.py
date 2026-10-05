@@ -122,7 +122,16 @@ async def update_channel(channel_id: int, body: AlertChannelIn, db: AsyncSession
     if not channel:
         raise NotFoundError(f"channel {channel_id} not found")
     engine.channel_impl(body.type).validate(body.config)
-    channel.name, channel.type, channel.config, channel.enabled = body.name, body.type, body.config, body.enabled
+    # 编辑表单回显的是 GET 脱敏值：仍带掩码（****）的字段合并回旧配置，
+    # 避免把 "abcd****" 掩码串当成新凭据存库；其余字段（含新增键）按提交值更新
+    merged = {
+        key: channel.config.get(key)
+        if isinstance(value, str) and "****" in value and key in channel.config
+        else value
+        for key, value in body.config.items()
+    }
+    channel.name, channel.type, channel.enabled = body.name, body.type, body.enabled
+    channel.config = merged
     await db.flush()
     return {"id": channel.id}
 

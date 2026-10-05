@@ -73,8 +73,9 @@ async def update_zone(db: AsyncSession, zone_id: int, patch: dict) -> dict:
     if patch.get("curve_id") is not None:
         await _require_curve(db, patch["curve_id"])
     changed = {}
+    # sensor_key 与 curve_id 同为可空语义字段：显式 null 合法（清除调速依据）
     for key, value in patch.items():
-        if value is not None or key == "curve_id":
+        if value is not None or key in ("curve_id", "sensor_key"):
             setattr(zone, key, value)
             changed[key] = value
     # 退出受管状态（切回 auto / 停用控区）时必须交还内核，否则 pwm_enable 滞留
