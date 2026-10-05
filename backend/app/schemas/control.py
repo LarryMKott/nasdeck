@@ -85,3 +85,15 @@ class FcsStatus(BaseModel):
     active: bool | None  # 非 Linux 为 null
     taken_over: bool
     enabled_config: bool
+
+class FanScheduleIn(BaseModel):
+    """时段静音计划（M2.5）：窗口期内曲线评估温度平移 -offset_c（更静）。"""
+
+    enabled: bool
+    start: int = Field(ge=0, le=23)
+    end: int = Field(ge=0, le=23)
+    offset_c: float = Field(ge=0, le=15)
+
+
+class FanScheduleOut(FanScheduleIn):
+    active: bool = False  # 当前时刻是否处于静音窗口（响应时实时判定）

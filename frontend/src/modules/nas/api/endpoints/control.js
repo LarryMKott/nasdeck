@@ -67,6 +67,21 @@ export function releaseFcs() {
   return apiData('/api/v1/control/fcs/release', { method: 'POST' });
 }
 
+/** 时段静音计划（窗口内曲线目标温度上移，夜间更静）
+ * @returns {Promise<import('../../models/control').FanSchedule>} */
+export function getFanSchedule() {
+  return apiData('/api/v1/control/fan-schedule');
+}
+
+/** 保存时段静音计划（仅管理员；≤5s 生效）
+ * @param {import('../../models/control').FanSchedule} cfg */
+export function putFanSchedule(cfg) {
+  return apiData('/api/v1/control/fan-schedule', {
+    method: 'PUT',
+    body: { enabled: cfg.enabled, start: cfg.start, end: cfg.end, offset_c: cfg.offset_c },
+  });
+}
+
 /** 未建风区的 hwmon 硬件通道（硬件检测区数据源）
  * @returns {Promise<import('../../models/control').HwmonChannel[]>} */
 export function getHwmonChannels() {

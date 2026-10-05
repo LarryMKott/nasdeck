@@ -5,7 +5,13 @@
  */
 
 import * as mock from '../mock';
-import { getCurves, getFans, getFcs, getHwmonChannels } from '../api/endpoints/control';
+import {
+  getCurves,
+  getFanSchedule,
+  getFans,
+  getFcs,
+  getHwmonChannels,
+} from '../api/endpoints/control';
 import { getTemperatures } from '../api/endpoints/monitor';
 import { pick } from './shared';
 
@@ -19,15 +25,16 @@ export const DEFAULT_CURVE_TEMPLATE = [
   [62, 85],
 ];
 
-/** 风扇页取数：风区/曲线/FCS/硬件通道/温度传感器 5 路并发；仅风区源不可达才演示回退
+/** 风扇页取数：风区/曲线/FCS/硬件通道/温度传感器/静音计划 6 路并发；仅风区源不可达才演示回退
  * @returns {Promise<{data: object, live: boolean}>} */
 export async function fetchFans() {
-  const [zonesS, curvesS, fcsS, chansS, tempsS] = await Promise.allSettled([
+  const [zonesS, curvesS, fcsS, chansS, tempsS, schedS] = await Promise.allSettled([
     getFans(),
     getCurves(),
     getFcs(),
     getHwmonChannels(),
     getTemperatures(),
+    getFanSchedule(),
   ]);
   const zones = pick(zonesS);
   if (zones === null) return { data: mock.fans, live: false }; // 仅后端不可达才演示回退
@@ -39,6 +46,8 @@ export async function fetchFans() {
   return {
     data: {
       takeover: fcs?.taken_over || zones.some((z) => z.mode !== 'auto'),
+      // 时段静音计划（单路失败为 null：视图按关闭态渲染，不虚构）
+      schedule: pick(schedS) ?? null,
       cards: zones.slice(0, 6).map((z) => ({
         id: z.id,
         name: z.name,

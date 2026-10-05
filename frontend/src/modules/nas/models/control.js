@@ -92,4 +92,13 @@
  * @property {boolean} enabled_config
  */
 
+/** 时段静音计划（GET/PUT /control/fan-schedule；PUT 仅管理员）
+ * @typedef {object} FanSchedule
+ * @property {boolean} enabled
+ * @property {number} start 0-23（支持跨午夜，如 23→7）
+ * @property {number} end 0-23
+ * @property {number} offset_c 0-15 窗口内曲线目标温度上移量
+ * @property {boolean} [active] 当前时刻是否处于静音窗口
+ */
+
 export {};

@@ -29,6 +29,96 @@ _sensor_fail_streak: dict[int, int] = {}
 ALERT_FULL_MINUTES = 15
 _alert_full_until = 0.0  # time.monotonic() 秒
 
+# 时段静音计划（M2.5）：窗口期内曲线评估温度平移 -offset（等效目标温度 +offset，
+# 曲线更平缓风扇更静）。持久化 system_settings key=fan_schedule；30s 进程内缓存。
+# 失控保护优先级不变：传感器失联/临界温度判定用原始温度，发生在平移之前。
+FAN_SCHEDULE_KEY = "fan_schedule"
+_SCHEDULE_TTL_S = 30.0
+_schedule_cache: dict = {"ts": 0.0, "data": None}
+
+
+def _default_schedule() -> dict:
+    return {"enabled": False, "start": 23, "end": 7, "offset_c": 4.0}
+
+
+def _in_schedule_window(now_hour: int, start: int, end: int) -> bool:
+    """支持跨午夜窗口（23→7）：start==end 视为全天，否则按环形区间判断。"""
+    if start == end:
+        return True
+    return start <= now_hour < end if start < end else now_hour >= start or now_hour < end
+
+
+def schedule_active(now_hour: int | None = None) -> bool:
+    """纯函数：只读缓存（medium_5s 每轮 refresh_schedule_cache 刷新），调速轮零额外 IO。"""
+    import datetime as _dt
+
+    cfg = _schedule_cache["data"]
+    if not cfg or not cfg.get("enabled"):
+        return False
+    hour = now_hour if now_hour is not None else _dt.datetime.now(_dt.UTC).hour
+    return _in_schedule_window(hour, int(cfg["start"]), int(cfg["end"]))
+
+
+def schedule_offset_c(now_hour: int | None = None) -> float:
+    """窗口期内返回平移量，否则 0（curve 分支按此平移评估温度）。"""
+    cfg = _schedule_cache["data"]
+    return float(cfg["offset_c"]) if cfg and schedule_active(now_hour) else 0.0
+
+
+async def _load_schedule() -> dict:
+    from sqlalchemy import select as _select
+
+    from app.models.system import SystemSetting
+
+    async with session_factory() as db:
+        row = (
+            await db.execute(_select(SystemSetting).where(SystemSetting.key == FAN_SCHEDULE_KEY))
+        ).scalar_one_or_none()
+    cfg = _default_schedule()
+    if row and isinstance(row.value, dict):
+        cfg.update({k: v for k, v in row.value.items() if k in cfg})
+    cfg["start"] = max(0, min(23, int(cfg["start"])))
+    cfg["end"] = max(0, min(23, int(cfg["end"])))
+    cfg["offset_c"] = max(0.0, min(15.0, float(cfg["offset_c"])))
+    return cfg
+
+
+async def refresh_schedule_cache() -> None:
+    """medium_5s 每轮调用：30s TTL 限流读库；失败保持旧值（首轮失败=关闭态）。"""
+    import time as _time
+
+    now = _time.monotonic()
+    if _schedule_cache["data"] is not None and now - _schedule_cache["ts"] < _SCHEDULE_TTL_S:
+        return
+    try:
+        cfg = await _load_schedule()
+        _schedule_cache.update(ts=now, data=cfg)
+    except Exception:  # noqa: BLE001
+        _schedule_cache["ts"] = now
+
+
+async def get_schedule() -> dict:
+    return await _load_schedule()
+
+
+async def save_schedule(cfg: dict) -> dict:
+    from sqlalchemy import select as _select
+
+    from app.models.system import SystemSetting
+
+    # 自管会话（不参与请求会话），必须自行 commit——flush 后关会话即回滚
+    async with session_factory() as db:
+        row = (
+            await db.execute(_select(SystemSetting).where(SystemSetting.key == FAN_SCHEDULE_KEY))
+        ).scalar_one_or_none()
+        if row:
+            row.value = cfg
+        else:
+            db.add(SystemSetting(key=FAN_SCHEDULE_KEY, value=cfg, description="时段静音计划"))
+        await db.commit()
+    _schedule_cache.update(ts=0.0, data=None)  # 失配缓存：下一拍（≤5s）即时生效
+    return cfg
+
 
 def request_full_speed(minutes: int = ALERT_FULL_MINUTES) -> float:
     """告警动作申请全速窗口；返回覆盖截止的 monotonic 时刻。"""
@@ -188,14 +278,15 @@ async def _drive_zone(db: AsyncSession, zone: FanZone, temps: dict[str, float | 
             return await _failsafe_on_sensor_lost(zone)
         _sensor_fail_streak.pop(zone.id, None)
         if sensor_temp >= CRITICAL_TEMP_C:
-            target = 100.0  # 临界温度无条件全速
+            target = 100.0  # 临界温度无条件全速（原始温度判定，不受静音窗口平移影响）
         else:
             # 当前占空比（0-255 原始值 → 0-100 pct）：迟滞与斜率限制的基准，
             # 不传则曲线引擎每 tick 可无阻尼跳变（审查 2026-09-30 P1）
             raw = hwmon_driver.read_pwm(zone.hwmon_name, zone.pwm_channel)
             current_pct = raw / 255 * 100 if raw is not None else None
+            offset = schedule_offset_c()
             target = curve_engine.target_pwm(
-                curve.points, sensor_temp, curve.hysteresis_c, int(curve.ramp_per_tick), current_pct
+                curve.points, sensor_temp - offset, curve.hysteresis_c, int(curve.ramp_per_tick), current_pct
             )
     ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, target)
     entry = {
@@ -208,6 +299,8 @@ async def _drive_zone(db: AsyncSession, zone: FanZone, temps: dict[str, float | 
     }
     if sensor_temp is not None:
         entry["sensor_temp_c"] = sensor_temp
+    if schedule_offset_c() > 0:
+        entry["quiet"] = True  # 静音窗口生效标记（FanView 提示用）
     if not ok:
         entry["error"] = "pwm write failed"
     return entry

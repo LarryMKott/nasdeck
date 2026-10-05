@@ -12,6 +12,8 @@ from app.models.control import FanCurve
 from app.schemas.control import (
     CurveIn,
     CurveItem,
+    FanScheduleIn,
+    FanScheduleOut,
     FanZoneIn,
     FanZoneItem,
     FanZoneUpdate,
@@ -125,3 +127,17 @@ async def fcs_takeover() -> dict:
 @router.post("/fcs/release")
 async def fcs_release() -> dict:
     return await fcs_safe_takeover.release()
+
+@router.get("/fan-schedule", response_model=FanScheduleOut)
+async def get_fan_schedule(db: AsyncSession = DbDep) -> dict:
+    cfg = await fan_manager.get_schedule()
+    cfg["active"] = fan_manager.schedule_active()
+    return cfg
+
+
+@router.put("/fan-schedule", response_model=FanScheduleOut)
+async def put_fan_schedule(body: FanScheduleIn, db: AsyncSession = DbDep) -> dict:
+    """时段静音计划（写操作仅管理员，路由级 trim 鉴权强校验）。保存后下一调速轮（≤5s）生效。"""
+    cfg = await fan_manager.save_schedule(body.model_dump())
+    cfg["active"] = fan_manager.schedule_active()
+    return cfg

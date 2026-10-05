@@ -26,6 +26,7 @@ async def medium_tick() -> None:
                 temperature.max_celsius(items) or 0.0,
             )
         # 风扇调速输出 + 告警评估同事务，一次 commit 一次 fsync（真机跳秒修复的另一环）
+        await fan_manager.refresh_schedule_cache()  # 时段静音计划缓存（30s TTL 限流读库）
         async with session_factory() as db:
             outputs = await fan_manager.apply_tick(db)
 

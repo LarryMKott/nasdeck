@@ -40,7 +40,47 @@ const {
   curveDefault: [],
   curveMeta: null,
   curveId: null,
+  schedule: null,
 });
+
+// ---- 时段静音计划（M2.5）：窗口内曲线目标温度上移，夜间更静；失联/临界保护不受影响 ----
+const schedForm = reactive({ enabled: false, start: 23, end: 7, offset_c: 4 });
+const schedActive = ref(false);
+const schedLoaded = ref(false);
+const schedSaving = ref(false);
+const schedSaved = ref(false);
+
+watch(
+  () => d.value.schedule,
+  (s) => {
+    if (s && !schedLoaded.value) {
+      Object.assign(schedForm, {
+        enabled: !!s.enabled,
+        start: s.start,
+        end: s.end,
+        offset_c: s.offset_c,
+      });
+      schedActive.value = !!s.active;
+      schedLoaded.value = true;
+    }
+  },
+  { immediate: true }
+);
+
+async function saveSchedule() {
+  if (!identity.canWrite || schedSaving.value) return;
+  schedSaving.value = true;
+  schedSaved.value = false;
+  try {
+    const saved = await controlApi.putFanSchedule({ ...schedForm });
+    schedActive.value = !!saved.active;
+    schedSaved.value = true;
+  } catch {
+    /* 失败静默，刷新以实际为准 */
+  } finally {
+    schedSaving.value = false;
+  }
+}
 
 /** 硬件检测：未建风区的 pwm 通道列表，一键创建只读风区（mode=auto 不干预转速） */
 const addingKey = ref('');
@@ -662,6 +702,53 @@ const headerTag = computed(() =>
           >
             <u-icon name="check" />{{
               savingCurve ? '保存中…' : curveSaved ? '已保存' : '保存规则'
+            }}
+          </button>
+
+          <!-- 时段静音计划 -->
+          <div class="small" style="margin: 22px 0 8px; font-weight: 600">
+            时段静音
+            <span v-if="schedActive" class="tag acc" style="margin-left: 6px">生效中</span>
+          </div>
+          <div class="small muted" style="margin-bottom: 10px">
+            窗口内所有「曲线温控」风区的目标温度整体上移（更平缓更静，适合夜间）；支持跨午夜（如 23
+            → 7）。传感器失联与临界温度保护不受影响，仍按原始温度全速。
+          </div>
+          <div class="frm">
+            <label>启用</label>
+            <label
+              class="switch"
+              :class="{ on: schedForm.enabled }"
+              @click="schedForm.enabled = !schedForm.enabled"
+            >
+              <span class="tr" />
+            </label>
+            <label>窗口（时）</label>
+            <div style="display: flex; gap: 8px">
+              <select v-model.number="schedForm.start" style="width: auto">
+                <option v-for="h in 24" :key="'s' + h" :value="h - 1">
+                  {{ `${h - 1}`.padStart(2, '0') }}
+                </option>
+              </select>
+              <span class="small muted" style="align-self: center">→</span>
+              <select v-model.number="schedForm.end" style="width: auto">
+                <option v-for="h in 24" :key="'e' + h" :value="h - 1">
+                  {{ `${h - 1}`.padStart(2, '0') }}
+                </option>
+              </select>
+            </div>
+            <label>目标温度上移 °C</label>
+            <input v-model.number="schedForm.offset_c" type="number" min="0" max="15" />
+          </div>
+          <button
+            v-if="identity.canWrite"
+            class="btn pri"
+            style="margin-top: 12px"
+            :disabled="schedSaving"
+            @click="saveSchedule"
+          >
+            <u-icon name="check" />{{
+              schedSaving ? '保存中…' : schedSaved ? '已保存' : '保存计划'
             }}
           </button>
         </div>
