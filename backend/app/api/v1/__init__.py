@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import alert, control, hardware, monitor, report, storage, system
+from app.api.v1 import alert, control, hardware, metrics, monitor, report, storage, system
 
 api_router = APIRouter()
 api_router.include_router(monitor.router)
@@ -12,3 +12,4 @@ api_router.include_router(control.router)
 api_router.include_router(alert.router)
 api_router.include_router(report.router)
 api_router.include_router(hardware.router)
+api_router.include_router(metrics.router)
