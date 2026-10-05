@@ -24,6 +24,26 @@ FAILSAFE_AFTER_TICKS = 3  # 传感器连续失联达到该 tick 数（约 15s）
 CRITICAL_TEMP_C = 85.0  # 临界温度：无视曲线/迟滞/斜率，无条件全速
 _sensor_fail_streak: dict[int, int] = {}
 
+# 告警动作全速覆盖（IF-THEN 剧本引擎 fan_full）：窗口期内 _drive_zone 无条件 100%，
+# 到期自动回落曲线接管——不落库，重启即失效（安全默认）
+ALERT_FULL_MINUTES = 15
+_alert_full_until = 0.0  # time.monotonic() 秒
+
+
+def request_full_speed(minutes: int = ALERT_FULL_MINUTES) -> float:
+    """告警动作申请全速窗口；返回覆盖截止的 monotonic 时刻。"""
+    global _alert_full_until
+    import time
+
+    _alert_full_until = max(_alert_full_until, time.monotonic() + minutes * 60)
+    return _alert_full_until
+
+
+def alert_full_active() -> bool:
+    import time
+
+    return time.monotonic() < _alert_full_until
+
 
 async def list_zones(db: AsyncSession) -> list[dict]:
     result = await db.execute(select(FanZone).order_by(FanZone.id))
@@ -141,6 +161,20 @@ async def apply_tick(db: AsyncSession) -> list[dict]:
 
 
 async def _drive_zone(db: AsyncSession, zone: FanZone, temps: dict[str, float | None]) -> dict:
+    # 告警动作全速覆盖（fan_full 窗口）：优先级仅次于传感器失联 failsafe，
+    # 高于定速/曲线/临界温度分支（临界本就 100%，行为一致）
+    if alert_full_active():
+        ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, 100.0)
+        return {
+            "zone_id": zone.id,
+            "name": zone.name,
+            "loop": zone.loop,
+            "mode": zone.mode,
+            "target_pwm_pct": 100.0,
+            "current_rpm": hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel) if zone.fan_channel else None,
+            "alert_full": True,
+            **({} if ok else {"error": "pwm write failed (alert_full)"}),
+        }
     if zone.mode == "fixed":
         target, sensor_temp = float(zone.fixed_pwm), None
     else:

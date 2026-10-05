@@ -28,6 +28,8 @@ _REQUIRED_COLUMNS = {
     "alert_channels": {"config", "created_at"},
     "smart_points": {"ts", "granularity", "device", "metric"},
     "volume_points": {"ts", "mount", "used_gb"},
+    # actions 列（M2.1 剧本动作）：旧表缺列 → 触发整库重建（开发期约定）
+    "alert_rules": {"name", "metric", "actions"},
 }
 
 # 重建白名单：仅登记过的表可被整库重建

@@ -14,13 +14,14 @@
 
 /** 创建告警规则请求体（POST /alert/rules；name 禁 CRLF——会拼进邮件 Subject/Bark URL）
  * @typedef {object} AlertRuleIn
- * @property {string} name
  * @property {AlertMetric} metric
+ * @property {string} name
  * @property {AlertComparator} comparator
  * @property {number} threshold
  * @property {number} [duration_ticks]
  * @property {AlertSeverity} [severity]
  * @property {number[]} [channel_ids]
+ * @property {Array<'fan_full'|'report'>} [actions] 触发后剧本动作
  * @property {boolean} [enabled]
  */
 
@@ -34,6 +35,7 @@
  * @property {number} duration_ticks
  * @property {AlertSeverity} severity
  * @property {number[]} channel_ids
+ * @property {Array<'fan_full'|'report'>} actions
  * @property {boolean} enabled
  */
 

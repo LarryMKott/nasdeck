@@ -41,6 +41,11 @@ _firing: dict[int, int] = {}
 _pending: list[tuple[str, dict, str, str]] = []
 _drain_task: asyncio.Task | None = None
 
+# 剧本动作（M2.1 IF-THEN）：fan_full=风扇全速窗口（fan_manager 覆盖），report=生成诊断报告。
+# 通知仍是 channels 多选（notify 天然是每条规则的基座动作）；actions 只承载额外动作。
+VALID_ACTIONS = ("fan_full", "report")
+_pending_actions: list[tuple[str, str, int]] = []  # (action, rule_name, event_id)
+
 
 def channel_impl(channel_type: str):
     if channel_type not in CHANNEL_TYPES:
@@ -143,6 +148,7 @@ async def evaluate_tick(db: AsyncSession, ctx: dict) -> list[dict]:
             _firing[rule.id] = event.id
             fired_events.append(event_dict(event))
             _queue_notify(enabled_channels, rule.channels, title=f"告警触发 · {rule.name}", body=message)
+            _queue_actions(rule, event.id)
 
         elif not hit and rule.id in _firing:
             event_id = _firing.pop(rule.id)
@@ -318,14 +324,59 @@ def _queue_notify(channels: dict[int, AlertChannel], channel_ids: list[int], tit
             _pending.append((channel.type, dict(channel.config), title, body))
 
 
+def _queue_actions(rule: AlertRule, event_id: int) -> None:
+    for action in rule.actions or []:
+        if action in VALID_ACTIONS:
+            _pending_actions.append((action, rule.name, event_id))
+
+
+async def _execute_action(action: str, rule_name: str, event_id: int) -> None:
+    """剧本动作执行（drain 后台 task，事务外）：失败落一条一次性告警事件，不中断其余动作。"""
+    try:
+        if action == "fan_full":
+            from app.services.control import fan_manager
+
+            fan_manager.request_full_speed()
+        elif action == "report":
+            from app.services.report import diagnostic
+
+            await diagnostic.generate_diagnostic(redact=True)
+        else:  # _queue_actions 已过滤，防御分支
+            return
+    except Exception as exc:  # noqa: BLE001 动作失败可见但不拖垮通知/调度
+        logger.warning("剧本动作失败 %s（rule=%s event=%s）: %s", action, rule_name, event_id, exc)
+        try:
+            from app.db.session import session_factory
+
+            async with session_factory() as db:
+                now = _now()
+                db.add(
+                    AlertEvent(
+                        rule_id=None,
+                        rule_name=f"动作失败 · {rule_name}",
+                        metric=f"action:{action}",
+                        value=None,
+                        threshold=None,
+                        severity="warning",
+                        status="resolved",
+                        message=str(exc)[:200],
+                        fired_at=now,
+                        resolved_at=now,
+                    )
+                )
+                await db.commit()
+        except Exception as exc2:  # noqa: BLE001 连事件库都写不进只剩日志
+            logger.error("动作失败事件落库失败: %s", exc2)
+
+
 def schedule_drain() -> None:
-    """事务提交后由调用方触发：后台 task 发送待发通知。
+    """事务提交后由调用方触发：后台 task 发送待发通知与待执行动作。
 
     上一批尚未发完（多渠道叠加 10-15s 超时）时直接跳过本轮入队——队列在
     evaluate_tick 后持续累积，不会丢通知，只合并发送时机。
     """
     global _drain_task
-    if not _pending:
+    if not _pending and not _pending_actions:
         return
     if _drain_task is not None and not _drain_task.done():
         return
@@ -341,6 +392,9 @@ async def _drain() -> None:
             logger.warning("通知发送失败 channel=%s: %s", channel_type, exc)
             ok = False
         logger.info("通知 %s channel=%s ok=%s", title, channel_type, ok)
+    while _pending_actions:
+        action, rule_name, event_id = _pending_actions.pop(0)
+        await _execute_action(action, rule_name, event_id)
 
 
 def event_dict(event: AlertEvent) -> dict:

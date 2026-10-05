@@ -20,6 +20,9 @@ class AlertRule(Base, TimestampMixin):
     duration_ticks: Mapped[int] = mapped_column(Integer, default=1)  # 1-1440 连续满足次数
     severity: Mapped[str] = mapped_column(String(8), default="warning")  # info/warning/critical
     channels: Mapped[list] = mapped_column(JSON, default=list)  # channel_id 列表
+    # 剧本动作（M2.1 IF-THEN）：fan_full=风扇全速 15 分钟 / report=生成诊断报告；
+    # 通知推送由 channels 承载，不在 actions 内
+    actions: Mapped[list] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 

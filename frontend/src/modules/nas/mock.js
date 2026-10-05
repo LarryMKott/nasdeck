@@ -203,6 +203,7 @@ export const alertRules = [
     duration_ticks: 12,
     severity: 'warning',
     channel_ids: [1, 2],
+    actions: [],
     enabled: true,
   },
   {
@@ -214,6 +215,7 @@ export const alertRules = [
     duration_ticks: 1,
     severity: 'critical',
     channel_ids: [1],
+    actions: ['fan_full'],
     enabled: true,
   },
 ];

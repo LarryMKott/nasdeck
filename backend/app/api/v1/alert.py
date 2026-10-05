@@ -33,6 +33,7 @@ def _rule_dict(rule: AlertRule) -> dict:
         "duration_ticks": rule.duration_ticks,
         "severity": rule.severity,
         "channel_ids": rule.channels,
+        "actions": rule.actions or [],
         "enabled": rule.enabled,
     }
 

@@ -139,6 +139,25 @@ function toggleRuleChannel(id) {
   else ruleChannels.value.push(id);
 }
 
+/** 剧本动作多选（M2.1 IF-THEN）：通知由渠道多选承载，这里是触发后的额外动作 */
+const RULE_ACTIONS = [
+  { value: 'fan_full', label: '风扇全速 15 分钟' },
+  { value: 'report', label: '生成诊断报告' },
+];
+const ruleActions = ref([]);
+function toggleRuleAction(value) {
+  const i = ruleActions.value.indexOf(value);
+  if (i >= 0) ruleActions.value.splice(i, 1);
+  else ruleActions.value.push(value);
+}
+
+function actionsText(actions) {
+  return (
+    (actions ?? []).map((a) => RULE_ACTIONS.find((x) => x.value === a)?.label ?? a).join('、') ||
+    '—'
+  );
+}
+
 async function saveRule() {
   if (!identity.canWrite) return;
   ruleSaving.value = true;
@@ -152,6 +171,7 @@ async function saveRule() {
       duration_ticks: parseInt(String(ruleForm.value.duration), 10) || 12,
       severity: 'warning',
       channel_ids: [...ruleChannels.value],
+      actions: [...ruleActions.value],
       enabled: true,
     });
     ruleSaved.value = true;
@@ -199,6 +219,7 @@ async function toggleRule(r) {
       duration_ticks: r.duration_ticks,
       severity: r.severity,
       channel_ids: [...(r.channel_ids ?? [])],
+      actions: [...(r.actions ?? [])],
       enabled: next,
     });
   } catch {
@@ -503,6 +524,18 @@ const headerTag = computed(() => ({
             <span v-else class="small muted" style="align-self: center">
               暂无渠道可推——先在上方「添加渠道」
             </span>
+            <label>触发后动作（可多选）</label>
+            <span class="chips" style="align-self: center">
+              <button
+                v-for="a in RULE_ACTIONS"
+                :key="a.value"
+                type="button"
+                :class="{ on: ruleActions.includes(a.value) }"
+                @click="toggleRuleAction(a.value)"
+              >
+                {{ a.label }}
+              </button>
+            </span>
           </div>
           <button class="btn pri" style="margin-top: 15px" :disabled="ruleSaving" @click="saveRule">
             <u-icon name="check" />{{ ruleSaving ? '保存中…' : ruleSaved ? '已保存' : '保存规则' }}
@@ -515,6 +548,7 @@ const headerTag = computed(() => ({
                 <th>规则</th>
                 <th>条件</th>
                 <th>通知渠道</th>
+                <th>动作</th>
                 <th>启用</th>
                 <th class="r">操作</th>
               </tr>
@@ -527,6 +561,7 @@ const headerTag = computed(() => ({
                   {{ channelNames(r.channel_ids) }}
                   <span v-if="hasDeletedChannel(r.channel_ids)" class="muted">（含已删渠道）</span>
                 </td>
+                <td class="small">{{ actionsText(r.actions) }}</td>
                 <td>
                   <label class="switch" :class="{ on: r.enabled }" @click="toggleRule(r)">
                     <span class="tr" />
