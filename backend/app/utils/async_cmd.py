@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 
 
 def _log_call(prefix: str, args: tuple[str, ...], rc: int, out: str, err: str, elapsed: float) -> None:
+    """DEBUG 级记录一次外部工具调用（排障主线索，见模块 docstring）。
+
+    Args:
+        prefix (str): 日志前缀（如 "工具"）。
+        args (tuple[str, ...]): 完整命令行参数。
+        rc (int): 退出码。
+        out (str): 标准输出（仅记录字节数）。
+        err (str): 标准错误（仅记录字节数）。
+        elapsed (float): 耗时（秒）。
+    """
     logger.debug(
         "%s %s → rc=%s out=%dB err=%dB %.2fs",
         prefix,
@@ -31,7 +41,18 @@ def _log_call(prefix: str, args: tuple[str, ...], rc: int, out: str, err: str, e
 async def run_cmd(
     *args: str, timeout: float = 15.0
 ) -> tuple[int, str, str]:
-    """执行命令返回 (rc, stdout, stderr)；命令不存在抛 1003。"""
+    """执行命令返回 (rc, stdout, stderr)。
+
+    Args:
+        *args (str): 命令行参数（首参为可执行名）。
+        timeout (float): 超时秒数（默认 15）。
+
+    Returns:
+        tuple[int, str, str]: (退出码, 标准输出, 标准错误)，文本均按 UTF-8 容错解码。
+
+    Raises:
+        ExternalToolError: 可执行不存在（code 1003）或超时（超时会 kill 并回收子进程）。
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -57,7 +78,18 @@ async def run_cmd(
 
 
 def run_cmd_sync(*args: str, timeout: float = 15.0) -> tuple[int, str, str]:
-    """同步版命令执行：专供线程池内的 storcli 采集路径（asyncio 不可用场景）。"""
+    """同步版命令执行：专供线程池内的 storcli 采集路径（asyncio 不可用场景）。
+
+    Args:
+        *args (str): 命令行参数（首参为可执行名）。
+        timeout (float): 超时秒数（默认 15）。
+
+    Returns:
+        tuple[int, str, str]: (退出码, 标准输出, 标准错误)。
+
+    Raises:
+        ExternalToolError: 不可执行（含 PermissionError）或超时。
+    """
     import subprocess
 
     started = time.monotonic()
@@ -77,7 +109,15 @@ def run_cmd_sync(*args: str, timeout: float = 15.0) -> tuple[int, str, str]:
 
 
 def run_storcli_sync(*args: str, timeout: float = 30.0) -> tuple[int, str, str]:
-    """storcli 同步封装：按配置路径/PATH 解析命令（settings.storcli_cmd）。"""
+    """storcli 同步封装：按配置路径/PATH 解析命令。
+
+    Args:
+        *args (str): storcli 子命令参数。
+        timeout (float): 超时秒数（storcli 一轮可能 0.3-30s，默认 30）。
+
+    Returns:
+        tuple[int, str, str]: 同 run_cmd_sync。
+    """
     from app.core.config import settings
 
     return run_cmd_sync(settings.storcli_cmd, *args, timeout=timeout)

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class PartitionItem(BaseModel):
+    """分区/子拓扑条目（lsblk children 平铺）。"""
     name: str  # 不带 /dev/ 前缀（sda1 / dm-0）
     size_bytes: int | None = None
     fstype: str | None = None
@@ -14,6 +15,7 @@ class PartitionItem(BaseModel):
 
 
 class DiskItem(BaseModel):
+    """物理磁盘（合并别名/SMART 健康/温度，契约 §2.5）。"""
     device: str  # 不带 /dev/ 前缀
     path: str
     serial: str | None = None
@@ -30,6 +32,7 @@ class DiskItem(BaseModel):
 
 
 class SmartAttribute(BaseModel):
+    """SMART 属性行（ATA 属性表单行）。"""
     id: int
     name: str
     value: int | None
@@ -39,6 +42,7 @@ class SmartAttribute(BaseModel):
 
 
 class SmartReport(BaseModel):
+    """SMART 报告（契约 §2.6；休眠盘仅 device/standby/health）。"""
     device: str
     model: str | None = None
     serial: str | None = None
@@ -55,20 +59,24 @@ class SmartReport(BaseModel):
 
 
 class AliasIn(BaseModel):
+    """磁盘别名写入请求体。"""
     alias: str = Field(min_length=1, max_length=64)
 
 
 class AliasOut(BaseModel):
+    """别名响应。"""
     serial: str
     alias: str | None = None
 
 
 class AliasDeleted(BaseModel):
+    """别名删除响应。"""
     serial: str
     deleted: bool
 
 
 class RaidMemberItem(BaseModel):
+    """阵列成员盘（storcli PD / mdadm 成员两形态，字段可空）。"""
     slot: str | None = None  # storcli 槽位 "E:S"；mdadm 无此字段
     sn: str | None = None
     model: str | None = None
@@ -84,6 +92,7 @@ class RaidMemberItem(BaseModel):
 
 
 class RaidVolumeItem(BaseModel):
+    """阵列卷（硬 RAID VD / 软 RAID md，契约 §2.8；details.sync 见契约）。"""
     source: str  # storcli / mdadm
     controller: str
     volume_id: str
@@ -97,6 +106,7 @@ class RaidVolumeItem(BaseModel):
 
 
 class RaidResponse(BaseModel):
+    """阵列响应（硬 RAID + 软 RAID + 控制器 + 物理盘）。"""
     available: bool
     hardware_raid: list[RaidVolumeItem] = []
     software_raid: list[RaidVolumeItem] = []
@@ -108,6 +118,7 @@ class RaidResponse(BaseModel):
 
 class VolumeForecast(BaseModel):
     """挂载点写满预测（volume_15m 每 15 分钟回归一次；days_to_full=None=增速≈0）。"""
+    """挂载点写满预测（volume_15m 每 15 分钟回归一次；days_to_full=None=增速≈0）。"""
 
     days_to_full: float | None = None
     slope_percent_per_day: float = 0.0
@@ -116,6 +127,7 @@ class VolumeForecast(BaseModel):
 
 
 class VolumeItem(BaseModel):
+    """挂载卷（契约 §2.9，含 forecast 写满预测）。"""
     device: str
     mount: str
     fs_type: str
@@ -129,11 +141,13 @@ class VolumeItem(BaseModel):
 
 
 class SelfTestIn(BaseModel):
+    """发起自检请求体。"""
     device: str = Field(pattern=r"^(nvme)?[a-z0-9]+$|^/dev/(nvme)?[a-z0-9]+$")
     type: str = Field(pattern="^(short|long|conveyance)$")
 
 
 class SelfTestState(BaseModel):
+    """自检任务状态（进程内，重启即失）。"""
     device: str
     type: str
     status: str  # running/done/failed
@@ -145,12 +159,14 @@ class SelfTestState(BaseModel):
 
 
 class SmartTrendPoint(BaseModel):
+    """SMART 趋势点（smart_15m 采集）。"""
     ts: str
     value: float
     raw_text: str | None = None
 
 
 class SmartTrendResponse(BaseModel):
+    """SMART 趋势序列（days≤30 回 1h 桶，否则 1d 桶）。"""
     device: str
     metric: str
     granularity: str  # 1h（days≤30）/ 1d（更长）

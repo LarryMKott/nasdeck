@@ -9,6 +9,13 @@ from app.db.base import Base, TimestampMixin
 
 
 class DiskAlias(Base, TimestampMixin):
+    """磁盘别名：用户给物理盘起的好记名字（按序列号持久化）。
+
+    Attributes:
+        serial (str): 盘序列号（唯一键）。
+        alias (str): 别名（硬盘页/拓扑树展示）。
+    """
+
     __tablename__ = "disk_aliases"
     __table_args__ = (UniqueConstraint("serial", name="uq_disk_serial"),)
 

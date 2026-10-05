@@ -23,6 +23,12 @@ _last_day: str | None = None
 
 
 async def smart_15m_tick() -> None:
+    """15 分钟一轮 SMART 趋势：逐盘串行采样 → 1h/1d 桶落库 → 变化速率规则评估。
+
+    逐盘独立 try/except，单盘失败不拖累其余盘；跨 UTC 日时顺带执行一次
+    保留窗清理（_last_day 翻日标记保证每日一跑）。有新告警事件时写
+    realtime_cache 并调度后台通知 drain。任何异常只记 warning，不中断调度。
+    """
     global _last_day
     try:
         disks = await volume_service.list_disks()

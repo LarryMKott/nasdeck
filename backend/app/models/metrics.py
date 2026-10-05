@@ -9,6 +9,15 @@ from app.db.base import Base
 
 
 class MetricPoint(Base):
+    """系统指标历史点：秒级原始与分钟聚合同表，granularity 区分（raw/1m/10m）。
+
+    Attributes:
+        ts (str): UTC 墙钟串（契约 §1.5）；聚合行为对齐桶起点。
+        granularity (str): raw / 1m / 10m。
+        cpu / mem_mb / net_kbps / temp_max / gpu / disk_read_kbps / disk_write_kbps:
+            各指标值；无数据源的列为 NULL（不造 0 值）。
+    """
+
     __tablename__ = "metric_points"
     __table_args__ = (
         UniqueConstraint("ts", "granularity", name="uq_ts_granularity"),

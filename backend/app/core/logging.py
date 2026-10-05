@@ -13,6 +13,7 @@ from app.core.config import settings
 
 
 def setup_logging() -> None:
+    """配置根 logger：stdout 单 handler 统一格式，级别经 Settings.resolved_log_level。"""
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)-7s %(name)s | %(message)s", "%Y-%m-%d %H:%M:%S")

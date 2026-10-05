@@ -19,6 +19,15 @@ _SECRET_KEY_RE = re.compile(r"token|secret|password|passwd|credential|api[_-]?ke
 
 
 def desensitize(text: str, enabled: bool = True) -> str:
+    """对任意文本做正则打码（IPv4 / IPv6 / MAC / 序列号 / 邮箱）。
+
+    Args:
+        text (str): 原始文本。
+        enabled (bool): 脱敏开关；False 时原样返回。默认 True。
+
+    Returns:
+        str: 打码后的文本。
+    """
     if not enabled:
         return text
     for pattern, repl in _PATTERNS:
@@ -27,8 +36,19 @@ def desensitize(text: str, enabled: bool = True) -> str:
 
 
 def mask_secret_values(mapping: dict, enabled: bool = True) -> dict:
-    """按 key 命中打码整个值（settings dump 用）：key 含 token/secret/password 等
-    即视为凭据。仅处理顶层标量值，嵌套结构原样保留（正则兜底仍生效）。"""
+    """按 key 命中打码整个值（settings dump 用）。
+
+    key 含 token/secret/password 等即视为凭据（_SECRET_KEY_RE）。仅处理顶层
+    标量值，嵌套结构原样保留（正则兜底仍生效）。
+
+    Args:
+        mapping (dict): key → value 的 settings dump（SystemSetting 是自由 KV，
+            用户可能存任何 token/password 类值）。
+        enabled (bool): 脱敏开关；False 时浅拷贝原样返回。默认 True。
+
+    Returns:
+        dict: 打码后的新 dict（不修改入参）。
+    """
     if not enabled:
         return dict(mapping)
     out = {}

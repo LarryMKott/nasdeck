@@ -25,7 +25,15 @@ _mem_cache = {"ts": 0.0, "data": None}
 
 
 def _read_meminfo(path: str = "/proc/meminfo") -> dict[str, int] | None:
-    """解析 /proc/meminfo 为 {字段: kB}；非 Linux / 读取失败 / 缺 MemAvailable 回 None。"""
+    """解析 /proc/meminfo 为 {字段: kB}。
+
+    Args:
+        path (str): meminfo 文件路径（默认 /proc/meminfo），测试可注入。
+
+    Returns:
+        dict[str, int] | None: 字段 → kB 值；非 Linux / 读取失败 / 缺
+            MemTotal 或 MemAvailable 时 None。
+    """
     try:
         info: dict[str, int] = {}
         with open(path, encoding="ascii") as fh:
@@ -46,6 +54,13 @@ def _mem_fields(info: dict[str, int]) -> dict:
 
     used = MemTotal − MemAvailable（用户视角，含可回收缓存不计入）；
     系统保留 = used − (Buffers + Cached) 的正差额，负值（被缓存覆盖）回 None 不展示。
+
+    Args:
+        info (dict[str, int]): _read_meminfo / psutil 兜底路径产出的 kB 级字段。
+
+    Returns:
+        dict: {total_mb, available_mb, used_mb, buffers_mb, cached_mb,
+            reserved_mb, swap_percent}，字段缺失时对应分量为 None。
     """
     total, avail = info.get("MemTotal"), info.get("MemAvailable")
     if total is None or avail is None:
@@ -56,6 +71,7 @@ def _mem_fields(info: dict[str, int]) -> dict:
     swap_total, swap_free = info.get("SwapTotal") or 0, info.get("SwapFree") or 0
 
     def mb(kb: int | None) -> float | None:
+        """kB → MB（保留 1 位小数）；None 透传。"""
         return round(kb / 1024, 1) if kb is not None else None
 
     return {
@@ -70,8 +86,15 @@ def _mem_fields(info: dict[str, int]) -> dict:
 
 
 def _mem_info() -> dict:
-    """5s 缓存的内存分量 dict。策略由决策层判定（policy.memory）：meminfo 直读
-    /proc/meminfo；psutil 策略（或老内核缺 MemAvailable）走 psutil 兜底路径。"""
+    """取内存分量 dict（5s 缓存，变化粒度粗、1s 重复读无意义）。
+
+    策略由决策层判定（policy.memory）：meminfo 直读 /proc/meminfo；psutil 策略
+    （或老内核缺 MemAvailable）走 psutil 兜底路径。
+
+    Returns:
+        dict: _mem_fields 形状的内存分量（psutil 兜底时 swap_percent 直接取
+            psutil 口径）。
+    """
     now = time.monotonic()
     if _mem_cache["data"] is None or now - _mem_cache["ts"] >= 5.0:
         info = _read_meminfo() if get_policy().memory == "meminfo" else None
@@ -94,6 +117,15 @@ def _mem_info() -> dict:
 
 
 def _diff(curr: dict, last: dict) -> dict[str, float]:
+    """两次采样计数差分 → 每秒速率（负差分按 0 计，无上一次基准的 key 为 0）。
+
+    Args:
+        curr (dict): 本次采样 {"ts": monotonic 时刻, "counters": {key: 累计值}}。
+        last (dict): 上次采样（同结构）。
+
+    Returns:
+        dict[str, float]: key → 速率（单位/秒）。
+    """
     dt = max(curr["ts"] - last["ts"], 1e-6)
     out = {}
     for key, value in curr["counters"].items():
@@ -111,6 +143,10 @@ _bridge_members: dict = {"ts": 0.0, "set": frozenset()}
 
 
 def _refresh_bridge_members() -> None:
+    """刷新桥成员名单缓存（5s TTL，/sys/class/net 目录扫描，1s tick 不重复扫）。
+
+    非 Linux / 无该路径按无桥成员处理。
+    """
     import os
 
     now = time.monotonic()
@@ -127,7 +163,16 @@ def _refresh_bridge_members() -> None:
 
 
 def _real_net_names(names: list[str]) -> list[str]:
-    """参与吞吐统计的真实接口：剔除回环/合成交换口/被桥接物理口（只计网桥本身）。"""
+    """筛选参与吞吐统计的真实接口。
+
+    剔除回环/合成交换口/被桥接物理口（只计网桥本身，避免计数双计）。
+
+    Args:
+        names (list[str]): 全部网口名。
+
+    Returns:
+        list[str]: 保留的接口名（保持入参顺序）。
+    """
     _refresh_bridge_members()
     name_set = set(names)
     out = []
@@ -143,6 +188,15 @@ def _real_net_names(names: list[str]) -> list[str]:
 
 
 def _net_ifaces() -> dict[str, dict]:
+    """采集真实网口流量（两次采样差分 → 速率 + 累计量）。
+
+    合成交换口与被桥接物理口不参与统计（双计规避见模块级前缀注记）；
+    首采速率为 0 但累计量正确。
+
+    Returns:
+        dict[str, dict]: 真实接口名 → {rx_kbps, tx_kbps, rx_human, tx_human,
+            total_rx_mb, total_tx_mb}。
+    """
     now = time.monotonic()
     all_names = list(psutil.net_io_counters(pernic=True).keys())
     keep = set(_real_net_names(all_names))
@@ -170,6 +224,11 @@ def _net_ifaces() -> dict[str, dict]:
 
 
 def _disk_io() -> dict[str, float]:
+    """整机磁盘 IO 速率（psutil 全局读写字节计数差分）。
+
+    Returns:
+        dict[str, float]: {read_kbps, write_kbps}（KB/s）；计数不可得时均为 0.0。
+    """
     global _last_disk
     now = time.monotonic()
     disk = psutil.disk_io_counters()
@@ -187,7 +246,14 @@ def _read_proc_stat(path: str = "/proc/stat") -> list[tuple[int, int]] | None:
     """解析 /proc/stat 的 cpu 行 → [(总 jiffies, 空闲 jiffies), ...]，首项为全机合计。
 
     /proc 是内核内存文件，读取无磁盘 IO，1s 轮询开销可忽略（Unraid 同款做法，
-    不 fork top/lscpu）。非 Linux / 解析异常回 None。
+    不 fork top/lscpu）。
+
+    Args:
+        path (str): proc stat 文件路径（默认 /proc/stat），测试可注入。
+
+    Returns:
+        list[tuple[int, int]] | None: 每逻辑核 + 全机合计的 (总, 空闲) jiffies；
+            非 Linux / 解析异常 / 无有效行时 None。
     """
     try:
         rows = []
@@ -214,6 +280,10 @@ def _cpu_percent() -> tuple[float, list[float]]:
 
     策略由决策层启动时判定（policy.cpu_util）：proc 直读或 psutil（其内部同为
     /proc/stat 差值，零外部命令）。启动后文件异常消失按无数据退 0，运行期不切换策略。
+
+    Returns:
+        tuple[float, list[float]]: (全机占用百分比, 每逻辑核占用百分比列表，
+            均保留 1 位小数)；无数据时全 0。
     """
     if get_policy().cpu_util != "proc":
         return psutil.cpu_percent(interval=None), [
@@ -238,7 +308,14 @@ def _cpu_percent() -> tuple[float, list[float]]:
 
 
 def _psutil_per_core_freq(n: int) -> list[float | None]:
-    """psutil 每核频率退路；平台不给足条目时以 None 占位（Windows 实测仅回 1 条）。"""
+    """psutil 每核频率退路（Windows 实测仅回 1 条）。
+
+    Args:
+        n (int): 期望的逻辑核数。
+
+    Returns:
+        list[float | None]: 每核频率（MHz，取整）；平台不给足条目时以 None 占位。
+    """
     freqs = psutil.cpu_freq(percpu=True) or []
     current = [f.current if f else None for f in freqs]
     if len(current) >= n:
@@ -250,10 +327,15 @@ _freq_max_mhz: int | None = None
 
 
 def _per_core_freq() -> list[float | None]:
-    """每逻辑核当前频率（MHz）。策略由决策层判定（policy.cpu_freq）：
+    """取每逻辑核当前频率（MHz）。
+
+    策略由决策层判定（policy.cpu_freq）：
 
     sysfs 直读 /sys/devices/system/cpu/cpuX/cpufreq/scaling_cur_freq（内核实时导出，
     零 lscpu）；缺文件的核以 None 占位，运行期不切换策略；psutil 策略走退路实现。
+
+    Returns:
+        list[float | None]: 每逻辑核频率（MHz）；无法取核数时空列表。
     """
     global _freq_max_mhz
     n = psutil.cpu_count(logical=True) or 0
@@ -278,6 +360,14 @@ def _per_core_freq() -> list[float | None]:
 
 
 async def snapshot() -> dict:
+    """采集整机实时资源快照（契约 §2.1 RealtimeSnapshot 形状）。
+
+    Returns:
+        dict: 含 ts / available / cpu_percent / cpu_per_core / cpu_freq_mhz /
+            cpu_freq_per_core / cpu_freq_max_mhz / load / mem_* 全家 /
+            swap_percent / net（各真实网口分量）/ disk_io / power / process_count /
+            uptime_s。
+    """
     cpu_percent, per_core = _cpu_percent()
     freq_per_core = _per_core_freq()
     freq_mhz = next((v for v in freq_per_core if v), None)

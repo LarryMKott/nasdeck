@@ -16,6 +16,19 @@ class SPAStaticFiles(StaticFiles):
     """带 SPA 回退的静态文件：文件不存在时返回 index.html（api/ws 除外）。"""
 
     async def get_response(self, path: str, scope):
+        """解析静态文件；404 且非 api/ws 前缀时回退 index.html（SPA history 路由）。
+
+        Args:
+            path (str): 请求的相对路径。
+            scope: ASGI 连接 scope（透传父类）。
+
+        Returns:
+            Response: 静态文件响应或 index.html 回退。
+
+        Raises:
+            StarletteHTTPException: 404 但命中 api/ws 前缀（保持接口 404 语义），
+                或非 404 的其它 HTTP 异常。
+        """
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
@@ -28,5 +41,10 @@ class SPAStaticFiles(StaticFiles):
 
 
 def mount_spa(app: FastAPI, static_dir: str) -> None:
-    """把前端 dist 挂到 /（须在全部路由注册之后调用，API/WS 优先匹配）。"""
+    """把前端 dist 挂到 /（须在全部路由注册之后调用，API/WS 优先匹配）。
+
+    Args:
+        app (FastAPI): 应用实例。
+        static_dir (str): 前端构建产物目录（NASDECK_STATIC_DIR）。
+    """
     app.mount("/", SPAStaticFiles(directory=static_dir, html=True), name="spa")

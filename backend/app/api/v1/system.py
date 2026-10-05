@@ -39,6 +39,14 @@ router = APIRouter(prefix="/system", tags=["system"], dependencies=[ApiKeyDep, T
 
 @router.get("/info", response_model=SystemInfo)
 async def info(request: Request) -> dict:
+    """系统基础信息（主机名/内核/发行版/fnOS 版本/运行时长等，契约 §3.3）。
+
+    Args:
+        request (Request): FastAPI 请求对象（框架注入，用于读取 trim 管理员头）。
+
+    Returns:
+        dict: 见 schemas.system.SystemInfo。
+    """
     # 权限铁律的前端依据：trim 形态按飞牛注入的 X-Trim-Isadmin 头；
     # 非 trim 形态（api_key/本机无鉴权）恒 true——写权限归 api_key 持有者
     if settings.trim_auth:
@@ -66,12 +74,16 @@ async def env_check() -> dict:
     实时探测而非读安装报告：工具后来补装、驱动状态变化都能如实反映；
     缺失项带安装提示（对应 install_callback「缺啥装啥、失败降级」的兜底说明）。
     工具清单与用途说明来自策略决策层 TOOLS 注册表（单一来源）。
+
+    Returns:
+        dict: 含 schemes/python/config/tools/drivers/storcli 各节的自检结果。
     """
     import shutil
     import sys
     from pathlib import Path
 
     def tool(name: str) -> dict:
+        """组装单个外部工具的探测结果条目。"""
         found = shutil.which(name)
         desc, pkg = TOOLS[name]
         return {
@@ -114,16 +126,38 @@ async def env_check() -> dict:
 
 @router.get("/docker/containers", response_model=DockerResponse)
 async def docker_containers() -> dict:
+    """列出 Docker 容器状态。
+
+    Returns:
+        dict: 见 schemas.system.DockerResponse。
+    """
     return await docker_service.list_containers()
 
 
 @router.get("/ports", response_model=list[PortEntry])
 async def get_ports(db: AsyncSession = DbDep) -> list[dict]:
+    """列出监听端口及用户标注的别名。
+
+    Args:
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        list[dict]: 见 schemas.system.PortEntry。
+    """
     return await port_service.list_ports(db)
 
 
 @router.post("/ports/alias", response_model=PortAliasOut)
 async def post_port_alias(body: PortAliasIn, db: AsyncSession = DbDep) -> dict:
+    """新增/更新端口别名标注（按端口号 upsert）。
+
+    Args:
+        body (PortAliasIn): 端口号、标签与备注。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: 见 schemas.system.PortAliasOut。
+    """
     row = await port_service.upsert_alias(db, body.port, body.label, body.note)
     return {"id": row.id, "port": row.port, "label": row.label, "note": row.note}
 
@@ -134,22 +168,63 @@ async def get_processes(
     limit: int = Query(default=50, ge=1, le=500),
     db: AsyncSession = DbDep,
 ) -> list[dict]:
+    """列出资源占用最高的进程。
+
+    Args:
+        sort (str): 排序依据，cpu 或 mem，默认 cpu。
+        limit (int): 返回条数上限，1-500，默认 50。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        list[dict]: 见 schemas.system.ProcessItem。
+    """
     return await process_service.list_processes(db, sort, limit)
 
 
 @router.delete("/processes/{pid}")
 async def kill_process(pid: int, confirm: bool = Query(default=False), db: AsyncSession = DbDep) -> dict:
+    """终止指定进程（白名单内进程受保护）。
+
+    Args:
+        pid (int): 进程 id。
+        confirm (bool): 二次确认开关，必须为 true 才执行终止。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"pid": 进程 id, "name": 进程名, "killed": True}``。
+
+    Raises:
+        PermissionDeniedError: confirm 未开或进程在保护名单内时。
+        NotFoundError: 进程不存在时。
+    """
     return await process_service.kill_process(db, pid, confirm)
 
 
 @router.get("/whitelist", response_model=list[WhitelistItem])
 async def get_whitelist(db: AsyncSession = DbDep) -> list[dict]:
+    """列出进程终止保护白名单。
+
+    Args:
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        list[dict]: 见 schemas.system.WhitelistItem。
+    """
     result = await db.execute(select(KillWhitelist).order_by(KillWhitelist.name))
     return [{"id": w.id, "name": w.name, "reason": w.reason} for w in result.scalars()]
 
 
 @router.post("/whitelist", response_model=WhitelistItem)
 async def post_whitelist(body: WhitelistIn, db: AsyncSession = DbDep) -> dict:
+    """新增或更新白名单条目（按进程名 upsert）。
+
+    Args:
+        body (WhitelistIn): 进程名与保护原因。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: 见 schemas.system.WhitelistItem。
+    """
     result = await db.execute(select(KillWhitelist).where(KillWhitelist.name == body.name))
     row = result.scalar_one_or_none()
     if row:
@@ -163,6 +238,18 @@ async def post_whitelist(body: WhitelistIn, db: AsyncSession = DbDep) -> dict:
 
 @router.delete("/whitelist/{item_id}")
 async def delete_whitelist(item_id: int, db: AsyncSession = DbDep) -> dict:
+    """删除白名单条目。
+
+    Args:
+        item_id (int): 白名单条目 id。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"id": 条目 id, "deleted": True}``。
+
+    Raises:
+        NotFoundError: 条目不存在时。
+    """
     row = await db.get(KillWhitelist, item_id)
     if not row:
         raise NotFoundError(f"whitelist item {item_id} not found")
@@ -173,12 +260,30 @@ async def delete_whitelist(item_id: int, db: AsyncSession = DbDep) -> dict:
 
 @router.get("/settings")
 async def get_settings(db: AsyncSession = DbDep) -> dict:
+    """列出全部系统设置项（键值与说明）。
+
+    Args:
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{key: {"value": 值, "description": 说明}}``。
+    """
     result = await db.execute(select(SystemSetting))
     return {row.key: {"value": row.value, "description": row.description} for row in result.scalars()}
 
 
 @router.put("/settings/{key}")
 async def put_setting(key: str, body: SettingPut, db: AsyncSession = DbDep) -> dict:
+    """写入单个系统设置项（键不存在则创建）。
+
+    Args:
+        key (str): 设置键。
+        body (SettingPut): 新值与描述。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"key": 键, "value": 新值}``。
+    """
     row = await db.get(SystemSetting, key)
     if row:
         row.value, row.description = body.value, body.description or row.description
@@ -191,6 +296,14 @@ async def put_setting(key: str, body: SettingPut, db: AsyncSession = DbDep) -> d
 
 @router.get("/selftest-schedule", response_model=SelftestScheduleOut)
 async def get_selftest_schedule(db: AsyncSession = DbDep) -> dict:
+    """查询 SMART 巡检计划及最近一次执行日期。
+
+    Args:
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: 见 schemas.system.SelftestScheduleOut（含 last_run）。
+    """
     cfg = await selftest_schedule.load_schedule(db)
     cfg["last_run"] = await selftest_schedule.last_run_date(db) or None
     return cfg
@@ -198,7 +311,17 @@ async def get_selftest_schedule(db: AsyncSession = DbDep) -> dict:
 
 @router.put("/selftest-schedule", response_model=SelftestScheduleOut)
 async def put_selftest_schedule(body: SelftestScheduleIn, db: AsyncSession = DbDep) -> dict:
-    """巡检计划（写操作仅管理员，由路由级 TrimAuthDep 强校验）。last_run 只读。"""
+    """保存 SMART 巡检计划。
+
+    写操作仅管理员，由路由级 TrimAuthDep 强校验。last_run 只读。
+
+    Args:
+        body (SelftestScheduleIn): 计划开关、星期、小时与自检类型。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: 见 schemas.system.SelftestScheduleOut（含 last_run）。
+    """
     cfg = await selftest_schedule.save_schedule(
         db, {"enabled": body.enabled, "weekday": body.weekday, "hour": body.hour, "type": body.type}
     )

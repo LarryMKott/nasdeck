@@ -13,11 +13,18 @@ DMI = "/sys/class/dmi/id"
 
 
 def parse_chipset(lspci_out: str | None) -> tuple[str | None, str | None]:
-    """从 lspci -nn 解析（芯片组, host bridge）。
+    """从 lspci -nn 输出解析（芯片组, host bridge）。
 
     芯片组取 ISA bridge / LPC 控制器（如 `Intel Corporation Z370 Chipset LPC/eSPI
     Controller [8086:a2c9]` → `Intel Corporation Z370 Chipset`）；Host bridge 反映
     处理器侧平台（如 `8th Gen Core ... Host Bridge/DRAM Registers [Coffee Lake S]`）。
+
+    Args:
+        lspci_out: ``lspci -nn`` 的完整标准输出；None 按空输入处理。
+
+    Returns:
+        tuple[str | None, str | None]: (芯片组描述, host bridge 描述)，
+            任一项未匹配到即为 None。
     """
     chipset = host = None
     for line in (lspci_out or "").splitlines():
@@ -35,9 +42,23 @@ def parse_chipset(lspci_out: str | None) -> tuple[str | None, str | None]:
 
 
 class MotherboardCollector(BaseCollector):
+    """主板硬件清单采集器（kind="board"）。
+
+    数据来源：DMI（/sys/class/dmi/id）直读厂商/型号/产品名/BIOS 三项 +
+    lspci -nn 识别芯片组与 host bridge；非 Linux（DMI 不可读）降级为
+    available=False，lspci 缺失只影响芯片组两项。
+    """
+
     kind = "board"
 
     async def collect(self) -> dict:
+        """采集主板与 BIOS 信息。
+
+        Returns:
+            dict: name 为 "厂商 型号"；available=False 表示 DMI 不可读（非 Linux）。
+                另带 vendor/model/product_name/chipset/host_bridge 及
+                bios_vendor/bios_version/bios_date，读不到的键为 None/空。
+        """
         vendor = read_text(f"{DMI}/board_vendor")
         if not vendor:
             return {"name": "", "available": False}

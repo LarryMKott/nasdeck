@@ -45,9 +45,24 @@ _LEGACY_METRIC_INDEXES = ("ix_metric_points_ts", "ix_metric_points_granularity")
 
 
 async def _stale_tables(conn: AsyncConnection) -> list[str]:
-    """对照 _REQUIRED_COLUMNS 找出关键列缺失的旧结构表（经检查器，无裸 SQL）。"""
+    """对照 _REQUIRED_COLUMNS 找出关键列缺失的旧结构表（经检查器，无裸 SQL）。
+
+    Args:
+        conn (AsyncConnection): 处于打开事务中的数据库连接。
+
+    Returns:
+        list[str]: 陈旧表名列表；不存在于库中的表不在此列（create_all 会新建）。
+    """
 
     def _check(sync_conn) -> list[str]:
+        """同步侧逐表核对关键列（run_sync 工作线程内执行）。
+
+        Args:
+            sync_conn: 同步连接。
+
+        Returns:
+            list[str]: 关键列缺失的陈旧表名。
+        """
         insp = inspect(sync_conn)
         stale = []
         for table, columns in _REQUIRED_COLUMNS.items():
@@ -67,6 +82,9 @@ def _reconcile_metric_indexes_sync(sync_conn) -> None:
     create_all 对已存在的表整体跳过：模型新增的索引不会补建，历史版本遗留的
     单列索引（ts 被 uq 前缀覆盖、granularity 仅 3 个值）也需清理。按检查器
     existing 集合 diff 出要删/建的索引，经 Index DDL 元素执行。
+
+    Args:
+        sync_conn: run_sync 注入的同步连接。
     """
     insp = inspect(sync_conn)
     table = MetricPoint.__table__
@@ -83,10 +101,16 @@ def _reconcile_metric_indexes_sync(sync_conn) -> None:
 
 
 async def _reconcile_metric_indexes(conn: AsyncConnection) -> None:
+    """异步包装：调度同步侧索引收敛。
+
+    Args:
+        conn (AsyncConnection): 处于打开事务中的数据库连接。
+    """
     await conn.run_sync(_reconcile_metric_indexes_sync)
 
 
 async def init_db() -> None:
+    """建表 + 陈旧结构整库重建 + metric_points 索引收敛（幂等，启动时调用一次）。"""
     # 显式导入全部模型模块注册 metadata（models/__init__ 为空，不导入的模块其表
     # 不会进入 Base.metadata——此前 hardware 漏注册，重建分支一跑即 KeyError）
     from app.models import alert, control, hardware, storage, system  # noqa: F401 注册表
@@ -97,6 +121,11 @@ async def init_db() -> None:
             logger.warning("检测到旧结构表 %s，整库重建（开发期数据可弃）", stale)
 
             def _rebuild(sync_conn) -> None:
+                """整库重建陈旧表（drop_all + 随后 create_all 重建，仅白名单表）。
+
+                Args:
+                    sync_conn: 同步连接。
+                """
                 # 防御性过滤：未注册进 metadata 的名字跳过（正常应全部命中）
                 tables = [Base.metadata.tables[n] for n in _REBUILD_TABLES if n in Base.metadata]
                 # drop_all 按 metadata 依赖序删除；SQLite 外键默认不启用（session 也未开启），

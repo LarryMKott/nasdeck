@@ -24,11 +24,16 @@ _state = {"taken_over": False, "enabled_config": False}
 
 
 def is_fnos() -> bool:
+    """探测当前主机是否为 fnOS。
+
+    Returns:
+        bool: /usr/trim/etc/version 可读到时为 True。
+    """
     return read_text("/usr/trim/etc/version") is not None
 
 
 def load_state() -> None:
-    """启动时从落盘状态对账（幂等）：崩溃/升级重启后 taken_over 依旧如实。"""
+    """启动时从落盘状态对账（幂等）：崩溃/升级重启后 taken_over 依旧如实上报。"""
     try:
         data = json.loads(_STATE_FILE.read_text("utf-8"))
     except (OSError, ValueError):
@@ -40,6 +45,7 @@ def load_state() -> None:
 
 
 def _persist_state() -> None:
+    """把进程内接管状态写入 data/fcs_state.json（失败仅告警，不抛错）。"""
     try:
         _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         _STATE_FILE.write_text(json.dumps(_state), "utf-8")
@@ -48,6 +54,12 @@ def _persist_state() -> None:
 
 
 async def status() -> dict:
+    """上报 FCS 接管现状（systemd 单元活跃性 + 落盘对账状态）。
+
+    Returns:
+        dict: 含 is_fnos / unit / active（None 表示无法探测）/ taken_over /
+            enabled_config。
+    """
     active: bool | None = None
     if platform.system() == "Linux" and is_fnos():
         try:
@@ -65,6 +77,13 @@ async def status() -> dict:
 
 
 async def takeover() -> dict:
+    """接管：停用并禁用原生 pwm-fancontrol，成功后翻转状态并落盘。
+
+    非 fnOS / 非 Linux 环境或 systemctl 失败均不抛错，原因放入 reason。
+
+    Returns:
+        dict: 成功 {"taken_over": True}；失败 {"taken_over": False, "reason": str}。
+    """
     if not is_fnos():
         return {"taken_over": False, "reason": "非 fnOS 环境，无需接管"}
     if platform.system() != "Linux":
@@ -87,6 +106,13 @@ async def takeover() -> dict:
 
 
 async def release() -> dict:
+    """交还：重新启用并启动原生 pwm-fancontrol，确认成功后翻转状态并落盘。
+
+    非 fnOS / 非 Linux 环境或 systemctl 失败均不抛错，原因放入 reason。
+
+    Returns:
+        dict: 成功 {"released": True}；失败 {"released": False, "reason": str}。
+    """
     if not is_fnos():
         return {"released": False, "reason": "非 fnOS 环境，无需恢复"}
     if platform.system() != "Linux":

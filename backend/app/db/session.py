@@ -23,6 +23,10 @@ def _sqlite_pragma(dbapi_conn, _record):
       fast_tick 每 commit 全量 fsync，撞上 medium_tick 连续写事务即超 1s 被调度器跳秒；
     - synchronous=NORMAL：WAL 下安全（掉电最多丢最后事务，不损库）；
     - busy_timeout：偶发写竞争等锁 3s 而非立即报错。
+
+    Args:
+        dbapi_conn: DBAPI 原生连接（sqlite3.Connection）。
+        _record: 连接事件附带的记录（本回调不使用）。
     """
     if not settings.db_url.startswith("sqlite"):
         return

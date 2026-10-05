@@ -10,8 +10,14 @@ APP_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _version_from_pyproject() -> str:
-    """版本唯一来源是 pyproject.toml（与 fpk/manifest 经 build_fpk 校验一致）。
-    读取失败（如部署形态未携带）回退 0.0.0：正式通道日志级别，不影响功能。"""
+    """读取应用版本（pyproject.toml 为唯一来源）。
+
+    与 fpk/manifest 经 build_fpk 校验一致；读取失败（如部署形态未携带）回退
+    0.0.0：仅影响日志级别通道（dev 前缀 DEBUG），不影响功能。
+
+    Returns:
+        str: 语义化版本号；异常时 "0.0.0"。
+    """
     try:
         import tomllib
 
@@ -22,6 +28,24 @@ def _version_from_pyproject() -> str:
 
 
 class Settings(BaseSettings):
+    """全局配置（NASDECK_ 前缀环境变量 + 可选 .env）。
+
+    各字段安全/形态语义见其行内注释（为准）；以下是速览：
+
+    Attributes:
+        port (int): 监听端口。
+        host (str): 监听地址（缺省仅回环）。
+        api_key (str): 直连形态 API Key（空 = 不校验）。
+        trim_auth (bool): 飞牛 CGI 反代形态分级鉴权开关。
+        proxy_token (str): index.cgi→后端代理信任密钥（空 = 不校验）。
+        db_url (str): 数据库连接串（SQLite + WAL）。
+        raw_keep_minutes (int): raw 历史点保留分钟数。
+        storcli_path (str): storcli 显式路径（空 = 自动探测）。
+        log_level (str): 显式日志级别（空 = 按版本通道缺省）。
+        app_version (str): 应用版本（pyproject 唯一来源）。
+        static_dir (str): FPK 形态前端 dist 目录（空 = 不托管 SPA）。
+    """
+
     model_config = SettingsConfigDict(
         env_prefix="NASDECK_", env_file=APP_ROOT / ".env", extra="ignore"
     )
@@ -52,12 +76,23 @@ class Settings(BaseSettings):
 
     @property
     def resolved_log_level(self) -> str:
-        """生效日志级别：显式配置（NASDECK_LOG_LEVEL / 向导）优先，未配置时 dev 前缀包 DEBUG。"""
+        """生效日志级别。
+
+        显式配置（NASDECK_LOG_LEVEL / 配置向导）优先；未配置时 dev 前缀包 DEBUG
+        （便于真机排查采集链路），正式包 INFO。
+
+        Returns:
+            str: 大写级别名（DEBUG/INFO/...）。
+        """
         return (self.log_level or ("DEBUG" if self.app_version.startswith("dev") else "INFO")).upper()
 
     @property
     def storcli_cmd(self) -> str:
-        """storcli 探测顺序：显式配置 → PATH → 项目 bin/ 目录（随包分发的 Linux ELF）。"""
+        """storcli 可执行解析（探测顺序：显式配置 → PATH → 项目 bin/）。
+
+        Returns:
+            str: 可执行路径或兜底名 "storcli64"（缺失时由调用方以 1003 呈现）。
+        """
         import shutil
 
         if self.storcli_path:

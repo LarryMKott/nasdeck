@@ -9,6 +9,15 @@ from app.db.base import Base, TimestampMixin
 
 
 class AlertRule(Base, TimestampMixin):
+    """告警规则：阈值（5s 轮）与慢速（smart_rate/capacity，15 分钟轮）统一载体。
+
+    Attributes:
+        metric (str): 指标名，枚举见契约 §2.19（含 smart_rate:<指标> / capacity_forecast）。
+        duration_ticks (int): 连续满足次数（1-1440；tick 长度随规则类型）。
+        channels (list): 通知渠道 id 列表（触发时逐渠道推送）。
+        actions (list): 剧本动作（fan_full / report，见 engine.VALID_ACTIONS）。
+    """
+
     __tablename__ = "alert_rules"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -27,6 +36,13 @@ class AlertRule(Base, TimestampMixin):
 
 
 class AlertChannel(Base, TimestampMixin):
+    """通知渠道：Telegram/Bark/邮件/Webhook 任一形态的推送目标。
+
+    Attributes:
+        type (str): telegram / bark / email / webhook。
+        config (dict): 凭据与参数（明文入库；读接口经 mask_config 脱敏）。
+    """
+
     __tablename__ = "alert_channels"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -37,6 +53,15 @@ class AlertChannel(Base, TimestampMixin):
 
 
 class AlertEvent(Base, TimestampMixin):
+    """告警/系统事件：规则触发记录 + 系统级一次性事件（巡检/容器退出/同步等）。
+
+    rule_id 为 null 的事件是系统级一次性记录（落库即 resolved，无 firing 生命周期）。
+
+    Attributes:
+        status (str): firing（活跃）/ resolved（已恢复或一次性记录）。
+        metric (str): 规则指标或系统事件类型（selftest/docker_exit/raid_sync/...）。
+    """
+
     __tablename__ = "alert_events"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

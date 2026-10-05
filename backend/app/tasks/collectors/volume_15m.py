@@ -17,6 +17,12 @@ _last_day: str | None = None
 
 
 async def volume_15m_tick() -> None:
+    """15 分钟一轮容量趋势：枚举挂载点 → 1h 桶落库 → 写满预测 + 规则评估。
+
+    psutil 枚举挂载点零 fork；跨 UTC 日时顺带执行一次保留窗清理
+    （_last_day 翻日标记保证每日一跑）。有新告警事件时写 realtime_cache
+    并调度后台通知 drain。任何异常只记 warning，不中断调度。
+    """
     global _last_day
     try:
         volumes = volume_service.list_volumes()

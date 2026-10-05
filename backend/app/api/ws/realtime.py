@@ -30,6 +30,14 @@ _last_snap_text = {"key": None, "text": ""}
 
 
 def _snapshot_text(snap: dict) -> str:
+    """序列化 realtime 快照为推送文本，同一秒的快照复用缓存。
+
+    Args:
+        snap (dict): realtime 快照（须含 ts 字段作为缓存键）。
+
+    Returns:
+        str: ``{"type": "realtime", "data": snap}`` 的紧凑 JSON 文本。
+    """
     key = snap.get("ts")
     if key != _last_snap_text["key"]:
         _last_snap_text["key"] = key
@@ -38,15 +46,32 @@ def _snapshot_text(snap: dict) -> str:
 
 
 def _loopback_bind() -> bool:
+    """判断服务是否仅绑定回环地址。"""
     return settings.host in ("127.0.0.1", "localhost", "::1")
 
 
 def _host_header_name(ws: WebSocket) -> str:
+    """从 WS 握手的 Host 头提取主机名。
+
+    Args:
+        ws (WebSocket): WebSocket 连接。
+
+    Returns:
+        str: 主机名，Host 缺失或无法解析时为空串。
+    """
     raw = ws.headers.get("host", "")
     return urlsplit(f"//{raw}").hostname or "" if raw else ""
 
 
 def _ws_authorized(ws: WebSocket) -> bool:
+    """按部署形态校验 WS 握手是否放行（各形态规则见模块 docstring）。
+
+    Args:
+        ws (WebSocket): WebSocket 连接。
+
+    Returns:
+        bool: 是否通过鉴权。
+    """
     if settings.trim_auth:
         # 飞牛形态：无 X-Trim-Userid 身份头的连接直接拒（防本机进程绕过直连拉数据）
         return bool(ws.headers.get("x-trim-userid", "").strip())
@@ -67,6 +92,13 @@ def _ws_authorized(ws: WebSocket) -> bool:
 
 @router.websocket("/api/v1/ws/realtime")
 async def realtime_ws(ws: WebSocket) -> None:
+    """WS 实时推送主循环：realtime 1s / fans+alerts 5s / ping-pong。
+
+    鉴权失败以 1008 关闭；任一子任务因连接断开退出后取消其余任务并收尾关闭。
+
+    Args:
+        ws (WebSocket): WebSocket 连接（框架注入）。
+    """
     if not _ws_authorized(ws):
         await ws.close(code=1008)
         return
@@ -74,6 +106,7 @@ async def realtime_ws(ws: WebSocket) -> None:
     stop = asyncio.Event()
 
     async def push_realtime() -> None:
+        """每 1s 推送一条 realtime 快照（缓存缺失时该秒跳过）。"""
         # 连接建立即补发一条（缓存存在时），之后每 1s；同秒快照共享同一份序列化文本
         while not stop.is_set():
             snap = realtime_cache.get("realtime")
@@ -82,6 +115,7 @@ async def realtime_ws(ws: WebSocket) -> None:
             await asyncio.sleep(1)
 
     async def push_fans_and_alerts() -> None:
+        """每 5s 推送风扇输出与连接期内未推送的告警事件。"""
         sent_alerts: set[int] = set()
         while not stop.is_set():
             fans = realtime_cache.get("fan_outputs")
@@ -105,6 +139,7 @@ async def realtime_ws(ws: WebSocket) -> None:
             await asyncio.sleep(5)
 
     async def recv() -> None:
+        """接收客户端消息：收到 ping 回 pong；连接断开时触发全局停止。"""
         try:
             while True:
                 message = await ws.receive_text()

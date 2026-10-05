@@ -21,11 +21,30 @@ _MIN_SPAN_HOURS = 6
 
 
 def _hour_bucket(now: datetime) -> str:
+    """生成整点桶键（UTC 墙钟串，口径同 MetricPoint，契约 §1.5）。
+
+    Args:
+        now (datetime): 桶键基准时刻。
+
+    Returns:
+        str: 形如 ``YYYY-MM-DDTHH:00:00`` 的桶键。
+    """
     return now.strftime("%Y-%m-%dT%H:00:00")
 
 
 async def record_snapshots(db: AsyncSession, volumes: list[dict], now: datetime | None = None) -> int:
-    """整桶覆盖写 1h 容量点，返回写入行数。删除限定本批挂载点（单卷缺席不放大）。"""
+    """整桶覆盖写 1h 容量点，返回写入行数。
+
+    删除限定本批挂载点（单卷缺席不放大）。
+
+    Args:
+        db (AsyncSession): 调用方会话（本函数只 flush，commit 归调用方）。
+        volumes (list[dict]): 卷快照列表，每项含 mount/used_bytes/total_bytes。
+        now (datetime | None): 桶键基准时刻；None 取当前 UTC。
+
+    Returns:
+        int: 写入行数（无有效卷时为 0）。
+    """
     now = now or datetime.now(UTC)
     key = _hour_bucket(now)
     rows = [
@@ -48,6 +67,17 @@ async def record_snapshots(db: AsyncSession, volumes: list[dict], now: datetime 
 
 
 async def prune_old(db: AsyncSession, now: datetime | None = None) -> int:
+    """删除超 KEEP_DAYS 保留窗的容量点，返回删除行数。
+
+    由 volume_15m 采集任务翻日触发一次。
+
+    Args:
+        db (AsyncSession): 调用方会话。
+        now (datetime | None): 计算保留截止线的基准时刻；None 取当前 UTC。
+
+    Returns:
+        int: 删除行数。
+    """
     now = now or datetime.now(UTC)
     cutoff = (now - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     result = await db.execute(delete(VolumePoint).where(VolumePoint.ts < cutoff))
@@ -55,7 +85,14 @@ async def prune_old(db: AsyncSession, now: datetime | None = None) -> int:
 
 
 def _slope_percent_per_day(points: list[tuple[datetime, float]]) -> float | None:
-    """最小二乘斜率（百分比/天）。跨度不足返回 None（采样太近全是噪声）。"""
+    """计算最小二乘斜率（百分比/天）。
+
+    Args:
+        points (list[tuple[datetime, float]]): (时刻, 已用百分比) 采样序列，按时间升序。
+
+    Returns:
+        float | None: 斜率；采样跨度不足（两点贴太近全是噪声）或时间方差为 0 时返回 None。
+    """
     t0 = points[0][0]
     xs = [(dt - t0).total_seconds() / 86400 for dt, _ in points]
     ys = [pct for _, pct in points]
@@ -72,10 +109,17 @@ def _slope_percent_per_day(points: list[tuple[datetime, float]]) -> float | None
 
 
 async def forecast_all(db: AsyncSession, now: datetime | None = None) -> list[dict]:
-    """各挂载点写满预测：[{mount, days_to_full, slope_percent_per_day, last_percent, sampled_hours}]。
+    """计算各挂载点写满预测：[{mount, days_to_full, slope_percent_per_day, last_percent, sampled_hours}]。
 
-    days_to_full=None 表示有数据但增速≈0（回归斜率 ≤0 或跨度不足）；
+    days_to_full=None 表示有数据但增速≈0（回归斜率 ≤0 或跨度不足）——"无增速"是合法真值；
     挂载点无采样记录则不出现在返回值中。
+
+    Args:
+        db (AsyncSession): 只读会话。
+        now (datetime | None): 回归窗口起点与桶键的基准时刻；None 取当前 UTC。
+
+    Returns:
+        list[dict]: 各挂载点的预测项，见摘要中的形状说明。
     """
     now = now or datetime.now(UTC)
     since = _hour_bucket(now - timedelta(days=REGRESSION_DAYS))

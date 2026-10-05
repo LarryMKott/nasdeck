@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 async def fast_tick() -> None:
+    """1 秒一轮：系统资源快照写入实时缓存，并向 ingest 通道投递一条 raw 指标行。
+
+    GPU/温度分量由 medium_5s 采样维护缓存，本 tick 只并入与落库，不重复采集；
+    温度内嵌进插入行（读缓存，滞后 ≤15s 对 1m/10m 聚合无感），替代旧
+    "medium_tick 每 5s 回填最新行 UPDATE"方案。任何异常只记 warning，不中断调度。
+    """
     try:
         snap = await system_resources.snapshot()
         # GPU / 温度分量由 medium_5s 采样维护缓存，本 tick 只并入与落库，不重复采集

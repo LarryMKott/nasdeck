@@ -9,6 +9,19 @@ from app.db.base import Base, TimestampMixin
 
 
 class FanZone(Base, TimestampMixin):
+    """风扇控区：一块可写 PWM 通道的调速策略载体（契约 §2.17）。
+
+    Attributes:
+        loop (str): 所属回路 cpu / chassis（展示分组）。
+        hwmon_name (str): 主板 hwmon 芯片名（写 pwm 定位键）。
+        pwm_channel (int): PWM 写通道号（1-16）。
+        fan_channel (int | None): 转速计通道号（None = 无转速计）。
+        mode (str): auto（BIOS 接管）/ curve（曲线温控）/ fixed（定速）。
+        fixed_pwm (int): 定速占空比（0-100）。
+        curve_id (int | None): 绑定曲线 id（curve 模式必填）。
+        sensor_key (str | None): 调速依据传感器键（None = CPU 最高温）。
+    """
+
     __tablename__ = "fan_zones"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -25,6 +38,14 @@ class FanZone(Base, TimestampMixin):
 
 
 class FanCurve(Base, TimestampMixin):
+    """温控曲线：「温度 → 占空比」分段线性曲线（契约 §2.17）。
+
+    Attributes:
+        points (list): [[温度°C, 占空比%], ...] 温度递增（curve_engine 评估输入）。
+        hysteresis_c (float): 迟滞回差（0-10，避免临界抖动）。
+        ramp_per_tick (float): 每 tick 最大变化百分点（1-50，转速平滑）。
+    """
+
     __tablename__ = "fan_curves"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

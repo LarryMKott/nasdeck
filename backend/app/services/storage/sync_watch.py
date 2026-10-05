@@ -17,11 +17,19 @@ _prev_sync: dict[str, str] = {}  # volume_id → action（无活动不占键）
 
 
 def reset_for_test() -> None:
+    """清空进程内前次同步状态表（测试隔离用）。"""
     _prev_sync.clear()
 
 
 async def detect_sync_transitions() -> list[dict]:
-    """一轮对比，返回转换事件 [{volume_id, name, phase: 'started'|'finished', action}]。"""
+    """一轮对比，产出同步开始/结束转换事件。
+
+    探测失败跳过本轮（不产生伪转换）；开始/结束事件均由调用方落 resolved
+    一次性记录并向启用渠道广播。
+
+    Returns:
+        list[dict]: [{volume_id, name, phase: 'started'|'finished', action}]。
+    """
     try:
         raids = await raid_service.raid_status()
     except Exception as exc:  # noqa: BLE001 探测失败跳过本轮（不产生伪转换）

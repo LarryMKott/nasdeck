@@ -34,13 +34,25 @@ _scan_cache: dict = {"ts": 0.0, "cards": None}
 
 
 def _allowed_vendors() -> dict[str, str]:
-    """决策层允许实时采集的 vendor：sysfs vendor id → vendor key。"""
+    """取决策层允许实时采集的 vendor 集合。
+
+    Returns:
+        dict[str, str]: sysfs vendor id → vendor key（策略为 unavailable 的剔除）。
+    """
     policy = get_policy()
     return {VENDOR_IDS[key]: key for key, strategy in policy.gpu_vendors.items() if strategy != "unavailable"}
 
 
 def _scan_cards(base: str = "/sys/class/drm") -> list[dict]:
-    """枚举 drm 卡 → [{name, dev, kind}]，只留策略允许实时采集的 vendor。"""
+    """枚举 drm 卡，只留策略允许实时采集的 vendor（60s 缓存，卡不会频繁热插拔）。
+
+    Args:
+        base (str): drm 根目录（默认 /sys/class/drm），测试可注入。
+
+    Returns:
+        list[dict]: [{name, dev, kind}]，name 为 card id、dev 为 device 目录、
+            kind 为 vendor key。
+    """
     now = time.monotonic()
     if _scan_cache["cards"] is not None and now - _scan_cache["ts"] < 60.0:
         return _scan_cache["cards"]
@@ -59,7 +71,15 @@ def _scan_cards(base: str = "/sys/class/drm") -> list[dict]:
 
 
 def _amd_card(dev: str) -> dict:
-    """AMD 卡实时分量：全 sysfs 直读（busy 为整数百分比，显存单位字节，温度毫摄氏度）。"""
+    """AMD 卡实时分量（全 sysfs 直读，Unraid GPU Statistics 插件同款思路）。
+
+    Args:
+        dev (str): 卡 device 目录路径。
+
+    Returns:
+        dict: {percent, vram_used_mb, vram_total_mb, temp_c}；busy 为整数百分比、
+            显存单位 MB、温度 °C，读取失败的分量为 None。
+    """
     temp = None
     for hwmon in sysfs.list_dirs(f"{dev}/hwmon"):
         temp = sysfs.read_float(f"{dev}/hwmon/{hwmon}/temp1_input")
@@ -74,11 +94,27 @@ def _amd_card(dev: str) -> dict:
 
 
 def _bytes_to_mb(value: int | None) -> float | None:
+    """字节 → MB（保留 1 位小数）。
+
+    Args:
+        value (int | None): 字节数。
+
+    Returns:
+        float | None: MB 值；输入 None 时透传 None。
+    """
     return round(value / 1048576, 1) if value is not None else None
 
 
 def _parse_nvidia_smi(out: str) -> list[dict]:
-    """解析 `--format=csv,noheader,nounits` 输出（每卡一行，缺值 [N/A] → None）。"""
+    """解析 `--format=csv,noheader,nounits` 输出。
+
+    Args:
+        out (str): nvidia-smi 标准输出（每卡一行）。
+
+    Returns:
+        list[dict]: 每卡 {name, percent, vram_used_mb, vram_total_mb, temp_c}；
+            缺值 [N/A] → None，字段不足 5 列的行跳过。
+    """
     gpus = []
     for line in out.strip().splitlines():
         parts = [p.strip() for p in line.split(",")]
@@ -86,6 +122,7 @@ def _parse_nvidia_smi(out: str) -> list[dict]:
             continue
 
         def num(text: str) -> float | None:
+            """CSV 字段 → float；[N/A] 等非数值文本返回 None。"""
             try:
                 return float(text)
             except ValueError:
@@ -104,7 +141,12 @@ def _parse_nvidia_smi(out: str) -> list[dict]:
 
 
 async def _nvidia_card() -> dict | None:
-    """NVIDIA 首卡：只查需要的字段，减少输出文本量与解析开销。"""
+    """NVIDIA 首卡分量：只查需要的字段，减少输出文本量与解析开销。
+
+    Returns:
+        dict | None: 首卡 {name, percent, vram_used_mb, vram_total_mb, temp_c}；
+            未装驱动/工具或解析不出卡时 None。
+    """
     try:
         rc, out, _err = await run_cmd(
             "nvidia-smi",
@@ -122,7 +164,16 @@ async def _nvidia_card() -> dict | None:
 
 
 def _engine_busy(obj: dict, prefix: str) -> float | None:
-    """取引擎 busy：真机引擎名带序号后缀（Render/3D/0、Video/0），按前缀匹配。"""
+    """取引擎 busy 百分比（真机引擎名带序号后缀 Render/3D/0、Video/0，按前缀匹配）。
+
+    Args:
+        obj (dict): intel_gpu_top JSON 帧。
+        prefix (str): 引擎名前缀（如 "Render/3D"、"Video/"）。
+
+    Returns:
+        float | None: 匹配引擎 busy 的最大值（保留 1 位小数）；无结构或无
+            数值型 busy 时 None。
+    """
     engines = obj.get("engines")
     if not isinstance(engines, dict):
         return None
@@ -135,13 +186,27 @@ def _engine_busy(obj: dict, prefix: str) -> float | None:
 
 
 def _frame_num(value) -> float | None:
+    """帧内数值字段 → 保留 1 位小数的 float。
+
+    Args:
+        value (object): intel_gpu_top 帧内字段值。
+
+    Returns:
+        float | None: 数值化结果；输入非 int/float 时 None。
+    """
     return round(float(value), 1) if isinstance(value, (int, float)) else None
 
 
 def _intel_busy(obj: dict) -> float | None:
-    """单帧 intel_gpu_top JSON → 利用率百分比。
+    """单帧 intel_gpu_top JSON → GPU 利用率百分比。
 
     busy 优先取 Render/3D 引擎；结构缺失/变更时退化取各引擎 busy 最大值。
+
+    Args:
+        obj (dict): intel_gpu_top JSON 帧。
+
+    Returns:
+        float | None: 利用率百分比（保留 1 位小数）；无 engines 结构时 None。
     """
     engines = obj.get("engines")
     if not isinstance(engines, dict) or not engines:
@@ -160,10 +225,21 @@ class _IntelFrameParser:
     """
 
     def __init__(self) -> None:
+        """初始化空缓冲与 JSON 解码器。"""
         self._buf = ""
         self._dec = json.JSONDecoder()
 
     def feed(self, text: str) -> dict | None:
+        """喂入一段子进程输出，尝试增量解出完整 JSON 帧。
+
+        Args:
+            text (str): intel_gpu_top 的增量输出（通常一行，兼容单行 compact
+                与多行 pretty 两种形态）。
+
+        Returns:
+            dict | None: 完整解出的 JSON 帧；半帧/垃圾前缀时 None（内容保留
+                在缓冲中等待后续输入，缓冲超限或无 '{' 时防御性丢弃）。
+        """
         self._buf += text
         self._buf = self._buf.lstrip()
         if not self._buf:
@@ -190,12 +266,17 @@ class _IntelTopReader:
     进程生命周期：惰性启动（失败 60s 冷却防频繁 fork）、卡消失/应用退出时终止。
     perf 受限（perf_event_paranoid 过高）时 intel_gpu_top 会持续无输出——
     busy() 按 10s 新鲜度判空，不误报。
+
+    Attributes:
+        _FRESH_S (float): 帧新鲜度阈值（秒），超期视为无数据。
+        _RETRY_S (float): 子进程启动失败后的重试冷却（秒）。
     """
 
     _FRESH_S = 10.0
     _RETRY_S = 60.0
 
     def __init__(self) -> None:
+        """初始化空状态：进程/线程未启动，帧缓存为空，型号名待解析。"""
         self._proc: subprocess.Popen | None = None
         self._thread: threading.Thread | None = None
         self._latest: tuple[float, float | None, dict] = (0.0, None, {})  # (monotonic, busy, 帧)
@@ -204,6 +285,11 @@ class _IntelTopReader:
         self._lock = threading.Lock()
 
     def ensure(self, card_name: str) -> None:
+        """确保 intel_gpu_top 长驻子进程在跑（惰性启动，失败进入 60s 冷却防频繁 fork）。
+
+        Args:
+            card_name (str): drm 卡名（card0 等），仅首次解析型号名失败时作回退。
+        """
         now = time.monotonic()
         if self._proc is not None and self._proc.poll() is None:
             return
@@ -227,6 +313,7 @@ class _IntelTopReader:
         self._thread.start()
 
     def _consume(self) -> None:
+        """后台线程主循环：逐行读取子进程输出，解出完整帧后加锁刷新最新值。"""
         assert self._proc and self._proc.stdout
         parser = _IntelFrameParser()
         for line in self._proc.stdout:
@@ -239,7 +326,14 @@ class _IntelTopReader:
 
     @staticmethod
     def _resolve_name(fallback: str) -> str:
-        """lspci 找 Intel VGA/Display 控制器型号（决策层已在位才到这；失败回退 card id）。"""
+        """lspci 找 Intel VGA/Display 控制器型号（决策层已在位才到这）。
+
+        Args:
+            fallback (str): lspci 不可用/无匹配时的回退名（card id）。
+
+        Returns:
+            str: 显卡型号名；拿不到名字不影响采集，回退 fallback。
+        """
         try:
             _rc, out, _err = run_cmd_sync("lspci", "-nn", "-d", "8086:", timeout=10)
         except Exception:  # noqa: BLE001 名字拿不到不影响采集
@@ -251,21 +345,38 @@ class _IntelTopReader:
         return fallback
 
     def busy(self) -> float | None:
+        """取最新 GPU 利用率（10s 新鲜度内有效）。
+
+        Returns:
+            float | None: 利用率百分比；无帧、过期或 perf 受限无输出时 None。
+        """
         with self._lock:
             ts, pct, _obj = self._latest
         return pct if pct is not None and time.monotonic() - ts <= self._FRESH_S else None
 
     def frame(self) -> dict:
-        """最新一帧原始 JSON（超 10s 视为过期返回空），供频率/功耗/引擎占用提取。"""
+        """取最新一帧原始 JSON（超 10s 视为过期返回空）。
+
+        供频率/功耗/引擎占用提取。
+
+        Returns:
+            dict: 最新 JSON 帧；过期或无帧时空 dict。
+        """
         with self._lock:
             ts, _pct, obj = self._latest
         return obj if obj and time.monotonic() - ts <= self._FRESH_S else {}
 
     @property
     def name(self) -> str:
+        """解析出的显卡型号名（未解析前为空串）。
+
+        Returns:
+            str: 型号名；lspci 失败时为 card id 回退值。
+        """
         return self._name
 
     def stop(self) -> None:
+        """终止长驻子进程：先 terminate，3s 未退出再 kill（幂等，atexit 注册）。"""
         if self._proc is not None and self._proc.poll() is None:
             self._proc.terminate()
             try:
@@ -278,6 +389,11 @@ _intel_reader_instance: _IntelTopReader | None = None
 
 
 def _intel_reader() -> _IntelTopReader:
+    """取进程级单例 reader（首次调用时创建并注册 atexit 清理）。
+
+    Returns:
+        _IntelTopReader: 全局唯一实例。
+    """
     global _intel_reader_instance
     if _intel_reader_instance is None:
         _intel_reader_instance = _IntelTopReader()
@@ -286,9 +402,14 @@ def _intel_reader() -> _IntelTopReader:
 
 
 async def collect() -> dict:
-    """GPU 实时快照（5s 采样缓存）：{available, name, percent, vram_used_mb, vram_total_mb, temp_c, source}。
+    """采集 GPU 实时快照（5s 采样缓存，nvidia-smi 是 fork 外部进程拒绝 1s 高频）。
 
     决策层判定无 /sys/class/drm 或无可用 vendor 策略时直接返回不可用，不扫描不 fork。
+
+    Returns:
+        dict: {available, name, percent, vram_used_mb, vram_total_mb, temp_c,
+            freq_mhz, freq_max_mhz, power_w, video_busy, enhance_busy, source}；
+            无卡/读取失败 available=False，调用方按缺数据处理。
     """
     now = time.monotonic()
     if _cache["data"] is not None and now - _cache["ts"] < 5.0:

@@ -12,6 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 async def selftest_tick() -> None:
+    """10 分钟巡检调度拍：读巡检计划配置，命中窗口即起独立巡检 task。
+
+    配置读库零 fork，拍本身开销可忽略；smartctl 重 fork 由被触发的独立 task
+    承担，不占本拍（不进 1s/5s/60s 快车道）。命中触发时记 info 日志；
+    任何异常只记 warning，不中断调度。
+    """
     try:
         async with session_factory() as db:
             fired = await selftest_schedule.schedule_tick(db)

@@ -18,6 +18,14 @@ _last: dict = {"ts": 0.0, "package": None, "dram": None}
 
 
 def _read_int(path: str) -> int | None:
+    """读 sysfs 整数文件。
+
+    Args:
+        path (str): 文件路径。
+
+    Returns:
+        int | None: 整数值；不存在/不可读/非整数内容时 None。
+    """
     try:
         with open(path, encoding="ascii") as fh:
             return int(fh.read().strip())
@@ -26,7 +34,17 @@ def _read_int(path: str) -> int | None:
 
 
 def _find_dram_dir(pkg_dir: str) -> str | None:
-    """在 package 子域里按 name 找 dram（intel-rapl:0:0=core/:1=uncore/:2=dram 等）。"""
+    """在 package 子域里按 name 找 dram 目录。
+
+    intel-rapl:0:0=core/:1=uncore/:2=dram 等（不同世代 CPU 的域序号不同，
+    故按 name 动态定位）。
+
+    Args:
+        pkg_dir (str): package 域目录路径。
+
+    Returns:
+        str | None: dram 域目录路径；找不到或目录不可读时 None。
+    """
     try:
         entries = os.listdir(pkg_dir)
     except OSError:
@@ -48,9 +66,20 @@ def _reset() -> None:
 
 
 def rapl_power(root: str = _RAPL_ROOT, now: float | None = None, pkg: str = "intel-rapl:0") -> dict:
-    """返回 {available, watts, cpu_w, dram_w}，单位 W；首样无差分基线按 0 计。
+    """差分采样整机功耗，返回 {available, watts, cpu_w, dram_w}，单位 W。
 
-    pkg 参数为 package 域目录名，测试可在 Windows 上用无冒号名字伪造 sysfs。
+    首样无差分基线按 0 计。pkg 参数为 package 域目录名，测试可在 Windows 上
+    用无冒号名字伪造 sysfs。
+
+    Args:
+        root (str): powercap 根目录（默认 /sys/class/powercap），测试可注入。
+        now (float | None): 当前时刻；None 取 time.monotonic()，测试可注入。
+        pkg (str): package 域目录名。
+
+    Returns:
+        dict: available=False（energy_uj 不可读，如非 Intel/非 root/容器缺失）
+            时其余字段为 None；available=True 时 watts=cpu_w+dram_w（dram 域
+            缺失则不计入），各值保留 1 位小数。
     """
     pkg_dir = os.path.join(root, pkg)
     package = _read_int(os.path.join(pkg_dir, "energy_uj"))
@@ -66,6 +95,7 @@ def rapl_power(root: str = _RAPL_ROOT, now: float | None = None, pkg: str = "int
     dt = max(ts - _last["ts"], 1e-6)
 
     def _rate(cur: int | None, old: int | None, rng: int | None) -> float | None:
+        """能量计数差分 → 功率 W；回绕（差分为负）时补一个量程，无基准返回 None。"""
         if cur is None or old is None:
             return None
         delta = cur - old

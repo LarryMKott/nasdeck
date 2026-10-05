@@ -9,9 +9,22 @@ from app.utils.sysfs import read_int
 
 
 class NicCollector(BaseCollector):
+    """网卡硬件清单采集器（kind="nic"）。
+
+    数据来源：psutil net_if_stats/net_if_addrs 枚举（剔除 lo 回环）+ Linux 下
+    /sys/class/net/<name>/speed 直读协商速率（psutil 速率为 0 时补充）。
+    """
+
     kind = "nic"
 
     async def collect(self) -> dict:
+        """枚举物理网卡及其状态/速率/地址。
+
+        Returns:
+            dict: available 表示是否枚举到非 lo 网卡；name 取首卡名（无卡为空串）。
+                nics 每项含 name/up/speed_mbps/mtu，有 IPv4 地址时附 ipv4；
+                speed_mbps 优先取 /sys 协商速率，psutil 报 0 且 /sys 不可读时为 None。
+        """
         stats = psutil.net_if_stats()
         addrs = psutil.net_if_addrs()
         nics = []

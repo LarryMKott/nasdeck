@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class HwmonChannel(BaseModel):
+    """hwmon 可控通道探查结果。"""
     chip: str
     chip_path: str
     pwm_channel: int
@@ -18,6 +19,7 @@ class HwmonChannel(BaseModel):
 
 
 class FanZoneIn(BaseModel):
+    """风扇控区创建请求体（契约 §2.17/§3.4）。"""
     name: str = Field(min_length=1, max_length=64)
     loop: str = Field(pattern="^(cpu|chassis)$")
     hwmon_name: str
@@ -31,6 +33,7 @@ class FanZoneIn(BaseModel):
 
 
 class FanZoneUpdate(BaseModel):
+    """控区局部更新请求体（任意子集，显式 null 清除可空字段）。"""
     name: str | None = Field(default=None, min_length=1, max_length=64)
     mode: str | None = Field(default=None, pattern="^(auto|curve|fixed)$")
     fixed_pwm: int | None = Field(default=None, ge=0, le=100)
@@ -40,6 +43,7 @@ class FanZoneUpdate(BaseModel):
 
 
 class FanZoneItem(BaseModel):
+    """风扇控区响应体（含实时转速/占空比）。"""
     id: int
     name: str
     loop: str
@@ -56,6 +60,7 @@ class FanZoneItem(BaseModel):
 
 
 class CurveIn(BaseModel):
+    """温控曲线创建请求体。"""
     name: str = Field(min_length=1, max_length=64)
     points: list[list[float]] = Field(min_length=2)
     hysteresis_c: float = Field(default=2, ge=0, le=10)
@@ -63,6 +68,15 @@ class CurveIn(BaseModel):
 
     @model_validator(mode="after")
     def check_points(self) -> CurveIn:
+        """校验曲线点形状/占空比范围/温度严格递增。
+
+        Returns:
+            CurveIn: 校验通过的原模型。
+
+        Raises:
+            ValueError: 点非 [temp, pwm] 二元组、占空比越界或温度非严格递增
+                （Pydantic 转信封 2000；先验形状再取下标，避免 IndexError）。
+        """
         # 先验形状再取下标：畸形单点（如 []）应返回 422 校验错误而非 IndexError
         if any(not isinstance(p, (list, tuple)) or len(p) != 2 for p in self.points):
             raise ValueError("每个点必须是 [temp, pwm] 二元组")
@@ -76,10 +90,12 @@ class CurveIn(BaseModel):
 
 
 class CurveItem(CurveIn):
+    """温控曲线（含 id）。"""
     id: int
 
 
 class FcsStatus(BaseModel):
+    """风扇接管服务状态。"""
     is_fnos: bool
     unit: str = "pwm-fancontrol"
     active: bool | None  # 非 Linux 为 null
@@ -87,6 +103,7 @@ class FcsStatus(BaseModel):
     enabled_config: bool
 
 class FanScheduleIn(BaseModel):
+    """时段静音计划（M2.5）：窗口期内曲线评估温度平移 -offset_c（更静）。"""
     """时段静音计划（M2.5）：窗口期内曲线评估温度平移 -offset_c（更静）。"""
 
     enabled: bool
@@ -96,4 +113,5 @@ class FanScheduleIn(BaseModel):
 
 
 class FanScheduleOut(FanScheduleIn):
+    """时段静音计划响应（含 active 实时判定）。"""
     active: bool = False  # 当前时刻是否处于静音窗口（响应时实时判定）

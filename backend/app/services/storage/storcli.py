@@ -28,7 +28,14 @@ _KNOWN_VENDORS = (
 
 
 def size_to_decimal(size_str: str) -> str:
-    """storcli 的 TB/GB 实为 TiB/GiB，换算回十进制显示（6.366 TB → 7.0T）。"""
+    """storcli 的 TB/GB 实为 TiB/GiB，换算回十进制显示（6.366 TB → 7.0T）。
+
+    Args:
+        size_str (str): storcli 容量文本（如 "6.366 TB"）。
+
+    Returns:
+        str: 十进制显示串（≥1TB 取 "7.0T" 形态，否则 "931G"）；不匹配或解析失败原样返回。
+    """
     try:
         m = re.match(r"^([\d.]+)\s*(TB|GB|MB)$", size_str.strip(), re.I)
         if not m:
@@ -44,7 +51,14 @@ def size_to_decimal(size_str: str) -> str:
 
 
 def size_to_bytes(size_str: str) -> int | None:
-    """storcli 容量文本 → 十进制字节数（None 表示解析失败）。"""
+    """storcli 容量文本 → 十进制字节数。
+
+    Args:
+        size_str (str): storcli 容量文本（如 "6.366 TB"）。
+
+    Returns:
+        int | None: 字节数；None 表示解析失败。
+    """
     try:
         m = re.match(r"^([\d.]+)\s*(TB|GB|MB)$", size_str.strip(), re.I)
         if not m:
@@ -57,7 +71,15 @@ def size_to_bytes(size_str: str) -> int | None:
 
 
 def resolve_brand_model(tbl_model: str, inquiry_model: str) -> str:
-    """表格型号常丢厂商前缀，品牌识别优先用含前缀的完整型号（旧版 v1.7.8 修复）。"""
+    """表格型号常丢厂商前缀，品牌识别优先用含前缀的完整型号（旧版 v1.7.8 修复）。
+
+    Args:
+        tbl_model (str): PD LIST 表格列型号。
+        inquiry_model (str): show all 键值对的 Inquiry 型号。
+
+    Returns:
+        str: 表格型号无厂商前缀且 Inquiry 型号有时取 inquiry_model，否则 tbl_model。
+    """
     if not inquiry_model or inquiry_model == "-":
         return tbl_model
     tbl_vendor = tbl_model.upper().startswith(_KNOWN_VENDORS) or "SAMSUNG" in tbl_model.upper()
@@ -66,7 +88,14 @@ def resolve_brand_model(tbl_model: str, inquiry_model: str) -> str:
 
 
 def disk_brand(model: str) -> str:
-    """型号 → 中文品牌（无法识别返回空串）。"""
+    """型号 → 中文品牌（无法识别返回空串）。
+
+    Args:
+        model (str): 硬盘型号。
+
+    Returns:
+        str: 中文品牌（如 "希捷(Seagate)"）；无法识别返回空串。
+    """
     model_u = (model or "").strip().upper()
     table = (
         (("ST",), "希捷(Seagate)"),
@@ -93,7 +122,14 @@ def disk_brand(model: str) -> str:
 
 
 def parse_roc_temp(text: str | None) -> int | None:
-    """ROC（主控芯片）温度，兼容 `ROC temperature = 56` 与 `ROC temperature(Degree Celsius) 65`。"""
+    """解析 ROC（主控芯片）温度，兼容 `ROC temperature = 56` 与 `ROC temperature(Degree Celsius) 65`。
+
+    Args:
+        text (str | None): storcli 文本输出。
+
+    Returns:
+        int | None: 温度（℃）；未匹配或入参为空返回 None。
+    """
     if not text:
         return None
     m = re.search(r"ROC\s+temperature\s*(?:\([^)]*\))?\s*=?\s*(\d+)", text, re.I)
@@ -104,7 +140,14 @@ def parse_roc_temp(text: str | None) -> int | None:
 
 
 def parse_ctrl_temp(text: str | None) -> int | None:
-    """Controller（板载环境）温度，与 ROC 是不同传感器（v2.3.1 起分开）。"""
+    """解析 Controller（板载环境）温度，与 ROC 是不同传感器（v2.3.1 起分开）。
+
+    Args:
+        text (str | None): storcli 文本输出。
+
+    Returns:
+        int | None: 温度（℃）；未匹配或入参为空返回 None。
+    """
     if not text:
         return None
     m = re.search(r"Controller\s+Temperature\s*=?\s*(\d+)", text, re.I)
@@ -112,7 +155,14 @@ def parse_ctrl_temp(text: str | None) -> int | None:
 
 
 def parse_cachevault(out: str | None) -> tuple[str, str | None]:
-    """CacheVault/BBU 状态，多格式兼容（CVPMxx / CacheVault_Info / 老卡 BBU）。"""
+    """解析 CacheVault/BBU 状态，多格式兼容（CVPMxx / CacheVault_Info / 老卡 BBU）。
+
+    Args:
+        out (str | None): storcli 文本输出。
+
+    Returns:
+        tuple[str, str | None]: (展示文案, 小写状态码)；未检测到返回 ("未检测到", None)。
+    """
     if not out:
         return "未检测到", None
     m = re.search(r"(CVPM\w+)\s+(\S+)\s+(\d+C|\d+\s*°C|-+|N/A|n/a|--)", out, re.I)
@@ -140,7 +190,16 @@ def parse_cachevault(out: str | None) -> tuple[str, str | None]:
 
 
 def parse_vds_from_topology(out: str) -> list[dict]:
-    """/c0 show 的 Virtual Drives 表 → VD 元信息（JBOD 过滤；分隔线仅跳过）。"""
+    """/c0 show 的 Virtual Drives 表 → VD 元信息（JBOD 过滤；分隔线仅跳过）。
+
+    Args:
+        out (str): `/c0 show` 文本输出。
+
+    Returns:
+        list[dict]: 每项 {dgvd, type, state, access, consist, cache_code, size, name,
+            write_policy, read_policy, read_cache, cache_raw}（策略字段留待
+            apply_cache_policies 回填）。
+    """
     vds: list[dict] = []
     in_topo = False
     for line in out.splitlines():
@@ -180,7 +239,14 @@ def parse_vds_from_topology(out: str) -> list[dict]:
 
 
 def parse_vd_cache_policies(vd_out: str) -> dict[str, str]:
-    """/c0/vall show 按 DG/VD 块解析 Default Cache Policy。"""
+    """/c0/vall show 按 DG/VD 块解析 Default Cache Policy。
+
+    Args:
+        vd_out (str): `/c0/vall show` 文本输出。
+
+    Returns:
+        dict[str, str]: {DG/VD（或回退 VD 编号）: 策略文本}；块内无策略记空串。
+    """
     res: dict[str, str] = {}
     if not vd_out:
         return res
@@ -195,7 +261,15 @@ def parse_vd_cache_policies(vd_out: str) -> dict[str, str]:
 
 
 def _pd_health_from_storcli(out: str) -> dict:
-    """/cN/eN/sN show all 里的阵列卡侧健康字段（不额外增加命令）。"""
+    """/cN/eN/sN show all 里的阵列卡侧健康字段（不额外增加命令）。
+
+    Args:
+        out (str): 单盘 show all 文本。
+
+    Returns:
+        dict: {media_err, other_err, bbm_err, pred_fail, shield, temp, smart_alert,
+            endurance_used}，仅包含匹配到的字段。
+    """
     d: dict = {}
     for key, pat in (
         ("media_err", r"Media Error Count\s*=\s*(\d+)"),
@@ -230,6 +304,12 @@ def parse_pd_show_all(out: str) -> dict[tuple[str, str], dict]:
 
     键值对格式天然不受 PD LIST 列偏移影响（旧版 v2.3.0 修复）；
     拿不到的字段一律不塞进结果（不猜、不造假数据）。
+
+    Args:
+        out (str): show all 文本输出（空串/None 返回空表）。
+
+    Returns:
+        dict[tuple[str, str], dict]: 以 (enclosure, slot) 为键的盘记录。
     """
     res: dict[tuple[str, str], dict] = {}
     if not out:
@@ -261,7 +341,14 @@ def parse_pd_show_all(out: str) -> dict[tuple[str, str], dict]:
 
 
 def apply_cache_policies(vds: list[dict], cp_map: dict[str, str]) -> None:
-    """把 /c0/vall show 的缓存策略合并进 VD 列表（原位修改）。"""
+    """把 /c0/vall show 的缓存策略合并进 VD 列表（原位修改）。
+
+    Args:
+        vds (list[dict]): parse_vds_from_topology 输出的 VD 列表（原位回填
+            cache_raw/write_policy/read_policy/read_cache）。
+        cp_map (dict[str, str]): parse_vd_cache_policies 输出；无策略时按
+            cache 编码位推写策略（W=WriteBack、T=WriteThrough）。
+    """
     for v in vds:
         raw = cp_map.get(v["dgvd"], "")
         up = raw.upper()
@@ -282,8 +369,14 @@ def apply_cache_policies(vds: list[dict], cp_map: dict[str, str]) -> None:
 def collect(run) -> dict:
     """采集阵列卡全量信息（阻塞调用，调用方应用线程池包装；结果带 15s TTL）。
 
-    run(args: list[str], timeout: float) -> str：storcli 文本输出执行器。
-    返回 {ok, mode(mega|hba|none|mega_error), model, note, controller{...}, drives[], virtual_drives[], hotspares[]}。
+    Args:
+        run (Callable): storcli 文本输出执行器，签名 run(args: list[str], timeout: float) -> str
+            （注入便于测试桩替身）。
+
+    Returns:
+        dict: {ok, mode(mega|hba|none|mega_error), model, note, controller{...},
+            drives[], virtual_drives[], hotspares[]}；storcli 缺失/失败统一降级
+            （ok=False、mode="none"、错误落 note，不抛出）。
     """
     with _lock:
         if time.monotonic() - _cache["ts"] < _TTL and _cache["data"] is not None:
@@ -301,6 +394,15 @@ def collect(run) -> dict:
 
 
 def _collect_uncached(run) -> dict:
+    """collect 的无缓存执行体（调用方持 _lock）。
+
+    Args:
+        run (Callable): storcli 文本输出执行器（签名同 collect.run）。
+
+    Returns:
+        dict: 形状同 collect 返回值；MegaRAID 走完整解析（控制器/物理盘/VD/热备），
+            非 MegaRAID（HBA 直通或纯主板）时 ok=False、note 说明原因。
+    """
     data: dict = {
         "ok": False, "mode": "none", "model": "未检测到", "note": "",
         "controller": None, "drives": [], "virtual_drives": [], "hotspares": [],
@@ -397,6 +499,12 @@ def detect_controllers(lspci_out: str | None) -> list[dict]:
 
     只按设备类型识别（RAID/SAS/SCSI/HBA），不限制厂商白名单——LSI/Broadcom/
     Areca/HighPoint/Adaptec 任意品牌阵列卡/HBA 都能纳入。
+
+    Args:
+        lspci_out (str | None): `lspci -nn` 文本输出（None 按空处理）。
+
+    Returns:
+        list[dict]: 每项 {model, is_megaraid, is_hba}；无匹配返回 []。
     """
     controllers = []
     for line in (lspci_out or "").splitlines():

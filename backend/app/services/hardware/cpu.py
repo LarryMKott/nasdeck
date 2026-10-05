@@ -11,9 +11,22 @@ from app.utils.sysfs import read_text
 
 
 class CpuCollector(BaseCollector):
+    """CPU 硬件清单采集器（kind="cpu"）。
+
+    数据来源：psutil 拓扑（架构、逻辑/物理核数）+ Linux 下 /proc/cpuinfo
+    直读型号名（零 fork），读不到时退回 platform.processor()。
+    """
+
     kind = "cpu"
 
     async def collect(self) -> dict:
+        """采集 CPU 清单信息。
+
+        Returns:
+            dict: 含 name/available（恒 True）、machine（架构）、logical_cores、
+                physical_cores；name 优先取 /proc/cpuinfo 的 model name，
+                缺失时退回 platform.processor()，再退 "unknown"。
+        """
         info = {
             "name": "",
             "available": True,

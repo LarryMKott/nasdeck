@@ -1,4 +1,9 @@
-"""5 秒级采集：温度 → 缓存（fast_tick 落库时内嵌，不再回填 UPDATE）；风扇调速 + 告警评估。"""
+"""5 秒级采集：温度 → 缓存（fast_tick 落库时内嵌，不再回填 UPDATE）；风扇调速 + 告警评估。
+
+一轮顺序：温度缓存 → 时段静音计划缓存刷新（30s TTL 限流读库）→ 风扇调速输出
++ 告警评估同事务（一次 commit 一次 fsync，真机跳秒修复的另一环）→ 通知后台
+drain → GPU 采样缓存。
+"""
 
 from __future__ import annotations
 
@@ -15,6 +20,14 @@ logger = logging.getLogger(__name__)
 
 
 async def medium_tick() -> None:
+    """5 秒一轮：温度缓存 → 风扇调速 + 告警评估同事务 → 通知后台 drain → GPU 采样缓存。
+
+    温度写 realtime_cache 供 fast_tick 落库时内嵌（不再回填 UPDATE）；
+    风扇调速输出与告警评估共用一个事务（一次 commit 一次 fsync，真机跳秒
+    修复的另一环），时段静音计划缓存刷新带 30s TTL 限流读库；事务提交后
+    通知交后台 task 发送，慢渠道不再占住 SQLite 写锁与 5s 调度。
+    任何异常只记 warning，不中断调度。
+    """
     try:
         items = await temperature.temperatures()
         realtime_cache.set("temperatures", items, ttl=15)

@@ -45,6 +45,14 @@ GPU_STRATEGIES = {"amd": "sysfs", "nvidia": "nvidia-smi", "intel": "intel-gpu-to
 
 
 def _readable(path: str) -> bool:
+    """探测内核文件在位（proc/sys 直读策略的判定依据）。
+
+    Args:
+        path: 待探测的绝对路径。
+
+    Returns:
+        bool: 路径存在为 True；OSError（权限/坏链接等）按不存在处理。
+    """
     try:
         return Path(path).exists()
     except OSError:
@@ -53,7 +61,19 @@ def _readable(path: str) -> bool:
 
 @dataclass
 class HardwarePolicy:
-    """决策结论（进程生命周期内不变）；reasons 留档判定依据，排障/自检可展示。"""
+    """决策结论（进程生命周期内不变）；reasons 留档判定依据，排障/自检可展示。
+
+    Attributes:
+        platform: 操作系统名（platform.system()）。
+        cpu_util: CPU 使用率方案，proc（/proc/stat 直读）| psutil。
+        cpu_freq: CPU 频率方案，sysfs（scaling_cur_freq 直读）| psutil。
+        memory: 内存方案，meminfo（/proc/meminfo 直读）| psutil。
+        gpu_scan: /sys/class/drm 可枚举（GPU 实时与硬件清单前提）。
+        gpu_vendors: vendor key → sysfs | nvidia-smi | intel-gpu-top | unavailable。
+        tools: 外部工具名 → 在位 bool（启动时 which 探测）。
+        reasons: 探测点 → 结论说明。
+        schemes: 逐域采集方案（_build_schemes 产出，自检页/启动日志展示）。
+    """
 
     platform: str
     cpu_util: str  # proc | psutil
@@ -78,10 +98,37 @@ def _build_schemes(
     """按决策结论汇总每个数据域在本机实际采用的采集方案（EnvCheck 展示用）。
 
     ok=False 表示该域在本机不可用或降级（note 带原因/补救提示）。
+
+    Args:
+        platform_name: 操作系统名（platform.system()）。
+        cpu_util: CPU 使用率方案（proc | psutil）。
+        cpu_freq: CPU 频率方案（sysfs | psutil）。
+        memory: 内存方案（meminfo | psutil）。
+        gpu_scan: /sys/class/drm 是否可枚举。
+        gpu_vendors: vendor key → GPU 实时策略（sysfs | nvidia-smi | intel-gpu-top | unavailable）。
+        tools: 外部工具名 → 在位 bool。
+
+    Returns:
+        list[dict]: 逐域方案列表，每项含 domain/label/primary/source/
+            fallback/ok/note。
     """
     linux = platform_name == "Linux"
 
     def scheme(domain: str, label: str, primary: str, source: str, fallback: str, ok: bool, note: str = "") -> dict:
+        """构造单域方案行（EnvCheck 表格一行）。
+
+        Args:
+            domain: 方案键（如 cpu_util/gpu_nvidia）。
+            label: 中文展示名。
+            primary: 主采集方式（ok=False 时显示"不可用"）。
+            source: 实际数据源说明。
+            fallback: 降级路径说明。
+            ok: 本机是否可用。
+            note: 降级原因/补救提示，默认空串。
+
+        Returns:
+            dict: 供自检页渲染的方案行。
+        """
         return {
             "domain": domain,
             "label": label,
@@ -228,7 +275,15 @@ def _build_schemes(
 
 
 def decide() -> HardwarePolicy:
-    """探测系统能力并产出策略；只应在进程启动时调用一次（get_policy 托管单例）。"""
+    """探测系统能力并产出策略；只应在进程启动时调用一次（get_policy 托管单例）。
+
+    逐探测点（/proc/stat、scaling_cur_freq、/proc/meminfo、/sys/class/drm）
+    判定采集路径，对 TOOLS 注册表逐个 which 探测外部工具在位情况；
+    结论与逐域方案均记入启动日志。
+
+    Returns:
+        HardwarePolicy: 进程生命周期内不变的决策结论。
+    """
     system = platform.system()
     tools = {name: bool(shutil.which(name)) for name in TOOLS}
     reasons: dict[str, str] = {}
@@ -294,7 +349,11 @@ _policy: HardwarePolicy | None = None
 
 
 def get_policy() -> HardwarePolicy:
-    """进程级单例；首次调用即决策。测试用 set_policy 注入覆盖。"""
+    """进程级单例；首次调用即决策。测试用 set_policy 注入覆盖。
+
+    Returns:
+        HardwarePolicy: 当前进程共用的采集策略。
+    """
     global _policy
     if _policy is None:
         _policy = decide()
@@ -302,6 +361,10 @@ def get_policy() -> HardwarePolicy:
 
 
 def set_policy(policy: HardwarePolicy | None) -> None:
-    """注入/重置策略（测试隔离用）。"""
+    """注入/重置策略（测试隔离用）。
+
+    Args:
+        policy: 要注入的策略；None 表示清除，下次 get_policy 重新决策。
+    """
     global _policy
     _policy = policy

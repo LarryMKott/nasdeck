@@ -18,7 +18,12 @@ _prev_cpu: dict[str, tuple[int, float]] = {}
 
 
 def docker_available() -> str | None:
-    """可用返回 None，否则返回不可用原因。"""
+    """探测 docker 引擎是否可用。
+
+    Returns:
+        str | None: 可用返回 None，否则返回不可用原因（非 Linux 主机 /
+            docker socket 不存在）。
+    """
     import platform
 
     if platform.system() != "Linux":
@@ -29,6 +34,14 @@ def docker_available() -> str | None:
 
 
 def _read_int(path: Path) -> int | None:
+    """读 cgroup 数值文件里的首个整数。
+
+    Args:
+        path (Path): cgroup 数值文件路径（如 memory.current）。
+
+    Returns:
+        int | None: 文件首行首个整数；文件不可读或无整数时 None。
+    """
     try:
         return int(path.read_text().strip().splitlines()[0].split()[0])
     except (OSError, ValueError, IndexError):
@@ -36,7 +49,10 @@ def _read_int(path: Path) -> int | None:
 
 
 def _cgroup_stats(full_id: str) -> tuple[int | None, int | None]:
-    """容器 full id → (cpu usage_usec, memory working set bytes)。"""
+    """容器 full id → (cpu usage_usec, memory working set bytes)。
+
+    cgroup v2 优先，v1 路径回退，两者皆无返回 (None, None)。
+    """
     v2 = _CGROUP_V2_ROOT / "system.slice" / f"docker-{full_id}.scope"
     if v2.is_dir():
         usage = _stat_key(v2 / "cpu.stat", "usage_usec")  # cpu.stat 为 "KEY VALUE" 行格式
@@ -55,6 +71,15 @@ def _cgroup_stats(full_id: str) -> tuple[int | None, int | None]:
 
 
 def _stat_key(stat_file: Path, key: str) -> int | None:
+    """从 "KEY VALUE" 行格式的 stat 文件中取指定键的数值。
+
+    Args:
+        stat_file (Path): cpu.stat/memory.stat 等文件路径。
+        key (str): 目标键名（如 usage_usec、inactive_file）。
+
+    Returns:
+        int | None: 键对应数值；文件不可读或键不存在时 None。
+    """
     try:
         for line in stat_file.read_text().splitlines():
             parts = line.split()
@@ -66,7 +91,16 @@ def _stat_key(stat_file: Path, key: str) -> int | None:
 
 
 def container_cpu_percent(cid: str, full_id: str) -> float | None:
-    """按上次采样增量算容器 CPU%（全核口径，同 docker stats）。"""
+    """按上次采样增量算容器 CPU%（全核口径，同 docker stats）。
+
+    Args:
+        cid (str): 12 位短容器 id（进程内采样缓存键，重建后自然失效）。
+        full_id (str): 64 位完整容器 id（定位 cgroup 目录）。
+
+    Returns:
+        float | None: CPU 百分比（一位小数）；首轮无增量、容器重建
+        （计数器回绕）或时钟异常时 None（合法真值）。
+    """
     usage, _mem = _cgroup_stats(full_id)
     if usage is None:
         return None
@@ -83,6 +117,14 @@ def container_cpu_percent(cid: str, full_id: str) -> float | None:
 
 
 def mem_human(bytes_used: int | None) -> str | None:
+    """字节数转人类可读字符串（GB/MB/KB/B 自动选单位，一位小数）。
+
+    Args:
+        bytes_used (int | None): 内存字节数。
+
+    Returns:
+        str | None: 如 "123.4 MB"；入参 None 时返回 None。
+    """
     if bytes_used is None:
         return None
     for unit, factor in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
@@ -95,6 +137,11 @@ async def list_all_states() -> dict[str, dict] | None:
     """全部容器（含已退出）cid → {name, state, status}；docker 不可用返回 None。
 
     供退出检测（M2.3）做状态对比：docker ps 默认不显示 exited，必须 -a。
+    15s 超时，超时回收子进程防泄漏。
+
+    Returns:
+        dict[str, dict] | None: 12 位 cid → {name, state, status}；
+        docker 不可用或执行超时时 None。
     """
     reason = docker_available()
     if reason:
@@ -132,6 +179,15 @@ async def list_all_states() -> dict[str, dict] | None:
 
 
 async def list_containers() -> dict:
+    """运行中容器列表（附 cgroup 直读的 cpu/memory 用量）。
+
+    15s 超时；超时回收子进程（daemon 卡顿时否则每轮刷新泄漏一个 docker 进程）。
+
+    Returns:
+        dict: {available, reason, containers}；containers 每项含 id/name/
+        image/state/status/created/ports/cpu_percent/mem_usage；docker
+        不可用时 available=False、reason 为原因、containers 为空列表。
+    """
     reason = docker_available()
     if reason:
         return {"available": False, "reason": reason, "containers": []}

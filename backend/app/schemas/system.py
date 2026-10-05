@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class SystemInfo(BaseModel):
+    """主机信息（identity 权限判定数据源）。"""
     hostname: str
     platform: str
     kernel: str
@@ -23,6 +24,7 @@ class SystemInfo(BaseModel):
 
 
 class ContainerItem(BaseModel):
+    """Docker 容器条目（含 cgroup 直读资源用量）。"""
     id: str  # 12 位短 id
     name: str
     image: str
@@ -35,12 +37,14 @@ class ContainerItem(BaseModel):
 
 
 class DockerResponse(BaseModel):
+    """容器清单响应（available=false 时 reason 带原因）。"""
     available: bool
     reason: str | None = None
     containers: list[ContainerItem] = []
 
 
 class PortEntry(BaseModel):
+    """监听/连接端口条目。"""
     proto: str  # tcp/udp
     local_addr: str
     local_port: int
@@ -53,12 +57,14 @@ class PortEntry(BaseModel):
 
 
 class PortAliasIn(BaseModel):
+    """端口标注写入请求体。"""
     port: int = Field(ge=1, le=65535)
     label: str = Field(min_length=1, max_length=64)
     note: str | None = Field(default=None, max_length=255)
 
 
 class PortAliasOut(BaseModel):
+    """端口标注响应。"""
     id: int
     port: int
     label: str
@@ -66,6 +72,7 @@ class PortAliasOut(BaseModel):
 
 
 class ProcessItem(BaseModel):
+    """进程条目（释放功能展示用）。"""
     pid: int
     name: str
     exe: str | None = None
@@ -79,27 +86,33 @@ class ProcessItem(BaseModel):
 
 
 class WhitelistIn(BaseModel):
+    """终止保护名单写入请求体（同名即更新）。"""
     name: str = Field(min_length=1, max_length=128)
     reason: str | None = Field(default=None, max_length=255)
 
 
 class WhitelistItem(BaseModel):
+    """保护名单条目。"""
     id: int
     name: str
     reason: str | None = None
 
 
 class DeletedOut(BaseModel):
+    """通用删除成功响应。"""
+
     id: int
     deleted: bool
 
 
 class SettingPut(BaseModel):
+    """系统设置写入请求体（upsert）。"""
     value: Any
     description: str | None = None
 
 
 class SelftestScheduleIn(BaseModel):
+    """SMART 周期巡检计划（PUT 仅管理员）。weekday 0=周一；type 仅 short/long。"""
     """SMART 周期巡检计划（PUT 仅管理员）。weekday 0=周一；type 仅 short/long。"""
 
     enabled: bool
@@ -109,9 +122,11 @@ class SelftestScheduleIn(BaseModel):
 
 
 class SelftestScheduleOut(SelftestScheduleIn):
+    """巡检计划响应（含 last_run）。"""
     last_run: str | None = None  # ISO 日期（YYYY-MM-DD）；未跑过为 null
 
 
 class SettingEntry(BaseModel):
+    """系统设置条目。"""
     value: Any
     description: str | None = None

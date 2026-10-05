@@ -27,6 +27,12 @@ _MIGRATION_KEY = "downsample_v2_migrated"
 
 
 async def downsample_tick() -> None:
+    """执行一轮降采样与保留窗清理（5 分钟调度一次）。
+
+    顺序：raw → 1m 聚合（超 raw 保留窗）→ 删过期 raw → 1m → 10m 聚合（超 7 天）
+    → 删过期 1m（30 天）→ 删过期 10m（90 天）→ 清理硬件清单快照（20 分钟窗口）。
+    桶键一律按 UTC 计算（见模块 docstring）。任何异常只记 warning，不中断调度。
+    """
     try:
         async with session_factory() as db:
             cutoff = _iso_minutes_ago(settings.raw_keep_minutes)
@@ -51,8 +57,14 @@ async def downsample_tick() -> None:
 
 
 async def _prune_hardware_items(db: AsyncSession) -> None:
-    """硬件清单快照只保留最近窗口：hardware API 只读每 kind 最新一条，
-    slow tick 每分钟一轮（6 kind/轮），20 分钟窗口 = ~120 行恒定规模。"""
+    """硬件清单快照只保留最近窗口。
+
+    hardware API 只读每 kind 最新一条，slow tick 每分钟一轮（6 kind/轮），
+    20 分钟窗口 = ~120 行恒定规模。
+
+    Args:
+        db: 活动的异步数据库会话（commit 由调用方负责）。
+    """
     from app.models.hardware import HardwareItem
 
     cutoff = (datetime.now(UTC) - timedelta(minutes=20)).strftime("%Y-%m-%d %H:%M:%S")
@@ -60,7 +72,11 @@ async def _prune_hardware_items(db: AsyncSession) -> None:
 
 
 async def purge_legacy_aggregates() -> None:
-    """升级后一次性清除 v1 失真聚合行（幂等，已迁移则跳过）。"""
+    """升级后一次性清除 v1 失真聚合行（幂等，已迁移则跳过）。
+
+    清除全部非 raw 聚合后，将 _MIGRATION_KEY 标记落 system_settings，
+    避免每次重启重复清除；清除行数记 warning 日志。
+    """
     async with session_factory() as db:
         if await db.get(SystemSetting, _MIGRATION_KEY) is not None:
             return
@@ -74,11 +90,27 @@ async def purge_legacy_aggregates() -> None:
 
 
 def _iso_minutes_ago(minutes: int) -> str:
+    """当前 UTC 时刻往前推 minutes 分钟的 ISO 墙钟串（桶键/删除阈值统一口径）。
+
+    Args:
+        minutes: 往前推移的分钟数。
+
+    Returns:
+        str: "%Y-%m-%dT%H:%M:%S" 格式的 UTC 墙钟串。
+    """
     return (datetime.now(UTC) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def _bucket_key(ts: str, bucket_minutes: int) -> str | None:
-    """UTC 墙钟串 → 对齐到桶起点的桶键。非 ISO 格式返回 None（跳过）。"""
+    """UTC 墙钟串 → 对齐到桶起点的桶键。
+
+    Args:
+        ts: "%Y-%m-%dT%H:%M:%S" 格式的 UTC 墙钟串。
+        bucket_minutes: 桶长（分钟）。
+
+    Returns:
+        str | None: 对齐到桶起点的同格式桶键；非 ISO 格式返回 None（跳过）。
+    """
     try:
         dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S")
     except ValueError:
@@ -89,7 +121,15 @@ def _bucket_key(ts: str, bucket_minutes: int) -> str | None:
 
 
 async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: int, since: str) -> None:
-    """按时间桶聚合（cpu/内存/网络均值，温度取最大）——SQLite 端做轻量聚合。"""
+    """按时间桶聚合（cpu/内存/网络均值，温度取最大）——SQLite 端做轻量聚合。
+
+    Args:
+        db: 活动的异步数据库会话（flush 在此，commit 由调用方负责）。
+        from_g: 源粒度（"raw" | "1m"）。
+        to_g: 目标粒度（"1m" | "10m"）。
+        bucket_minutes: 目标桶长（分钟）。
+        since: 只聚合不早于该 UTC 墙钟串的点。
+    """
     from sqlalchemy import func
 
     result = await db.execute(

@@ -12,6 +12,15 @@ from app.models.system import PortAlias
 
 
 async def list_ports(db: AsyncSession) -> list[dict]:
+    """端口占用清单：psutil 连接表逐条合并端口标注与进程名。
+
+    Args:
+        db (AsyncSession): 请求级会话（读 PortAlias 标注）。
+
+    Returns:
+        list[dict]: 按 local_port 升序的连接条目，每项含 proto/local_addr/
+        local_port/remote_addr/remote_port/status/pid/process/alias。
+    """
     result = await db.execute(select(PortAlias))
     alias_map = {row.port: row.label for row in result.scalars()}
 
@@ -59,6 +68,17 @@ async def list_ports(db: AsyncSession) -> list[dict]:
 
 
 async def upsert_alias(db: AsyncSession, port: int, label: str, note: str | None) -> PortAlias:
+    """新建或更新端口标注（按端口号 upsert）。
+
+    Args:
+        db (AsyncSession): 请求级会话（调用方 commit）。
+        port (int): 端口号（唯一键）。
+        label (str): 端口标签。
+        note (str | None): 备注文案；None 时存空串。
+
+    Returns:
+        PortAlias: 落库后的标注行。
+    """
     result = await db.execute(select(PortAlias).where(PortAlias.port == port))
     row = result.scalar_one_or_none()
     if row:

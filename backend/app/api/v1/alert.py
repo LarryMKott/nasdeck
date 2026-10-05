@@ -24,6 +24,14 @@ router = APIRouter(prefix="/alert", tags=["alert"], dependencies=[ApiKeyDep, Tri
 
 
 def _rule_dict(rule: AlertRule) -> dict:
+    """将告警规则 ORM 行转为 API 输出字典。
+
+    Args:
+        rule (AlertRule): 告警规则 ORM 对象。
+
+    Returns:
+        dict: 规则字段字典，形状见契约 §3.5 AlertRuleItem。
+    """
     return {
         "id": rule.id,
         "name": rule.name,
@@ -40,12 +48,29 @@ def _rule_dict(rule: AlertRule) -> dict:
 
 @router.get("/rules", response_model=list[AlertRuleItem])
 async def list_rules(db: AsyncSession = DbDep) -> list[dict]:
+    """列出全部告警规则，按 id 升序（契约 §3.5）。
+
+    Args:
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        list[dict]: 见 schemas.alert.AlertRuleItem。
+    """
     result = await db.execute(select(AlertRule).order_by(AlertRule.id))
     return [_rule_dict(r) for r in result.scalars()]
 
 
 @router.post("/rules")
 async def create_rule(body: AlertRuleIn, db: AsyncSession = DbDep) -> dict:
+    """创建告警规则。
+
+    Args:
+        body (AlertRuleIn): 规则字段与关联渠道 id 列表。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"id": 新规则 id}``。
+    """
     rule = AlertRule(**body.model_dump(exclude={"channel_ids"}), channels=body.channel_ids)
     db.add(rule)
     await db.flush()
@@ -54,6 +79,19 @@ async def create_rule(body: AlertRuleIn, db: AsyncSession = DbDep) -> dict:
 
 @router.put("/rules/{rule_id}")
 async def update_rule(rule_id: int, body: AlertRuleIn, db: AsyncSession = DbDep) -> dict:
+    """整体更新告警规则（全字段覆盖）。
+
+    Args:
+        rule_id (int): 规则 id。
+        body (AlertRuleIn): 新的规则字段与关联渠道 id 列表。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"id": 规则 id}``。
+
+    Raises:
+        NotFoundError: 规则不存在时。
+    """
     rule = await db.get(AlertRule, rule_id)
     if not rule:
         raise NotFoundError(f"rule {rule_id} not found")
@@ -65,6 +103,18 @@ async def update_rule(rule_id: int, body: AlertRuleIn, db: AsyncSession = DbDep)
 
 @router.delete("/rules/{rule_id}")
 async def delete_rule(rule_id: int, db: AsyncSession = DbDep) -> dict:
+    """删除告警规则，并先收尾其活跃事件。
+
+    Args:
+        rule_id (int): 规则 id。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"id": 规则 id, "deleted": True}``。
+
+    Raises:
+        NotFoundError: 规则不存在时。
+    """
     rule = await db.get(AlertRule, rule_id)
     if not rule:
         raise NotFoundError(f"rule {rule_id} not found")
@@ -81,6 +131,16 @@ async def list_events(
     status: str = Query(default="all", pattern="^(firing|resolved|all)$"),
     db: AsyncSession = DbDep,
 ) -> list[dict]:
+    """列出告警事件，按 id 倒序（契约 §3.5）。
+
+    Args:
+        limit (int): 返回条数上限，1-500，默认 50。
+        status (str): 状态过滤，firing / resolved / all，默认 all。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        list[dict]: 见 schemas.alert.AlertEventItem。
+    """
     query = select(AlertEvent).order_by(AlertEvent.id.desc()).limit(limit)
     if status != "all":
         query = query.where(AlertEvent.status == status)
@@ -90,6 +150,14 @@ async def list_events(
 
 @router.get("/channels", response_model=list[AlertChannelItem])
 async def list_channels(db: AsyncSession = DbDep) -> list[dict]:
+    """列出全部通知渠道，配置脱敏返回。
+
+    Args:
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        list[dict]: 见 schemas.alert.AlertChannelItem（config_masked 为掩码后配置）。
+    """
     result = await db.execute(select(AlertChannel).order_by(AlertChannel.id))
     return [
         {
@@ -104,6 +172,17 @@ async def list_channels(db: AsyncSession = DbDep) -> list[dict]:
 
 
 def _channel_row(body: AlertChannelIn) -> AlertChannel:
+    """按请求体构建渠道 ORM 行，配置先经渠道实现校验。
+
+    Args:
+        body (AlertChannelIn): 渠道字段与配置。
+
+    Returns:
+        AlertChannel: 尚未入库的渠道 ORM 对象。
+
+    Raises:
+        InvalidParamsError: 渠道类型合法但配置缺字段时（错误码 1002）。
+    """
     impl = engine.channel_impl(body.type)
     impl.validate(body.config)  # 类型合法但缺字段 → 1002
     return AlertChannel(name=body.name, type=body.type, config=body.config, enabled=body.enabled)
@@ -111,6 +190,18 @@ def _channel_row(body: AlertChannelIn) -> AlertChannel:
 
 @router.post("/channels")
 async def create_channel(body: AlertChannelIn, db: AsyncSession = DbDep) -> dict:
+    """创建通知渠道（配置先校验再入库）。
+
+    Args:
+        body (AlertChannelIn): 渠道字段与配置。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"id": 新渠道 id}``。
+
+    Raises:
+        InvalidParamsError: 渠道类型合法但配置缺字段时。
+    """
     channel = _channel_row(body)
     db.add(channel)
     await db.flush()
@@ -119,6 +210,20 @@ async def create_channel(body: AlertChannelIn, db: AsyncSession = DbDep) -> dict
 
 @router.put("/channels/{channel_id}")
 async def update_channel(channel_id: int, body: AlertChannelIn, db: AsyncSession = DbDep) -> dict:
+    """更新通知渠道（带掩码的字段合并回旧配置）。
+
+    Args:
+        channel_id (int): 渠道 id。
+        body (AlertChannelIn): 新的渠道字段与配置。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"id": 渠道 id}``。
+
+    Raises:
+        NotFoundError: 渠道不存在时。
+        InvalidParamsError: 渠道类型合法但配置缺字段时。
+    """
     channel = await db.get(AlertChannel, channel_id)
     if not channel:
         raise NotFoundError(f"channel {channel_id} not found")
@@ -139,6 +244,18 @@ async def update_channel(channel_id: int, body: AlertChannelIn, db: AsyncSession
 
 @router.delete("/channels/{channel_id}")
 async def delete_channel(channel_id: int, db: AsyncSession = DbDep) -> dict:
+    """删除通知渠道。
+
+    Args:
+        channel_id (int): 渠道 id。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"id": 渠道 id, "deleted": True}``。
+
+    Raises:
+        NotFoundError: 渠道不存在时。
+    """
     channel = await db.get(AlertChannel, channel_id)
     if not channel:
         raise NotFoundError(f"channel {channel_id} not found")
@@ -149,6 +266,21 @@ async def delete_channel(channel_id: int, db: AsyncSession = DbDep) -> dict:
 
 @router.post("/channels/{channel_id}/test", response_model=ChannelTestResult)
 async def test_channel(channel_id: int, db: AsyncSession = DbDep) -> dict:
+    """向指定渠道发送测试通知，验证连通性。
+
+    发送阶段除配置错误外的任何异常一律按失败计（success=False）。
+
+    Args:
+        channel_id (int): 渠道 id。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: ``{"channel_id": 渠道 id, "success": 是否发送成功}``。
+
+    Raises:
+        NotFoundError: 渠道不存在时。
+        InvalidParamsError: 渠道类型未知或配置缺字段时（透传）。
+    """
     channel = await db.get(AlertChannel, channel_id)
     if not channel:
         raise NotFoundError(f"channel {channel_id} not found")

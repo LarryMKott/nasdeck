@@ -35,6 +35,15 @@ _disk_cache: dict = {"ts": 0.0, "items": [], "health": {}, "temps": {}}
 
 
 def _zone_for(chip: str, label: str | None) -> str:
+    """按 chip 名与标签的提示词（_ZONE_HINTS）把传感器归入分区。
+
+    Args:
+        chip (str): hwmon chip 名。
+        label (str | None): 传感器标签（可为 None）。
+
+    Returns:
+        str: 分区名（cpu / nvme / disk / board）；无提示词命中时 "other"。
+    """
     text = f"{chip} {label or ''}".lower()
     for zone, hints in _ZONE_HINTS.items():
         if any(h in text for h in hints):
@@ -43,6 +52,14 @@ def _zone_for(chip: str, label: str | None) -> str:
 
 
 def grade_of(celsius: float) -> str:
+    """温度 → 分级（契约 §2.2 阈值 60/75/85）。
+
+    Args:
+        celsius (float): 温度（°C）。
+
+    Returns:
+        str: "critical"（≥85）/ "hot"（≥75）/ "warm"（≥60）/ "normal"（其余）。
+    """
     if celsius >= 85:
         return "critical"
     if celsius >= 75:
@@ -53,7 +70,16 @@ def grade_of(celsius: float) -> str:
 
 
 def _nvme_hwmon_items(root: str = "/sys/class/hwmon") -> list[dict]:
-    """/sys/class/hwmon 直读 NVMe 温度，键带 nvmeN 设备号（psutil 合并同名 chip 无法区分）。"""
+    """/sys/class/hwmon 直读 NVMe 温度条目。
+
+    键带 nvmeN 设备号（psutil 把多块 NVMe 合并成同名 chip，键/标签无法区分设备）。
+
+    Args:
+        root (str): hwmon 根目录（默认 /sys/class/hwmon），测试可注入。
+
+    Returns:
+        list[dict]: 温度条目列表（形状同 temperatures() 输出，zone 固定 "nvme"）。
+    """
     items: list[dict] = []
     for hw in sorted(glob.glob(os.path.join(root, "hwmon*"))):
         try:
@@ -94,8 +120,9 @@ def _nvme_hwmon_items(root: str = "/sys/class/hwmon") -> list[dict]:
 
 
 async def _smart_disk_scan() -> None:
-    """SATA 机械盘 + NVMe 扫描：smartctl -n standby -H -A -j（休眠盘立即返回不打扰，该轮无读数）。
+    """SATA 机械盘 + NVMe 扫描（60s 缓存）：smartctl -n standby -H -A -j。
 
+    休眠盘立即返回不打扰，该轮无读数。
     同时记录 smart_status 健康判定（passed/failing/unknown），供 disk_failed
     告警、/monitor/summary 磁盘健康统计与 /storage/disks 健康回填使用。
     NVMe 按控制器（/dev/nvme?）探测，消费方把 nvme0n1 形态的 lsblk 盘名回退
@@ -144,7 +171,15 @@ async def _smart_disk_scan() -> None:
 
 
 async def _probe_disk(dev: str) -> tuple[str, dict | None]:
-    """单盘探测：返回 (设备名, JSON dict)；无 JSON 输出返回 (设备名, None)。"""
+    """单盘探测（smartctl -n standby -H -A -j）。
+
+    Args:
+        dev (str): 设备路径（/dev/sd? / /dev/nvme?）。
+
+    Returns:
+        tuple[str, dict | None]: (设备名, JSON dict)；超时/缺工具/坏 JSON 等
+            一律按该盘无数据处理，返回 (设备名, None)。
+    """
     try:
         _rc, out, _err = await run_cmd(
             "smartctl", "-n", "standby", "-H", "-A", "-j", dev, timeout=15
@@ -155,12 +190,24 @@ async def _probe_disk(dev: str) -> tuple[str, dict | None]:
 
 
 async def _smart_disk_temps() -> list[dict]:
+    """取 SMART 盘温条目（触发/复用 60s 扫描缓存）。
+
+    Returns:
+        list[dict]: 温度条目列表（zone 为 "disk"，仅 SATA；NVMe 温度已由
+            hwmon 直读条目上屏，不在此重复）。
+    """
     await _smart_disk_scan()
     return _disk_cache["items"]
 
 
 async def disk_health() -> dict[str, str]:
-    """设备名（sda / nvme0）→ SMART overall 健康。与盘温共用同一轮探测与缓存。"""
+    """取设备名（sda / nvme0）→ SMART overall 健康。
+
+    与盘温共用同一轮探测与缓存。
+
+    Returns:
+        dict[str, str]: 设备名 → "passed" / "failing"；非 Linux 返回空 dict。
+    """
     if platform.system() != "Linux":
         return {}
     await _smart_disk_scan()
@@ -168,7 +215,13 @@ async def disk_health() -> dict[str, str]:
 
 
 async def disk_temps() -> dict[str, float]:
-    """设备名（sda / nvme0）→ SMART 温度 ℃。休眠盘该轮无读数，不在返回值中。"""
+    """取设备名（sda / nvme0）→ SMART 温度 ℃。
+
+    休眠盘该轮无读数，不在返回值中。
+
+    Returns:
+        dict[str, float]: 设备名 → 温度；非 Linux 返回空 dict。
+    """
     if platform.system() != "Linux":
         return {}
     await _smart_disk_scan()
@@ -176,6 +229,14 @@ async def disk_temps() -> dict[str, float]:
 
 
 async def temperatures() -> list[dict]:
+    """汇总全部温度条目（psutil hwmon 扫描 + NVMe hwmon 直读 + SMART 盘温）。
+
+    psutil 的 nvme 同名合并条目跳过（已由 hwmon 直读带设备号）。
+
+    Returns:
+        list[dict]: 温度条目列表，每项含 key / chip / label / celsius / zone /
+            grade；非 Linux 或 psutil 无传感器支持时返回空表。
+    """
     if platform.system() != "Linux" or not hasattr(psutil, "sensors_temperatures"):
         return []
     result = _nvme_hwmon_items()
@@ -201,5 +262,13 @@ async def temperatures() -> list[dict]:
 
 
 def max_celsius(items: list[dict]) -> float | None:
+    """取温度条目中的最高温。
+
+    Args:
+        items (list[dict]): temperatures() 输出的条目列表。
+
+    Returns:
+        float | None: 最高温度（°C，保留 1 位小数）；空列表时 None。
+    """
     values = [t["celsius"] for t in items]
     return round(max(values), 1) if values else None

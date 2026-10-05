@@ -26,6 +26,14 @@ DbDep = Depends(get_db)
 
 
 async def require_api_key(request: Request) -> None:
+    """校验 X-API-Key 头（未配置 api_key 时放行，直连无鉴权形态）。
+
+    Args:
+        request (Request): 当前请求（读头）。
+
+    Raises:
+        PermissionDeniedError: 配置了 api_key 且头缺失/不匹配。
+    """
     from app.core.config import settings
 
     if not settings.api_key:

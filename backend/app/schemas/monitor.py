@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 
 class NetIface(BaseModel):
+    """网卡实时速率条目。"""
     rx_kbps: float
     tx_kbps: float
     rx_human: str
@@ -15,6 +16,7 @@ class NetIface(BaseModel):
 
 
 class GpuRealtime(BaseModel):
+    """GPU 实时分量（intel_gpu_top 解析）。"""
     """GPU 实时分量（契约 §2.1；AMD sysfs / NVIDIA nvidia-smi，Intel 不提供实时值）。"""
 
     available: bool = False
@@ -33,6 +35,7 @@ class GpuRealtime(BaseModel):
 
 
 class PowerRealtime(BaseModel):
+    """功耗实时分量（RAPL）。"""
     """RAPL 实时功耗分量（Intel energy_uj 差分；非 Intel/无权限时 available=false）。"""
 
     available: bool = False
@@ -42,6 +45,8 @@ class PowerRealtime(BaseModel):
 
 
 class RealtimeSnapshot(BaseModel):
+    """实时快照（秒级 WS/轮询数据源，契约 §6.1）。"""
+    """实时快照（秒级 WS/轮询数据源）。"""
     ts: str
     available: bool = True
     cpu_percent: float
@@ -71,6 +76,8 @@ class RealtimeSnapshot(BaseModel):
 
 
 class TemperatureItem(BaseModel):
+    """温度传感器条目（hwmon 直读 + SMART 盘温合并）。"""
+    """温度传感器条目。"""
     key: str
     chip: str
     label: str | None = None
@@ -80,6 +87,7 @@ class TemperatureItem(BaseModel):
 
 
 class HistoryPoint(BaseModel):
+    """历史曲线数据点。"""
     ts: str
     cpu_avg: float | None = None
     cpu_max: float | None = None
@@ -93,12 +101,15 @@ class HistoryPoint(BaseModel):
 
 
 class HistoryResponse(BaseModel):
+    """历史曲线响应（按粒度聚合，契约 §2.4）。"""
+    """历史曲线响应（按粒度聚合）。"""
     points: list[HistoryPoint]
     minutes: int
     granularity: str
 
 
 class DiskHealthCount(BaseModel):
+    """磁盘健康计数（passed/warning/failing/unknown）。"""
     passed: int
     warning: int
     failing: int
@@ -106,6 +117,8 @@ class DiskHealthCount(BaseModel):
 
 
 class Summary(BaseModel):
+    """总览摘要（总览页头部卡片数据源）。"""
+    """总览摘要（总览页头部卡片）。"""
     cpu_percent: float
     mem_percent: float
     temp_max_c: float | None

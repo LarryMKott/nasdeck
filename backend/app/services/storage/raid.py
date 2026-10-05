@@ -17,6 +17,15 @@ from app.utils.sysfs import read_text
 
 
 async def raid_status() -> dict:
+    """聚合硬 RAID（storcli）与软 RAID（/proc/mdstat）状态。
+
+    storcli 探测失败不阻断软 RAID：hardware_raid 置空、available=false、错误落
+    storcli_error；storcli 无 MegaRAID 可报时回退 lspci 检测 HBA 直通卡。
+
+    Returns:
+        dict: {available, hardware_raid, software_raid, storcli_error, controller, drives}，
+            形状对齐契约 RaidVolumeItem / controller / drives。
+    """
     software = _mdstat_volumes()
     storcli_error = None
     card = None
@@ -99,6 +108,9 @@ async def _detect_hba() -> dict | None:
     """lspci 只读检测 HBA 直通卡；附带 mpt3sas 驱动版本（真机 fnOS 1.2 实测可读）。
 
     lspci 在位与否由策略决策层启动时判定（policy.tools），缺失直接跳过不 fork。
+
+    Returns:
+        dict | None: {mode, model, driver, note}；无 lspci、命令失败或无 HBA 时返回 None。
     """
     from app.services.hardware.policy import get_policy
 
@@ -122,7 +134,14 @@ async def _detect_hba() -> dict | None:
 
 
 def _norm_level(storcli_type: str) -> str:
-    """storcli TYPE 列（RAID5/RAID10/JBOD...）→ 常规级别文本。"""
+    """storcli TYPE 列（RAID5/RAID10/JBOD...）→ 常规级别文本。
+
+    Args:
+        storcli_type (str): storcli 拓扑表 TYPE 列原文。
+
+    Returns:
+        str: RAID 前缀剥离后的级别（如 "5"、"10"）；非 RAID 型号原样返回，空值归 "unknown"。
+    """
     t = (storcli_type or "").upper()
     if t.startswith("RAID"):
         return t.removeprefix("RAID")
@@ -130,7 +149,18 @@ def _norm_level(storcli_type: str) -> str:
 
 
 def _storcli_text_run(args: list[str], timeout: float) -> str:
-    """storcli.collect 的同步执行器（运行于 to_thread 工作线程，不可 await）。"""
+    """storcli.collect 的同步执行器（运行于 to_thread 工作线程，不可 await）。
+
+    Args:
+        args (list[str]): storcli 参数列表（不含可执行名）。
+        timeout (float): 命令超时秒数。
+
+    Returns:
+        str: storcli 标准输出。
+
+    Raises:
+        RuntimeError: 返回码非 0 且无输出（错误信息截断至 120 字符）。
+    """
     from app.utils.async_cmd import run_storcli_sync
 
     rc, out, err = run_storcli_sync(*args, timeout=timeout)
@@ -151,8 +181,16 @@ _MD_SYNC = re.compile(
 
 
 def _md_sync_info(lines: list[str], start: int) -> dict | None:
-    """blocks 行向下扫描本 md 的同步段（M2.4）：进行中返回 {action, percent,
-    finish_text, speed_text}，delayed 无百分比；无同步活动返回 None。"""
+    """blocks 行向下扫描本 md 的同步段（M2.4）。
+
+    Args:
+        lines (list[str]): /proc/mdstat 全部行。
+        start (int): 本 md 成员行下标，自其后开始扫描。
+
+    Returns:
+        dict | None: 同步进行中返回 {action, percent, finish_text, speed_text}
+            （delayed 无百分比）；无同步活动返回 None。
+    """
     for follow in lines[start + 1 : start + 6]:
         match = _MD_SYNC.search(follow)
         if match:
@@ -169,7 +207,14 @@ def _md_sync_info(lines: list[str], start: int) -> dict | None:
 
 
 def _md_members(rest: str) -> list[dict]:
-    """mdstat 成员段（"sda2[0] sdb2[1](F)"）→ 结构化成员（faulty/spare 标记）。"""
+    """解析 mdstat 成员段（"sda2[0] sdb2[1](F)"）→ 结构化成员。
+
+    Args:
+        rest (str): mdstat 成员行 " : " 之后的原文。
+
+    Returns:
+        list[dict]: 每项 {device, index, faulty, spare}（faulty/spare 按括号标记 F/S 判定）。
+    """
     members = []
     for match in _MD_MEMBER.finditer(rest):
         device, index, flag = match.group(1), int(match.group(2)), match.group(3) or ""
@@ -185,6 +230,15 @@ def _md_members(rest: str) -> list[dict]:
 
 
 def _mdstat_volumes(path: str = "/proc/mdstat") -> list[dict]:
+    """解析 /proc/mdstat → 软 RAID 卷列表（契约 RaidVolumeItem 形状，source=mdadm）。
+
+    Args:
+        path (str): mdstat 路径（默认 "/proc/mdstat"，测试可注入）。
+
+    Returns:
+        list[dict]: 每卷 {source, controller, volume_id, name, level, size_bytes, state,
+            healthy, members, details}；文件为空或不含活动阵列返回 []。
+    """
     text = read_text(path)
     if not text:
         return []

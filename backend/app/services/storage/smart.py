@@ -14,6 +14,12 @@ def _health_of(data: dict) -> str:
 
     旧实现 str(True) 查大写键表（"PASSED"）恒 unknown，且「unknown 且有 NVMe
     日志就翻 passed」的兜底把 smart_status.passed=false 的故障 NVMe 判成健康。
+
+    Args:
+        data (dict): smartctl JSON 输出。
+
+    Returns:
+        str: "passed" / "failing" / "unknown"。
     """
     passed = data.get("smart_status", {}).get("passed")
     if passed is True:
@@ -24,7 +30,18 @@ def _health_of(data: dict) -> str:
 
 
 async def smart_report(device: str) -> dict:
-    """device 为不带前缀设备名。standby 休眠盘只回 device/standby/health。"""
+    """采集单盘 SMART 报告并做健康评估。
+
+    Args:
+        device (str): 不带前缀设备名。
+
+    Returns:
+        dict: smart_report 形状（device/model/serial/firmware/health/temp_c/attributes/
+            standby/assessed_at 等）；standby 休眠盘只回 device/standby/health。
+
+    Raises:
+        ExternalToolError: smartctl 失败或输出不可解析（接口层转 1003）。
+    """
     # -n standby：休眠盘立即返回不转起（轮询本接口不打扰盘休眠）
     rc, out, err = await run_cmd("smartctl", "-j", "-n", "standby", "-a", f"/dev/{device}", timeout=30)
     try:
@@ -63,6 +80,15 @@ async def smart_report(device: str) -> dict:
 
 
 def _temperature(data: dict) -> float | None:
+    """提取盘温（℃）。
+
+    Args:
+        data (dict): smartctl JSON 输出。
+
+    Returns:
+        float | None: SATA 取 temperature.current；NVMe 从健康日志开尔文换算；
+            两形态均无返回 None。
+    """
     temp = data.get("temperature", {})
     if isinstance(temp, dict) and temp.get("current") is not None:
         return float(temp["current"])
@@ -73,6 +99,15 @@ def _temperature(data: dict) -> float | None:
 
 
 def _attr_value(data: dict, attr_id: int) -> int | None:
+    """按 attribute id 取 raw 整数值。
+
+    Args:
+        data (dict): smartctl JSON 输出。
+        attr_id (int): SMART 属性 id（如 9=通电时长、12=通电次数）。
+
+    Returns:
+        int | None: raw.value 整数；属性缺失或值不可解析返回 None。
+    """
     for attr in data.get("attributes", []):
         if attr.get("id") == attr_id:
             try:
@@ -83,11 +118,27 @@ def _attr_value(data: dict, attr_id: int) -> int | None:
 
 
 def _remapped(data: dict) -> int | None:
+    """取重映射扇区数（SMART 05 属性 raw 值，健康评估规则的预警依据）。
+
+    Args:
+        data (dict): smartctl JSON 输出。
+
+    Returns:
+        int | None: 05 属性 raw 值；缺失返回 None。
+    """
     value = _attr_value(data, 5)
     return value
 
 
 def _attributes(data: dict) -> list[dict]:
+    """归一化 SMART 属性表。
+
+    Args:
+        data (dict): smartctl JSON 输出。
+
+    Returns:
+        list[dict]: 每项 {id, name, value, worst, threshold, raw}（raw 取原始串）。
+    """
     return [
         {
             "id": a.get("id"),

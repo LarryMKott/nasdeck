@@ -11,9 +11,22 @@ from app.utils.sysfs import list_dirs, read_text
 
 
 class MemoryCollector(BaseCollector):
+    """内存硬件清单采集器（kind="memory"）。
+
+    数据来源：psutil virtual_memory 容量 + Linux 下 /sys/devices/system/edac/mc
+    直读 EDAC 控制器推断 ECC 与 DIMM（需 root，读不到即空表降级，不影响容量）。
+    """
+
     kind = "memory"
 
     async def collect(self) -> dict:
+        """采集内存容量与 ECC/DIMM 信息。
+
+        Returns:
+            dict: 含 name/available（恒 True）、total_mb（MiB，一位小数）、
+                ecc（检出 EDAC 控制器即 True）、dimms；dimms 每项为
+                {"slot": <mc 目录名>, "size_mb": <int|None>}，size 读不到为 None。
+        """
         vm = psutil.virtual_memory()
         dimms = []
         for dimm in list_dirs("/sys/devices/system/edac/mc"):

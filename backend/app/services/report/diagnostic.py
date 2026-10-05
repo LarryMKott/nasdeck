@@ -21,6 +21,15 @@ REPORT_DIR = Path(__file__).resolve().parents[3] / "data" / "reports"
 
 
 async def generate_diagnostic(redact: bool) -> dict:
+    """生成诊断包 zip（运行环境 info + settings dump，可选脱敏）并落盘 data/reports。
+
+    Args:
+        redact (bool): 是否脱敏（settings 先按 key 命中打码凭据值，再整体
+            正则脱敏）。
+
+    Returns:
+        dict: {"filename": zip 文件名, "url": 下载路径}。
+    """
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"diagnostic_{ts}.zip"

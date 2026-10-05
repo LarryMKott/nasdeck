@@ -18,6 +18,7 @@ _ACTION_VALUES = ("fan_full", "report")
 
 
 class AlertRuleIn(BaseModel):
+    """告警规则创建/更新请求体（契约 §2.19）。"""
     # 禁 CRLF：规则名会拼进邮件 Subject（头注入）与 Bark URL 路径（定界符截断）
     name: str = Field(min_length=1, max_length=64, pattern=r"^[^\r\n]+$")
     metric: str = Field(pattern=_METRIC_PATTERN)
@@ -32,6 +33,17 @@ class AlertRuleIn(BaseModel):
     @field_validator("actions")
     @classmethod
     def _actions_whitelist(cls, v: list[str]) -> list[str]:
+        """校验剧本动作白名单（与 engine.VALID_ACTIONS 一致，独立声明避免反向依赖）。
+
+        Args:
+            v (list[str]): 动作名列表。
+
+        Returns:
+            list[str]: 原样返回（校验通过）。
+
+        Raises:
+            ValueError: 含白名单外动作名。
+        """
         if any(a not in _ACTION_VALUES for a in v):
             raise ValueError(f"actions 仅支持 {'/'.join(_ACTION_VALUES)}")
         return v
@@ -40,10 +52,12 @@ class AlertRuleIn(BaseModel):
 
 
 class AlertRuleItem(AlertRuleIn):
+    """告警规则响应体（含 id）。"""
     id: int
 
 
 class AlertChannelIn(BaseModel):
+    """通知渠道创建/更新请求体（config 明文，仅写接口）。"""
     name: str = Field(min_length=1, max_length=64)
     type: str = Field(pattern="^(telegram|bark|email|webhook)$")
     config: dict
@@ -51,6 +65,7 @@ class AlertChannelIn(BaseModel):
 
 
 class AlertChannelItem(BaseModel):
+    """通知渠道响应体（config 脱敏为 config_masked）。"""
     id: int
     name: str
     type: str
@@ -59,6 +74,7 @@ class AlertChannelItem(BaseModel):
 
 
 class AlertEventItem(BaseModel):
+    """告警/系统事件响应体。"""
     id: int
     rule_id: int | None
     rule_name: str
@@ -73,5 +89,6 @@ class AlertEventItem(BaseModel):
 
 
 class ChannelTestResult(BaseModel):
+    """渠道连通性测试结果。"""
     channel_id: int
     success: bool

@@ -33,6 +33,14 @@ _tables = {"metrics": MetricPoint, "hardware": HardwareItem}
 
 
 def _stmt(kind: str):
+    """构造目标表的批量 INSERT 语句。
+
+    Args:
+        kind (str): 表别名，仅 "metrics" / "hardware"。
+
+    Returns:
+        Insert: sqlite 方言 INSERT；metrics 表带 (ts, granularity) 冲突忽略。
+    """
     stmt = sqlite_insert(_tables[kind])
     if kind == "metrics":
         stmt = stmt.on_conflict_do_nothing(index_elements=["ts", "granularity"])
@@ -45,7 +53,12 @@ _dropped_since_log = 0
 
 
 def submit(kind: str, row: dict) -> None:
-    """非阻塞投递一行采集数据；队列满丢弃（容灾，不阻塞采集调度）。"""
+    """非阻塞投递一行采集数据；队列满丢弃（容灾，不阻塞采集调度）。
+
+    Args:
+        kind (str): 目标表别名（见 _tables）。
+        row (dict): 与该表列名对齐的一行数据。
+    """
     global _dropped_since_log
     if _queue is None:  # worker 未启动（如单测直调采集函数）——静默丢弃
         return
@@ -59,6 +72,11 @@ def submit(kind: str, row: dict) -> None:
 
 
 async def _write(pending: dict[str, list[dict]]) -> None:
+    """一批数据单事务 executemany 落盘。
+
+    Args:
+        pending (dict[str, list[dict]]): 表别名 → 待写行列表。
+    """
     rows_total = sum(len(rows) for rows in pending.values())
     if not rows_total:
         return
@@ -73,6 +91,7 @@ async def _write(pending: dict[str, list[dict]]) -> None:
 
 
 async def _run() -> None:
+    """消费者主循环：攒批（条数或 2s 时长先到为准）触发落盘，常驻直到 cancel。"""
     pending: dict[str, list[dict]] = {kind: [] for kind in _tables}
     last_flush = time.monotonic()
     while True:
@@ -91,7 +110,7 @@ async def _run() -> None:
 
 
 def start() -> None:
-    """启动落库 worker（须在事件循环内调用，lifespan 里执行）。"""
+    """启动落库 worker（须在事件循环内调用，lifespan 里执行）；重复调用幂等。"""
     global _queue, _task
     if _task is None:
         _queue = asyncio.Queue(maxsize=_QUEUE_MAX)
@@ -99,6 +118,7 @@ def start() -> None:
 
 
 async def stop() -> None:
+    """停 worker 并清队列（lifespan 收尾）；残留采集行随终止丢弃（可丢流）。"""
     global _queue, _task
     if _task is not None:
         _task.cancel()
@@ -109,5 +129,6 @@ async def stop() -> None:
 
 
 def _reset_for_test() -> None:
+    """清空进程内通道状态（仅测试用：worker 是模块级单例，跨测试须复位）。"""
     global _queue, _task, _dropped_since_log
     _queue, _task, _dropped_since_log = None, None, 0

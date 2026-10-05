@@ -16,6 +16,12 @@ _SYSTEM_MOUNTS = {"/boot/efi", "/run", "/dev/shm", "/run/user"}
 
 
 def list_volumes() -> list[dict]:
+    """枚举存储卷与挂载点（psutil，排除伪文件系统与系统挂载点）。
+
+    Returns:
+        list[dict]: 每卷 {device, mount, fs_type, total_bytes, used_bytes, free_bytes,
+            percent, opts}，按挂载点排序；disk_usage 失败的挂载点跳过。
+    """
     volumes = []
     for part in psutil.disk_partitions(all=False):
         if part.fstype.lower() in _PSEUDO_FS:
@@ -46,7 +52,12 @@ _disks_cache: dict = {"ts": 0.0, "data": None}
 
 
 def _flatten_children(node: dict, out: list[dict]) -> None:
-    """lsblk children 递归平铺为分区表（part/lvm/crypt 同层展示，type 字段区分）。"""
+    """lsblk children 递归平铺为分区表（part/lvm/crypt 同层展示，type 字段区分）。
+
+    Args:
+        node (dict): lsblk JSON 盘节点。
+        out (list[dict]): 输出分区表（原位追加）。
+    """
     for child in node.get("children") or []:
         mount = child.get("mountpoint")
         if isinstance(mount, list):  # 多挂载点时 lsblk JSON 为数组，取首个
@@ -70,6 +81,11 @@ async def list_disks() -> list[dict]:
     60s 进程内缓存：disks/summary/报告多端点共用一轮 fork（磁盘清单极少变化）。
     注意：util-linux 2.38（fnOS 1.2 实测）上 `-JOb`（-O 与 -o 混用）会返回空列表，
     必须用 `-Jb -o 显式列`（真机联调踩坑，勿改回）。
+
+    Returns:
+        list[dict]: 每盘 {device, path, serial, model, transport, size_bytes,
+            size_human, rotational, partitions}；返回深拷贝（防调用方就地回填
+            alias/health 污染缓存）。
     """
     now = time.monotonic()
     if _disks_cache["data"] is not None and now - _disks_cache["ts"] < _DISKS_CACHE_TTL:
@@ -117,4 +133,5 @@ async def list_disks() -> list[dict]:
 
 
 def _reset_for_test() -> None:
+    """清空磁盘清单缓存（测试隔离用）。"""
     _disks_cache.update(ts=0.0, data=None)

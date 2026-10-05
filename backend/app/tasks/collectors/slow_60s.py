@@ -1,4 +1,8 @@
-"""60 秒级采集：硬件信息落库（SMART 依赖 smartctl，不可用即跳过）+ 磁盘/阵列健康刷新 + 容器退出检测。"""
+"""60 秒级采集：硬件信息落库（SMART 依赖 smartctl，不可用即跳过）+ 磁盘/阵列健康刷新
++ 容器退出检测 + 阵列同步活动转换。
+
+后两段各自独立 try/except：docker/探测不可用时返回空，绝不拖垮上段硬件采集。
+"""
 
 from __future__ import annotations
 
@@ -33,6 +37,14 @@ _COLLECTORS = (
 
 
 async def slow_tick() -> None:
+    """60 秒一轮：硬件清单落库 + 磁盘/阵列健康刷新 + 容器退出检测 + 阵列同步活动转换。
+
+    首段：6 个硬件采集器 safe_collect → ingest 通道投递 hardware 行（SMART
+    依赖 smartctl，不可用即对应采集器自行降级）；次段：磁盘清单 + SMART 健康
+    计数、阵列降级数写 realtime_cache（告警引擎消费，健康来自 temperature.disk_health
+    同一轮 60s 缓存）。后两段各自独立 try/except：docker/探测不可用时返回空，
+    绝不拖垮上段硬件采集；任何异常只记 warning，不中断调度。
+    """
     try:
         rows = [await c.safe_collect() for c in _COLLECTORS]
         logger.debug(

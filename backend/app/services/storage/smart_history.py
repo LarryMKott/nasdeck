@@ -38,12 +38,27 @@ RATE_WINDOW_DAYS = 7
 
 
 def smart_key(device: str) -> str:
-    """lsblk 盘名 → SMART 探测键：sda 原样；nvme0n1 回退控制器名 nvme0（与盘温/健康同键）。"""
+    """lsblk 盘名 → SMART 探测键：sda 原样；nvme0n1 回退控制器名 nvme0（与盘温/健康同键）。
+
+    Args:
+        device (str): lsblk 盘名。
+
+    Returns:
+        str: SMART 探测键。
+    """
     return re.sub(r"n\d+$", "", device) if device.startswith("nvme") else device
 
 
 def extract_metrics(report: dict) -> dict[str, tuple[float, str | None]]:
-    """smart_report → {metric: (value, raw_text)}。休眠盘 attributes 为空返回 {}（不记录）。"""
+    """从 smart_report 提取关键指标。
+
+    Args:
+        report (dict): smart_report 输出。
+
+    Returns:
+        dict[str, tuple[float, str | None]]: {metric: (value, raw_text)}；
+            休眠盘 attributes 为空返回 {}（不记录）。
+    """
     out: dict[str, tuple[float, str | None]] = {}
     for attr in report.get("attributes") or []:
         name = _ATA_METRICS.get(attr.get("id"))
@@ -64,15 +79,42 @@ def extract_metrics(report: dict) -> dict[str, tuple[float, str | None]]:
 
 
 def _hour_bucket(now: datetime) -> str:
+    """生成整点桶键（UTC 墙钟串，口径同 MetricPoint，契约 §1.5）。
+
+    Args:
+        now (datetime): 桶键基准时刻。
+
+    Returns:
+        str: 形如 ``YYYY-MM-DDTHH:00:00`` 的桶键。
+    """
     return now.strftime("%Y-%m-%dT%H:00:00")
 
 
 def _day_bucket(now: datetime) -> str:
+    """生成当日 00:00 桶键（1d 粒度；窗口截断必须按整日，按时刻截会丢边界日）。
+
+    Args:
+        now (datetime): 桶键基准时刻。
+
+    Returns:
+        str: 形如 ``YYYY-MM-DDT00:00:00`` 的桶键。
+    """
     return now.strftime("%Y-%m-%dT00:00:00")
 
 
 async def record_snapshots(db: AsyncSession, reports: list[dict], now: datetime | None = None) -> int:
-    """整桶覆盖写 1h/1d 点，返回写入行数。休眠盘（attributes 空）自然跳过。"""
+    """整桶覆盖写 1h/1d 点，返回写入行数。
+
+    休眠盘（attributes 空）自然跳过。
+
+    Args:
+        db (AsyncSession): 调用方会话（本函数只 flush，commit 归调用方）。
+        reports (list[dict]): smart_report 输出列表。
+        now (datetime | None): 桶键基准时刻；None 取当前 UTC。
+
+    Returns:
+        int: 写入行数。
+    """
     now = now or datetime.now(UTC)
     hour, day = _hour_bucket(now), _day_bucket(now)
     rows: list[SmartPoint] = []
@@ -106,7 +148,17 @@ async def record_snapshots(db: AsyncSession, reports: list[dict], now: datetime 
 
 
 async def prune_old(db: AsyncSession, now: datetime | None = None) -> int:
-    """超保留窗删除，返回删除行数。采集任务每日触发一次。"""
+    """删除超保留窗的 SMART 点，返回删除行数。
+
+    由采集任务每日触发一次。
+
+    Args:
+        db (AsyncSession): 调用方会话。
+        now (datetime | None): 保留截止线基准时刻；None 取当前 UTC。
+
+    Returns:
+        int: 删除行数（1h/1d 两级桶合计）。
+    """
     now = now or datetime.now(UTC)
     total = 0
     for gran, keep_days in (("1h", KEEP_1H_DAYS), ("1d", KEEP_1D_DAYS)):
@@ -117,9 +169,20 @@ async def prune_old(db: AsyncSession, now: datetime | None = None) -> int:
 
 
 async def trend_series(db: AsyncSession, device: str, metric: str, days: int = 30) -> dict:
-    """单盘单指标趋势序列。days≤30 用 1h 桶，更长用 1d 桶。
+    """查询单盘单指标趋势序列。
 
-    1h 桶截断到时刻，1d 桶截断到整日（桶键是 T00:00:00，按时刻截会丢边界日）。"""
+    1h 桶截断到时刻，1d 桶截断到整日（桶键是 T00:00:00，按时刻截会丢边界日）。
+
+    Args:
+        db (AsyncSession): 只读会话。
+        device (str): 盘名（SMART 探测键，经 smart_key 归一）。
+        metric (str): 指标名（TRACKED_METRICS 之一）。
+        days (int): 回看窗口天数；≤30 用 1h 桶，更长用 1d 桶。
+
+    Returns:
+        dict: {device, metric, granularity, days, points}，points 按 ts 升序，
+            每点 {ts, value, raw_text}。
+    """
     granularity = "1h" if days <= 30 else "1d"
     since = datetime.now(UTC) - timedelta(days=days)
     cutoff = (since.strftime("%Y-%m-%dT%H:%M:%S") if granularity == "1h" else _day_bucket(since))
@@ -138,10 +201,19 @@ async def trend_series(db: AsyncSession, device: str, metric: str, days: int = 3
 
 
 async def rate_deltas(db: AsyncSession, metric: str, days: int = RATE_WINDOW_DAYS) -> list[dict]:
-    """各盘 metric 在 days 窗口的增量 [{device, old, new, delta}]（1d 桶，窗口内首末点）。
+    """计算各盘 metric 在 days 窗口的增量（1d 桶，窗口内首末点）。
 
     新盘（窗口内不足两点）不产生增量——避免把"刚接入"误判为"突变"。
-    窗口截断到整日：1d 桶键是 T00:00:00，按时刻截会把边界日的桶整段截掉。"""
+    窗口截断到整日：1d 桶键是 T00:00:00，按时刻截会把边界日的桶整段截掉。
+
+    Args:
+        db (AsyncSession): 只读会话。
+        metric (str): 指标名（TRACKED_METRICS 之一）。
+        days (int): 评估窗口天数（smart_rate 速率规则默认 RATE_WINDOW_DAYS）。
+
+    Returns:
+        list[dict]: 每盘 {device, old, new, delta}（delta 保留 4 位小数）。
+    """
     since = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00")
     result = await db.execute(
         select(SmartPoint.device, SmartPoint.ts, SmartPoint.value)

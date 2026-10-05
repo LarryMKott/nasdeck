@@ -20,12 +20,21 @@ _last_alert: dict[str, float] = {}  # cid → 最近告警 monotonic 时刻
 
 
 def reset_for_test() -> None:
+    """清空进程内状态（上一轮状态基线与去重时刻表），仅供测试隔离。"""
     _prev_states.clear()
     _last_alert.clear()
 
 
 async def watch_tick() -> list[dict]:
-    """一轮状态对比，返回本拍需告警的退出事件 [{cid, name, status}]。"""
+    """一轮状态对比（60 秒一拍，slow_60s 驱动），返回本拍需告警的退出事件。
+
+    首轮只建基线不告警（避免启动/升级窗口对存量退出容器轰炸）；
+    消失的容器（被删除）一并清出基线。
+
+    Returns:
+        list[dict]: 退出事件列表，每项 {cid, name, status}；docker
+        不可用时为空列表。
+    """
     states = await docker.list_all_states()
     if states is None:
         return []
@@ -47,7 +56,12 @@ async def watch_tick() -> list[dict]:
 
 
 async def persist_and_notify(db, exits: list[dict]) -> None:
-    """退出事件落事件历史（一次性 resolved 记录）并向全部启用渠道广播。调用方负责 commit。"""
+    """退出事件落事件历史（一次性 resolved 记录）并向全部启用渠道广播。
+
+    Args:
+        db (AsyncSession): 请求级会话（调用方负责 commit）。
+        exits (list[dict]): watch_tick 返回的退出事件，每项含 cid/name/status。
+    """
     from datetime import UTC, datetime
 
     from app.models.alert import AlertEvent

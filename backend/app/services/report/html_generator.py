@@ -19,6 +19,15 @@ _KEEP_REPORTS = 20  # 滚动清理：报告目录只保留最近 N 份
 
 
 async def generate_health_report(payload: dict, redact: bool) -> dict:
+    """渲染健康报告 HTML 并落盘 data/reports，随后滚动清理旧报告。
+
+    Args:
+        payload (dict): 报告数据（kv 概览键值 + disks 磁盘列表）。
+        redact (bool): 是否脱敏。
+
+    Returns:
+        dict: {"filename": html 文件名, "url": 访问路径}。
+    """
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"health_{ts}.html"
@@ -29,6 +38,7 @@ async def generate_health_report(payload: dict, redact: bool) -> dict:
 
 
 def _prune_old_reports() -> None:
+    """滚动清理：报告目录只保留最近 _KEEP_REPORTS 份；失败不影响报告生成本身。"""
     try:
         reports = sorted(
             (p for p in REPORT_DIR.glob("health_*.html") if p.is_file()),
@@ -42,6 +52,18 @@ def _prune_old_reports() -> None:
 
 
 def _render(payload: dict, redact: bool) -> str:
+    """渲染单文件 HTML 报告（概览表 + 磁盘表）。
+
+    所有插值一律 html.escape（恶意盘固件可携带任意字符串，未转义即存储型 XSS，
+    详见模块 docstring）。
+
+    Args:
+        payload (dict): 报告数据（kv 概览键值 + disks 磁盘列表）。
+        redact (bool): 是否脱敏。
+
+    Returns:
+        str: 完整 HTML 文本。
+    """
     rows = "".join(
         f"<tr><td>{html.escape(str(k))}</td><td>{html.escape(desensitize(str(v), redact))}</td></tr>"
         for k, v in payload.get("kv", {}).items()
