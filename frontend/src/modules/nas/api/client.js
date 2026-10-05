@@ -58,3 +58,19 @@ export async function apiData(path, opts = {}) {
     clearTimeout(timer);
   }
 }
+
+/**
+ * apiData 的容错变体：失败返回 null 而非抛错。
+ * 多源并发取数时「个别源缺失保持骨架空值」的统一收口（适配层专用）。
+ * @template T
+ * @param {string} path
+ * @param {{method?: string, body?: object, timeout?: number}} [opts]
+ * @returns {Promise<T|null>}
+ */
+export async function safe(path, opts) {
+  try {
+    return /** @type {T} */ (await apiData(path, opts));
+  } catch {
+    return null;
+  }
+}

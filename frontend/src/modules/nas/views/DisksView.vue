@@ -1,10 +1,10 @@
 <script setup>
 /** 硬盘 SMART：健康状态表 + 在线自检下拉 + 进行中自检进度（后端 + 演示回退） */
 import { computed, reactive } from 'vue';
-import { apiData } from '../api/client';
+import { startSelfTest } from '../api/endpoints/storage';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
-import * as nasData from '../api/data';
+import { fetchDisks } from '../services/storage';
 import UPageHeader from '../components/UPageHeader.vue';
 import UDropdown from '../components/UDropdown.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
@@ -21,7 +21,7 @@ const {
   live,
   refresh,
   lastUpdated,
-} = useViewData(nasData.fetchDisks, {
+} = useViewData(fetchDisks, {
   list: [],
   selftest: null,
 });
@@ -35,10 +35,7 @@ async function runSelftest(row, type = 'short') {
   if (!identity.canWrite) return;
   if (!live.value || !row.device) return;
   try {
-    await apiData('/api/v1/storage/self-tests', {
-      method: 'POST',
-      body: { device: row.device, type },
-    });
+    await startSelfTest(row.device, type);
     await refresh();
   } catch {
     /* 互斥 1005 等错误静默，状态由刷新体现 */

@@ -2,7 +2,7 @@
 
 /** 实时推送域状态：WS 快照 + 轮询降级（契约 §4/§7.4），视图只订阅本 store。 */
 import { defineStore } from 'pinia';
-import { apiData } from '@/modules/nas/api/client';
+import { getRealtime } from '@/modules/nas/api/endpoints/monitor';
 import { createRealtimeSocket } from '@/modules/nas/api/ws';
 
 export const useRealtimeStore = defineStore('nas-realtime', {
@@ -29,7 +29,7 @@ export const useRealtimeStore = defineStore('nas-realtime', {
         onFans: (fans) => {
           this.fanOutputs = fans;
         },
-        pollFallback: () => apiData('/api/v1/monitor/realtime'),
+        pollFallback: () => getRealtime(),
       });
     },
 

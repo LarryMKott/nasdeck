@@ -3,13 +3,13 @@
 import { computed } from 'vue';
 import { about as mockAbout } from '../mock';
 import { useViewData } from '../composables/useViewData';
-import * as nasData from '../api/data';
+import { fetchAbout } from '../services/system';
 import UPageHeader from '../components/UPageHeader.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasAbout' });
 
-const { data: d, live } = useViewData(nasData.fetchAbout, mockAbout);
+const { data: d, live } = useViewData(fetchAbout, mockAbout);
 const headerTag = computed(() =>
   live.value ? { type: 'ok', text: '后端已连接' } : { type: 'acc', text: '演示数据' }
 );

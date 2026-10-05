@@ -1,10 +1,12 @@
 <script setup>
 /** 控制与自动化：活动告警 / 告警规则与通知 / 报告导出 三个页内页签 + 事件历史弹窗 */
 import { computed, ref } from 'vue';
-import { apiBase, apiData } from '../api/client';
+import { apiBase } from '../api/client';
+import { exportHealthReport } from '../api/endpoints/report';
+import { createRule, testChannel } from '../api/endpoints/alert';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
-import * as nasData from '../api/data';
+import { fetchAutomation } from '../services/automation';
 import UPageHeader from '../components/UPageHeader.vue';
 import UModal from '../components/UModal.vue';
 import UPop from '../components/UPop.vue';
@@ -20,7 +22,11 @@ identity.ensure();
 const activeTab = ref('t1');
 
 // 初始空骨架；mock 仅由适配层在后端不可达时整页演示回退
-const { data: d, live, lastUpdated } = useViewData(nasData.fetchAutomation, {
+const {
+  data: d,
+  live,
+  lastUpdated,
+} = useViewData(fetchAutomation, {
   activeAlerts: [],
   recentEvents: [],
   channels: [],
@@ -35,10 +41,7 @@ async function exportReport() {
   exporting.value = true;
   exportFailed.value = false;
   try {
-    const result = await apiData('/api/v1/report/health?redact=true', {
-      method: 'POST',
-      timeout: 60000,
-    });
+    const result = await exportHealthReport();
     // 后端返回根相对路径 /api/v1/...，FPK 形态须经 index.cgi 前缀才能命中（契约 §7.1）
     window.open(apiBase() + result.url, '_blank');
   } catch {
@@ -64,18 +67,15 @@ async function saveRule() {
   ruleSaving.value = true;
   ruleSaved.value = false;
   try {
-    await apiData('/api/v1/alert/rules', {
-      method: 'POST',
-      body: {
-        name: `规则 · ${METRICS.find((m) => m.value === ruleForm.value.metric)?.label ?? ruleForm.value.metric}`,
-        metric: ruleForm.value.metric,
-        comparator: ruleForm.value.comparator,
-        threshold: Number(ruleForm.value.threshold) || 60,
-        duration_ticks: parseInt(String(ruleForm.value.duration), 10) || 60,
-        severity: 'warning',
-        channel_ids: [],
-        enabled: true,
-      },
+    await createRule({
+      name: `规则 · ${METRICS.find((m) => m.value === ruleForm.value.metric)?.label ?? ruleForm.value.metric}`,
+      metric: ruleForm.value.metric,
+      comparator: ruleForm.value.comparator,
+      threshold: Number(ruleForm.value.threshold) || 60,
+      duration_ticks: parseInt(String(ruleForm.value.duration), 10) || 60,
+      severity: 'warning',
+      channel_ids: [],
+      enabled: true,
     });
     ruleSaved.value = true;
   } catch {
@@ -93,7 +93,7 @@ async function sendTestNotice() {
   if (!channel) return;
   testState.value = 'sending';
   try {
-    const result = await apiData(`/api/v1/alert/channels/${channel.id}/test`, { method: 'POST' });
+    const result = await testChannel(channel.id);
     testState.value = result?.success ? 'ok' : 'fail';
   } catch {
     testState.value = 'fail';
@@ -260,12 +260,7 @@ const headerTag = computed(() => ({
         </div>
       </div>
       <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px">
-        <u-pop
-          ok-text="清空"
-          cancel-text="取消"
-          danger
-          @confirm="logsCleared = true"
-        >
+        <u-pop ok-text="清空" cancel-text="取消" danger @confirm="logsCleared = true">
           <template #trigger>
             <button class="btn sm">清空显示</button>
           </template>

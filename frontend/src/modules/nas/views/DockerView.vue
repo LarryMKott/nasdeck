@@ -3,12 +3,12 @@
 import { computed } from 'vue';
 import { docker as mockDocker } from '../mock';
 import { useViewData } from '../composables/useViewData';
-import * as nasData from '../api/data';
+import { fetchDocker } from '../services/system';
 import UPageHeader from '../components/UPageHeader.vue';
 
 defineOptions({ name: 'NasDocker' });
 
-const { data: d, live, lastUpdated } = useViewData(nasData.fetchDocker, mockDocker);
+const { data: d, live, lastUpdated } = useViewData(fetchDocker, mockDocker);
 
 const runningCount = computed(() => d.value.containers.filter((c) => c.running).length);
 const headerTag = computed(() => {

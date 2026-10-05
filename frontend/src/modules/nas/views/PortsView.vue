@@ -2,10 +2,10 @@
 /** 端口占用：搜索 + 可达性筛选 + 释放（终止进程）二次确认（后端 + 演示回退） */
 import { computed, reactive, ref } from 'vue';
 import { ports as mockPorts } from '../mock';
-import { apiData } from '../api/client';
+import { killProcess } from '../api/endpoints/system';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
-import * as nasData from '../api/data';
+import { fetchPorts } from '../services/system';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
 
@@ -18,7 +18,7 @@ identity.ensure();
 const keyword = ref('');
 const reachFilter = ref('');
 
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchPorts, mockPorts);
+const { data: d, live, refresh, lastUpdated } = useViewData(fetchPorts, mockPorts);
 
 /** 每行独立的释放确认气泡开合 */
 const popOpen = reactive({});
@@ -28,7 +28,7 @@ const released = reactive({});
 async function releasePort(row) {
   if (live.value && row.pid) {
     try {
-      await apiData(`/api/v1/system/processes/${row.pid}?confirm=true`, { method: 'DELETE' });
+      await killProcess(row.pid);
       released[row.port] = true; // 仅成功后隐藏：失败（1004 保护名单等）刷新后原样可见
     } catch {
       /* 释放失败保持行可见，不假装成功 */

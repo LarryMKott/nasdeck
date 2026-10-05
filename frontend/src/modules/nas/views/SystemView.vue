@@ -5,7 +5,8 @@ import { colors } from '../mock';
 import { walk, timeLabels } from '../utils/series';
 import { useViewData } from '../composables/useViewData';
 import { useRealtimeStore } from '../stores/realtime';
-import * as nasData from '../api/data';
+import { fetchSystemCharts } from '../services/monitor';
+import { throughputText } from '../services/dashboard';
 import UPageHeader from '../components/UPageHeader.vue';
 import ULineChart from '../components/ULineChart.vue';
 import USpark from '../components/USpark.vue';
@@ -23,7 +24,7 @@ const fallback = {
   diskSeries: [{ name: '读', color: colors.acc, data: walk(60, 11, 86, 26, 5, 220) }],
 };
 
-const { data: charts, live, lastUpdated } = useViewData(nasData.fetchSystemCharts, fallback);
+const { data: charts, live, lastUpdated } = useViewData(fetchSystemCharts, fallback);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
@@ -45,7 +46,7 @@ const memPercent = computed(() => realtime.snapshot?.mem_percent ?? 41);
 const diskText = computed(() => {
   const io = realtime.snapshot?.disk_io;
   if (!io) return '读 86 · 写 42 MB/s';
-  return `读 ${nasData.throughputText(io.read_kbps ?? 0)} · 写 ${nasData.throughputText(io.write_kbps ?? 0)}`;
+  return `读 ${throughputText(io.read_kbps ?? 0)} · 写 ${throughputText(io.write_kbps ?? 0)}`;
 });
 
 /** CPU 卡头：实时使用率替代写死的 23% */

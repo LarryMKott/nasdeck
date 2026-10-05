@@ -3,14 +3,14 @@
 import { computed, reactive, ref } from 'vue';
 import { detect as mockDetect } from '../mock';
 import { useViewData } from '../composables/useViewData';
-import * as nasData from '../api/data';
+import { fetchDetect } from '../services/system';
 import UPageHeader from '../components/UPageHeader.vue';
 import UModal from '../components/UModal.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasDetect' });
 
-const { data: d, live, lastUpdated } = useViewData(nasData.fetchDetect, mockDetect);
+const { data: d, live, lastUpdated } = useViewData(fetchDetect, mockDetect);
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
   text: live.value ? '正常' : '演示数据',

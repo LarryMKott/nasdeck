@@ -10,7 +10,7 @@ import { useUserStore } from '@/stores/modules/user';
 import { usePermissionStore } from '@/stores/modules/permission';
 import { navGroups, activeAlerts as mockAlerts } from '@/modules/nas/mock';
 import { useViewData } from '@/modules/nas/composables/useViewData';
-import { fetchActiveAlerts } from '@/modules/nas/api/data';
+import { fetchActiveAlerts } from '@/modules/nas/services/automation';
 import IconSprite from '@/modules/nas/components/IconSprite.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 import UDropdown from '@/modules/nas/components/UDropdown.vue';

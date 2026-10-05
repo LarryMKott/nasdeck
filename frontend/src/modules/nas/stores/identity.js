@@ -7,7 +7,7 @@
  * 非 trim 形态（直连/api_key）后端恒 true，控件不受影响。
  */
 import { defineStore } from 'pinia';
-import { apiData } from '@/modules/nas/api/client';
+import { getSystemInfo } from '@/modules/nas/api/endpoints/system';
 
 export const useIdentityStore = defineStore('nas-identity', {
   state: () => ({
@@ -25,7 +25,7 @@ export const useIdentityStore = defineStore('nas-identity', {
       if (this.loaded) return;
       this.loaded = true;
       try {
-        const info = await apiData('/api/v1/system/info');
+        const info = await getSystemInfo();
         this.is_admin = info?.is_admin === true;
       } catch {
         this.is_admin = false;

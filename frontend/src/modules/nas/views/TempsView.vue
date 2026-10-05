@@ -4,7 +4,7 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, 
 import { temps as mockTemps } from '../mock';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
-import * as nasData from '../api/data';
+import { fetchTemps } from '../services/monitor';
 import UPageHeader from '../components/UPageHeader.vue';
 import USpark from '../components/USpark.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
@@ -15,7 +15,7 @@ defineOptions({ name: 'NasTemps' });
 const warmAt = 45;
 const hotAt = 60;
 
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchTemps, mockTemps);
+const { data: d, live, refresh, lastUpdated } = useViewData(fetchTemps, mockTemps);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',

@@ -5,7 +5,19 @@ import { colors } from '../mock';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
 import { useRealtimeStore } from '../stores/realtime';
-import * as nasData from '../api/data';
+import {
+  applyCpuRealtime,
+  applyDiskRealtime,
+  applyGpuDetail,
+  applyGpuRealtime,
+  applyMemRealtime,
+  applyNetRealtime,
+  applyPowerRealtime,
+  applySystemRealtime,
+  emptyDashboard,
+  fetchDashboard,
+} from '../services/dashboard';
+import { fetchActiveAlerts } from '../services/automation';
 import UPageHeader from '../components/UPageHeader.vue';
 import USpark from '../components/USpark.vue';
 import ULineChart from '../components/ULineChart.vue';
@@ -15,12 +27,8 @@ import UIcon from '@/modules/nas/components/UIcon.vue';
 defineOptions({ name: 'NasDash' });
 
 // 初始空骨架（磁贴显示「—」而非演示值）；mock 仅由适配层在后端不可达时整页回退
-const {
-  data: d,
-  live,
-  lastUpdated,
-} = useViewData(nasData.fetchDashboard, nasData.emptyDashboard());
-const { data: alerts } = useViewData(nasData.fetchActiveAlerts, []);
+const { data: d, live, lastUpdated } = useViewData(fetchDashboard, emptyDashboard());
+const { data: alerts } = useViewData(fetchActiveAlerts, []);
 
 /** WS 实时快照合并（仅更新磁贴数字，图表/序列仍走加载时数据） */
 const realtime = useRealtimeStore();
@@ -31,14 +39,14 @@ watch(
   (snap) => {
     if (!snap || !live.value) return;
     d.value.cpu.percent = Math.round(snap.cpu_percent * 10) / 10;
-    nasData.applyCpuRealtime(d.value.cpu, snap);
-    nasData.applyMemRealtime(d.value.mem, snap);
-    nasData.applyGpuRealtime(d.value.gpu, snap);
-    nasData.applyNetRealtime(d.value.net, snap);
-    nasData.applyDiskRealtime(d.value.diskIo, snap);
-    nasData.applyPowerRealtime(d.value.power, snap);
-    nasData.applySystemRealtime(d.value.system, snap);
-    nasData.applyGpuDetail(d.value.gpuDetail, snap);
+    applyCpuRealtime(d.value.cpu, snap);
+    applyMemRealtime(d.value.mem, snap);
+    applyGpuRealtime(d.value.gpu, snap);
+    applyNetRealtime(d.value.net, snap);
+    applyDiskRealtime(d.value.diskIo, snap);
+    applyPowerRealtime(d.value.power, snap);
+    applySystemRealtime(d.value.system, snap);
+    applyGpuDetail(d.value.gpuDetail, snap);
     const netKbps = Object.values(snap.net ?? {}).reduce(
       (a, v) => a + (v.rx_kbps ?? 0) + (v.tx_kbps ?? 0),
       0

@@ -10,10 +10,10 @@ import {
   ref,
   watch,
 } from 'vue';
-import { apiData } from '../api/client';
+import * as controlApi from '../api/endpoints/control';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
-import * as nasData from '../api/data';
+import { fetchFans } from '../services/control';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
 import UCurveEditor from '../components/UCurveEditor.vue';
@@ -32,7 +32,7 @@ const {
   live,
   refresh,
   lastUpdated,
-} = useViewData(nasData.fetchFans, {
+} = useViewData(fetchFans, {
   takeover: false,
   cards: [],
   channels: [],
@@ -54,17 +54,14 @@ async function addZone(ch) {
   const key = detectKey(ch);
   addingKey.value = key;
   try {
-    await apiData('/api/v1/control/fans', {
-      method: 'POST',
-      body: {
-        name: `风扇 pwm${ch.pwm_channel}`,
-        loop: loopOf[key] ?? 'chassis',
-        hwmon_name: ch.chip,
-        pwm_channel: ch.pwm_channel,
-        fan_channel: ch.fan_channel,
-        mode: 'auto', // 只读监控；调速在卡片上切 PWM/定速或绑曲线
-        enabled: true,
-      },
+    await controlApi.createFan({
+      name: `风扇 pwm${ch.pwm_channel}`,
+      loop: loopOf[key] ?? 'chassis',
+      hwmon_name: ch.chip,
+      pwm_channel: ch.pwm_channel,
+      fan_channel: ch.fan_channel,
+      mode: 'auto', // 只读监控；调速在卡片上切 PWM/定速或绑曲线
+      enabled: true,
     });
     await refresh();
   } catch {
@@ -81,7 +78,7 @@ const takeoverPopOpen = ref(false);
 
 async function takeoverOn() {
   try {
-    await apiData('/api/v1/control/fcs/takeover', { method: 'POST' });
+    await controlApi.takeoverFcs();
   } catch {
     /* 失败态由 refresh 体现：开关保持真实状态 */
   }
@@ -100,7 +97,7 @@ function toggleTakeover() {
 async function confirmTakeoverOff() {
   if (!identity.canWrite) return;
   try {
-    await apiData('/api/v1/control/fcs/release', { method: 'POST' });
+    await controlApi.releaseFcs();
   } catch {
     /* 失败态由 refresh 体现 */
   }
@@ -121,7 +118,7 @@ watch(
 async function pushZone(fan, patch) {
   if (!identity.canWrite) return false;
   try {
-    await apiData(`/api/v1/control/fans/${fan.id}`, { method: 'PUT', body: patch });
+    await controlApi.updateFan(fan.id, patch);
     return true;
   } catch {
     return false; // 失败静默，下次 fetchFans 以后端状态为准
@@ -162,7 +159,7 @@ async function confirmRename(fan) {
 async function confirmDelete(fan) {
   if (!identity.canWrite) return;
   try {
-    await apiData(`/api/v1/control/fans/${fan.id}`, { method: 'DELETE' });
+    await controlApi.deleteFan(fan.id);
   } catch {
     /* 静默，列表刷新以实际为准 */
   }
@@ -239,25 +236,19 @@ async function saveCurve() {
     let curveId = d.value.curveId;
     if (curveId == null) {
       // 首次保存：创建默认曲线后回填 id
-      const created = await apiData('/api/v1/control/curves', {
-        method: 'POST',
-        body: {
-          name: '默认曲线',
-          points: curvePts.value,
-          hysteresis_c: curveHysteresis.value,
-          ramp_per_tick: curveRamp.value,
-        },
+      const created = await controlApi.createCurve({
+        name: '默认曲线',
+        points: curvePts.value,
+        hysteresis_c: curveHysteresis.value,
+        ramp_per_tick: curveRamp.value,
       });
       curveId = created.id;
     } else {
-      await apiData(`/api/v1/control/curves/${curveId}`, {
-        method: 'PUT',
-        body: {
-          name: '默认曲线',
-          points: curvePts.value,
-          hysteresis_c: curveHysteresis.value,
-          ramp_per_tick: curveRamp.value,
-        },
+      await controlApi.updateCurve(curveId, {
+        name: '默认曲线',
+        points: curvePts.value,
+        hysteresis_c: curveHysteresis.value,
+        ramp_per_tick: curveRamp.value,
       });
     }
     curveSaved.value = true;

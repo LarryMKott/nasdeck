@@ -3,7 +3,8 @@
 import { computed, onActivated, reactive, ref, watch } from 'vue';
 import { colors } from '../mock';
 import { walk, timeLabels } from '../utils/series';
-import * as nasData from '../api/data';
+import { fetchHistorySeries, fetchHistoryStats } from '../services/monitor';
+import { historyExportUrl } from '../api/endpoints/monitor';
 import UPageHeader from '../components/UPageHeader.vue';
 import ULineChart from '../components/ULineChart.vue';
 import UDropdown from '../components/UDropdown.vue';
@@ -59,7 +60,7 @@ const remoteStats = ref(null);
 const lastUpdated = ref('—');
 
 async function loadRemote() {
-  const result = await nasData.fetchHistorySeries(activeDim.value, activeRange.value);
+  const result = await fetchHistorySeries(activeDim.value, activeRange.value);
   if (result.live && result.data) {
     remote.value = result.data;
     remoteLive.value = true;
@@ -67,14 +68,14 @@ async function loadRemote() {
     remote.value = null;
     remoteLive.value = false;
   }
-  remoteStats.value = await nasData.fetchHistoryStats(activeDim.value, activeRange.value);
+  remoteStats.value = await fetchHistoryStats(activeDim.value, activeRange.value);
   const now = new Date();
   const pad = (x) => String(x).padStart(2, '0');
   lastUpdated.value = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
 function exportAs(fmt) {
-  window.open(nasData.historyExportUrl(activeDim.value, activeRange.value, fmt), '_blank');
+  window.open(historyExportUrl(activeDim.value, activeRange.value, fmt), '_blank');
 }
 // 维度/区间变化即刷新；keep-alive 回页时经 onActivated 再刷新。
 // watch immediate 覆盖首挂载，onActivated 跳过首次（否则首进页连发 3 次）

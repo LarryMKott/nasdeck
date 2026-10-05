@@ -3,7 +3,7 @@
 import { computed, ref } from 'vue';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
-import * as nasData from '../api/data';
+import { emptyStorage, fetchStorage } from '../services/storage';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
 // unplugin 只扫 src/components：nas 组件须显式 import（此前 u-icon 未导入，图标从未渲染）
@@ -16,7 +16,7 @@ const identity = useIdentityStore();
 identity.ensure();
 
 // 初始值用空骨架，避免首帧向非管理员闪现演示阵列操作卡；mock 仅由适配层在 live:false 整页回退
-const { data: s, lastUpdated } = useViewData(nasData.fetchStorage, nasData.emptyStorage());
+const { data: s, lastUpdated } = useViewData(fetchStorage, emptyStorage());
 
 const stopConfirmOpen = ref(false);
 /** 手动「停止阵列」后的本地覆盖（联调阶段不动后端状态） */
