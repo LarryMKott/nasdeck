@@ -7,6 +7,7 @@ import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UDropdown from '../components/UDropdown.vue';
+import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasDisks' });
 
@@ -15,7 +16,12 @@ const identity = useIdentityStore();
 identity.ensure();
 
 // 初始值用空骨架（mock 只在 live:false 整页演示时由适配层回退），避免首帧闪现假自检
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchDisks, {
+const {
+  data: d,
+  live,
+  refresh,
+  lastUpdated,
+} = useViewData(nasData.fetchDisks, {
   list: [],
   selftest: null,
 });
@@ -48,7 +54,12 @@ const headerTag = computed(() => {
 
 <template>
   <section>
-    <u-page-header title="硬盘 SMART" sub="健康状态 · 自检" :tag="headerTag" :updated="lastUpdated" />
+    <u-page-header
+      title="硬盘 SMART"
+      sub="健康状态 · 自检"
+      :tag="headerTag"
+      :updated="lastUpdated"
+    />
 
     <!-- 桌面表格 -->
     <div class="wg m-hide">

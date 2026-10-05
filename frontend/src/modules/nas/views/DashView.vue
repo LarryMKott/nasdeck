@@ -10,11 +10,16 @@ import UPageHeader from '../components/UPageHeader.vue';
 import USpark from '../components/USpark.vue';
 import ULineChart from '../components/ULineChart.vue';
 import FanRotor from '../components/FanRotor.vue';
+import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasDash' });
 
 // 初始空骨架（磁贴显示「—」而非演示值）；mock 仅由适配层在后端不可达时整页回退
-const { data: d, live, lastUpdated } = useViewData(nasData.fetchDashboard, nasData.emptyDashboard());
+const {
+  data: d,
+  live,
+  lastUpdated,
+} = useViewData(nasData.fetchDashboard, nasData.emptyDashboard());
 const { data: alerts } = useViewData(nasData.fetchActiveAlerts, []);
 
 /** WS 实时快照合并（仅更新磁贴数字，图表/序列仍走加载时数据） */
@@ -471,7 +476,9 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
         <div class="wg-h">
           <u-icon name="drive" />
           <h3>硬盘温度</h3>
-          <span class="x">{{ d.diskTemps.length ? `${d.diskTemps.length} 盘 · 按阈值着色` : '无温度数据源' }}</span>
+          <span class="x">{{
+            d.diskTemps.length ? `${d.diskTemps.length} 盘 · 按阈值着色` : '无温度数据源'
+          }}</span>
         </div>
         <div class="wg-b">
           <div v-if="d.diskTemps.length" class="temps">

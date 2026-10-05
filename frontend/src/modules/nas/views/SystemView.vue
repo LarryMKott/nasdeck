@@ -9,6 +9,7 @@ import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import ULineChart from '../components/ULineChart.vue';
 import USpark from '../components/USpark.vue';
+import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasSystem' });
 

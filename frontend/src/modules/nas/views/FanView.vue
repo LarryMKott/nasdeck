@@ -1,6 +1,15 @@
 <script setup>
 /** 风扇控制：接管总开关 + 手动调速卡 + 曲线编辑器 + 温控规则（后端 + 演示回退） */
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue';
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
 import { apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
@@ -9,6 +18,7 @@ import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
 import UCurveEditor from '../components/UCurveEditor.vue';
 import FanRotor from '../components/FanRotor.vue';
+import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasFan' });
 
@@ -17,7 +27,12 @@ const identity = useIdentityStore();
 identity.ensure();
 
 // 初始空骨架；mock 仅由适配层在后端不可达时整页演示回退
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchFans, {
+const {
+  data: d,
+  live,
+  refresh,
+  lastUpdated,
+} = useViewData(nasData.fetchFans, {
   takeover: false,
   cards: [],
   channels: [],

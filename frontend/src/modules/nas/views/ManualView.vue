@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import { manual as d } from '../mock';
 import UPageHeader from '../components/UPageHeader.vue';
 import UDrawer from '../components/UDrawer.vue';
+import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasManual' });
 

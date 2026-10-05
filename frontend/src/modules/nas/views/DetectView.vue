@@ -6,6 +6,7 @@ import { useViewData } from '../composables/useViewData';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UModal from '../components/UModal.vue';
+import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasDetect' });
 
