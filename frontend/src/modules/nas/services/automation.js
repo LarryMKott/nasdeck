@@ -6,6 +6,7 @@
 
 import * as mock from '../mock';
 import { getChannels, getEvents, getFiringEvents, getRules } from '../api/endpoints/alert';
+import { getSelftestSchedule } from '../api/endpoints/system';
 import { hhmm, pick } from './shared';
 
 /** firing 告警 → 铃铛/告警卡形状。复用 30s 缓存（fetchDashboard / 布局铃铛 / 本函数）；
@@ -25,19 +26,21 @@ export async function fetchActiveAlerts() {
   };
 }
 
-/** 自动化页取数：事件流（limit=10）+ firing 告警 + 通知渠道 + 规则
+/** 自动化页取数：事件流（limit=10）+ firing 告警 + 通知渠道 + 规则 + 巡检计划
  * @returns {Promise<{data: object, live: boolean}>} */
 export async function fetchAutomation() {
-  const [eventsS, activeS, chansS, rulesS] = await Promise.allSettled([
+  const [eventsS, activeS, chansS, rulesS, schedS] = await Promise.allSettled([
     getEvents(10),
     fetchActiveAlerts(),
     getChannels(),
     getRules(),
+    getSelftestSchedule(),
   ]);
   const events = pick(eventsS) ?? [];
   const active = pick(activeS) ?? { data: [], live: false };
   const channels = pick(chansS);
   const rules = pick(rulesS);
+  const schedule = pick(schedS);
   const demo = !active.live; // 整页演示回退时渠道/规则也取演示值；live 时单路失败如实为空
   return {
     data: {
@@ -50,6 +53,8 @@ export async function fetchAutomation() {
       // 通知渠道真实清单（含启用态与脱敏配置，渠道管理/规则多选数据源）
       channels: demo && !channels ? mock.alertChannels : (channels ?? []),
       rules: demo && !rules ? mock.alertRules : (rules ?? []),
+      // 巡检计划（live 时真实值；演示回退用缺省关闭态，不虚构"上周已跑"）
+      selftestSchedule: schedule ?? mock.selftestSchedule,
     },
     live: active.live,
   };

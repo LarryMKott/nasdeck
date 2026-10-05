@@ -183,6 +183,15 @@ export const alertChannels = [
   },
 ];
 
+/** 巡检计划演示回退：缺省关闭态（不虚构"上周已跑"，last_run=null 如实） */
+export const selftestSchedule = {
+  enabled: false,
+  weekday: 6,
+  hour: 4,
+  type: 'short',
+  last_run: null,
+};
+
 /** 告警规则（自动化页规则列表演示回退，形状与 AlertRuleItem 一致） */
 export const alertRules = [
   {

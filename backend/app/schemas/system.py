@@ -99,6 +99,19 @@ class SettingPut(BaseModel):
     description: str | None = None
 
 
+class SelftestScheduleIn(BaseModel):
+    """SMART 周期巡检计划（PUT 仅管理员）。weekday 0=周一；type 仅 short/long。"""
+
+    enabled: bool
+    weekday: int = Field(ge=0, le=6)
+    hour: int = Field(ge=0, le=23)
+    type: str = Field(pattern="^(short|long)$")
+
+
+class SelftestScheduleOut(SelftestScheduleIn):
+    last_run: str | None = None  # ISO 日期（YYYY-MM-DD）；未跑过为 null
+
+
 class SettingEntry(BaseModel):
     value: Any
     description: str | None = None

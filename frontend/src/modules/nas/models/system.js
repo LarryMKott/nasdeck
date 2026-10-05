@@ -74,4 +74,13 @@
  * @property {{ok: boolean, path: string, desc: string}} [storcli]
  */
 
+/** SMART 周期巡检计划（GET/PUT /system/selftest-schedule；PUT 仅管理员）
+ * @typedef {object} SelftestSchedule
+ * @property {boolean} enabled
+ * @property {number} weekday 0=周一 … 6=周日
+ * @property {number} hour 0-23（UTC）
+ * @property {'short'|'long'} type
+ * @property {string|null} [last_run] ISO 日期；未跑过为 null
+ */
+
 export {};

@@ -23,7 +23,6 @@ from app.services.monitor import temperature
 from app.services.storage import capacity, disk_name, self_test, smart, smart_history
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
-from app.utils.async_cmd import run_cmd
 from app.utils.validators import validate_device_name
 
 router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[ApiKeyDep, TrimAuthDep])
@@ -106,35 +105,8 @@ async def get_trend(
 @router.post("/self-tests", response_model=SelfTestState)
 async def start_selftest(body: SelfTestIn) -> dict:
     device = validate_device_name(body.device)
-
-    async def runner(dev: str, test_type: str) -> None:
-        rc, _out, err = await run_cmd("smartctl", "-t", test_type, f"/dev/{dev}", timeout=120)
-        if rc not in (0, 2):
-            raise RuntimeError(err.strip()[:200] or f"smartctl -t rc={rc}")
-
-    async def probe(dev: str) -> tuple[str, str | None]:
-        """解析 smartctl -l selftest 最后一条记录 → (result, error)。
-
-        只在预计时长到点后调用：此时本次自检大概率已写入日志，最后一条即本次，
-        不做进行中轮询（日志无时间戳，轮询易把历史记录误判为本次结果）。
-        """
-        rc, out, _err = await run_cmd("smartctl", "-l", "selftest", f"/dev/{dev}", timeout=30)
-        entries = [ln for ln in out.splitlines() if ln.lstrip().startswith("#")]
-        if not entries:
-            return "unknown", f"自检日志为空或不可读（smartctl rc={rc}）"
-        last = entries[-1].lower()
-        if "in progress" in last:
-            return "unknown", "自检仍在进行，稍后刷新查看 smartctl 日志"
-        if "completed without error" in last:
-            return "completed", None
-        if "aborted" in last or "interrupted" in last:
-            return "aborted", "自检被中止（详情见 smartctl -l selftest）"
-        if "completed" in last:  # Completed: read failure 等带错误的完成
-            return "failed", "自检完成但报告错误（详情见 smartctl -l selftest）"
-        return "unknown", None
-
     try:
-        return self_test.start_test(device, body.type, runner, probe)
+        return self_test.start_test(device, body.type)
     except Exception as exc:
         if "not found" in str(exc) or "timeout" in str(exc):
             raise ExternalToolError(f"smartctl 不可用: {exc}") from exc

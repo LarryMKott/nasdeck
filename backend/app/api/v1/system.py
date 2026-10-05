@@ -20,12 +20,15 @@ from app.schemas.system import (
     PortAliasOut,
     PortEntry,
     ProcessItem,
+    SelftestScheduleIn,
+    SelftestScheduleOut,
     SettingPut,
     SystemInfo,
     WhitelistIn,
     WhitelistItem,
 )
 from app.services.hardware.policy import TOOLS, get_policy
+from app.services.storage import selftest_schedule
 from app.services.system import docker as docker_service
 from app.services.system import ports as port_service
 from app.services.system import process as process_service
@@ -184,3 +187,20 @@ async def put_setting(key: str, body: SettingPut, db: AsyncSession = DbDep) -> d
         db.add(row)
     await db.flush()
     return {"key": key, "value": body.value}
+
+
+@router.get("/selftest-schedule", response_model=SelftestScheduleOut)
+async def get_selftest_schedule(db: AsyncSession = DbDep) -> dict:
+    cfg = await selftest_schedule.load_schedule(db)
+    cfg["last_run"] = await selftest_schedule.last_run_date(db) or None
+    return cfg
+
+
+@router.put("/selftest-schedule", response_model=SelftestScheduleOut)
+async def put_selftest_schedule(body: SelftestScheduleIn, db: AsyncSession = DbDep) -> dict:
+    """巡检计划（写操作仅管理员，由路由级 TrimAuthDep 强校验）。last_run 只读。"""
+    cfg = await selftest_schedule.save_schedule(
+        db, {"enabled": body.enabled, "weekday": body.weekday, "hour": body.hour, "type": body.type}
+    )
+    cfg["last_run"] = await selftest_schedule.last_run_date(db) or None
+    return cfg

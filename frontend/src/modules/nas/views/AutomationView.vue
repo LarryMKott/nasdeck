@@ -1,6 +1,6 @@
 <script setup>
 /** 控制与自动化：活动告警 / 告警规则与通知（渠道管理+多渠道推送）/ 报告导出 三个页内页签 + 事件历史弹窗 */
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { apiBase } from '../api/client';
 import { exportHealthReport } from '../api/endpoints/report';
 import {
@@ -12,6 +12,7 @@ import {
   updateChannel,
   updateRule,
 } from '../api/endpoints/alert';
+import { putSelftestSchedule } from '../api/endpoints/system';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
 import { fetchAutomation } from '../services/automation';
@@ -40,8 +41,48 @@ const {
   recentEvents: [],
   channels: [],
   rules: [],
+  selftestSchedule: { enabled: false, weekday: 6, hour: 4, type: 'short', last_run: null },
 });
 const alerts = computed(() => d.value.activeAlerts ?? []);
+
+// ---- SMART 周期巡检计划（仅管理员；PUT 后由后台 10 分钟拍调度） ----
+const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const schedForm = reactive({ enabled: false, weekday: 6, hour: 4, type: 'short' });
+const schedLoaded = ref(false);
+const schedSaving = ref(false);
+const schedSaved = ref(false);
+
+// 后端值到达后同步表单（仅一次；此后表单为编辑态，刷新才重置）
+watch(
+  () => d.value.selftestSchedule,
+  (s) => {
+    if (s && !schedLoaded.value) {
+      Object.assign(schedForm, {
+        enabled: !!s.enabled,
+        weekday: s.weekday,
+        hour: s.hour,
+        type: s.type,
+      });
+      schedLoaded.value = true;
+    }
+  },
+  { immediate: true }
+);
+
+async function saveSchedule() {
+  if (!identity.canWrite || schedSaving.value) return;
+  schedSaving.value = true;
+  schedSaved.value = false;
+  try {
+    await putSelftestSchedule({ ...schedForm });
+    schedSaved.value = true;
+    await refresh();
+  } catch {
+    /* 失败静默刷新以实际为准 */
+  } finally {
+    schedSaving.value = false;
+  }
+}
 
 /** 报告导出：真实生成 HTML 健康报告并触发下载 */
 const exporting = ref(false);
@@ -505,6 +546,53 @@ const headerTag = computed(() => ({
           <div v-else class="small muted" style="margin-top: 15px">
             还没有规则——上方表单保存后在此列出，触发时按勾选渠道推送
           </div>
+
+          <!-- SMART 周期巡检计划 -->
+          <div class="small" style="margin: 22px 0 8px; font-weight: 600">SMART 周期巡检</div>
+          <div class="frm">
+            <label>启用巡检</label>
+            <label
+              class="switch"
+              :class="{ on: schedForm.enabled }"
+              @click="schedForm.enabled = !schedForm.enabled"
+            >
+              <span class="tr" />
+            </label>
+            <label>执行时间</label>
+            <div style="display: flex; gap: 8px">
+              <select v-model="schedForm.weekday" style="width: auto">
+                <option v-for="(w, i) in WEEKDAYS" :key="w" :value="i">{{ w }}</option>
+              </select>
+              <select v-model="schedForm.hour" style="width: auto">
+                <option v-for="h in 24" :key="h - 1" :value="h - 1">
+                  {{ `${h - 1}`.padStart(2, '0') }} 时
+                </option>
+              </select>
+            </div>
+            <label>自检类型</label>
+            <select v-model="schedForm.type">
+              <option value="short">短自检（约 2 分钟/盘）</option>
+              <option value="long">长自检（约 4 小时/盘）</option>
+            </select>
+          </div>
+          <div class="small muted" style="margin-top: 9px">
+            每周{{ WEEKDAYS[schedForm.weekday] }}
+            {{ `${schedForm.hour}`.padStart(2, '0') }} 点后逐盘串行自检；
+            结果写入事件历史，异常盘向全部启用渠道告警。休眠盘会被唤醒（smartctl -t）。
+            <template v-if="d.selftestSchedule?.last_run"
+              >上次运行：{{ d.selftestSchedule.last_run }}。</template
+            >
+          </div>
+          <button
+            class="btn pri"
+            style="margin-top: 12px"
+            :disabled="schedSaving"
+            @click="saveSchedule"
+          >
+            <u-icon name="check" />{{
+              schedSaving ? '保存中…' : schedSaved ? '已保存' : '保存巡检计划'
+            }}
+          </button>
         </div>
         <div v-else-if="activeTab === 't2'" class="small muted" style="padding: 15px 0">
           告警规则为管理员设置项 · 如需调整请联系管理员

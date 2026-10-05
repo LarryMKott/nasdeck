@@ -43,3 +43,18 @@ export function getPorts() {
 export function killProcess(pid) {
   return apiData(`/api/v1/system/processes/${pid}?confirm=true`, { method: 'DELETE' });
 }
+
+/** SMART 周期巡检计划
+ * @returns {Promise<import('../../models/system').SelftestSchedule>} */
+export function getSelftestSchedule() {
+  return apiData('/api/v1/system/selftest-schedule');
+}
+
+/** 保存巡检计划（仅管理员；PUT 由后端 trim 鉴权强校验）
+ * @param {import('../../models/system').SelftestSchedule} cfg */
+export function putSelftestSchedule(cfg) {
+  return apiData('/api/v1/system/selftest-schedule', {
+    method: 'PUT',
+    body: { enabled: cfg.enabled, weekday: cfg.weekday, hour: cfg.hour, type: cfg.type },
+  });
+}
