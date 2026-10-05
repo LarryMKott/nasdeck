@@ -141,6 +141,32 @@ def _storcli_text_run(args: list[str], timeout: float) -> str:
 
 _MD_MEMBER = re.compile(r"(\S+)\[(\d+)\](\([A-Z]+\))?")
 
+# 同步进度行："[=====>...]  resync = 62.3% (1823/2930) finish=123.4min speed=148736K/sec"
+_MD_SYNC = re.compile(
+    r"(resync|recovery|rebuild|check|reshape)\s*=\s*"
+    r"(?:(\d+(?:\.\d+)?)%\s*\(\d+/\d+\)\s*)?"
+    r"(?:finish=\s*([\d.]+)(min|sec)\s*)?"
+    r"(?:speed=\s*(\d+)\s*([KMG])/sec)?"
+)
+
+
+def _md_sync_info(lines: list[str], start: int) -> dict | None:
+    """blocks 行向下扫描本 md 的同步段（M2.4）：进行中返回 {action, percent,
+    finish_text, speed_text}，delayed 无百分比；无同步活动返回 None。"""
+    for follow in lines[start + 1 : start + 6]:
+        match = _MD_SYNC.search(follow)
+        if match:
+            action, pct, finish, unit, speed, speed_unit = match.groups()
+            info: dict = {"action": action, "percent": float(pct) if pct else None}
+            if finish:
+                info["finish_text"] = f"{finish}{unit}"
+            if speed:
+                info["speed_text"] = f"{speed}{speed_unit}/s"
+            return info
+        if follow.startswith("md") or not follow.strip():
+            break  # 进入下一个 md 或空行段：本 md 无同步活动
+    return None
+
 
 def _md_members(rest: str) -> list[dict]:
     """mdstat 成员段（"sda2[0] sdb2[1](F)"）→ 结构化成员（faulty/spare 标记）。"""
@@ -181,6 +207,11 @@ def _mdstat_volumes(path: str = "/proc/mdstat") -> list[dict]:
                 blocks_line = follow
                 break
         healthy = "_" not in rest and "_" not in blocks_line
+        # 同步段从成员行之后扫起（进度行通常紧跟 blocks 行；窗口 5 行覆盖 bitmap 夹层）
+        sync = _md_sync_info(lines, i + 1)
+        details: dict = {"members": rest[:200]}
+        if sync:
+            details["sync"] = sync
         volumes.append(
             {
                 "source": "mdadm",
@@ -192,7 +223,7 @@ def _mdstat_volumes(path: str = "/proc/mdstat") -> list[dict]:
                 "state": "clean" if healthy else "degraded",
                 "healthy": healthy,
                 "members": _md_members(rest),
-                "details": {"members": rest[:200]},
+                "details": details,
             }
         )
     return volumes

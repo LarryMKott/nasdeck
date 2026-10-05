@@ -183,6 +183,7 @@ export async function fetchStorage() {
   // ---- 存储拓扑（真实层级：控制器→阵列→成员→分区/挂载点；契约 §2.5/§2.8 v2.3.5）----
   d.topology.arrays = allVols.map((vol) => {
     const mounted = volByDevice.get(vol.name) || volByDevice.get(vol.volume_id) || null;
+    const sync = vol.details?.sync ?? null;
     return {
       key: vol.volume_id || vol.name,
       name: vol.name,
@@ -191,6 +192,15 @@ export async function fetchStorage() {
       state: vol.state || null,
       healthy: !!vol.healthy,
       source: vol.source,
+      // 同步/重建进度（M2.4，mdstat 解析；storcli 走 state 文本透出）
+      sync: sync
+        ? {
+            text: `RAID ${vol.level} ${sync.action} · ${sync.percent != null ? `${sync.percent}%` : '等待调度'}`,
+            percent: sync.percent != null ? Math.round(sync.percent) : null,
+            finishText: sync.finish_text ?? null,
+            speedText: sync.speed_text ?? null,
+          }
+        : null,
       members: (vol.members ?? []).map((m) => ({
         label: m.slot || m.device || '成员',
         model: m.model || null,

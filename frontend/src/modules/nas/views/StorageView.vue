@@ -339,6 +339,18 @@ function stopArray() {
                 <span class="tn">{{ arr.name }}</span>
                 <span class="sub">{{ arrSub(arr) }}</span>
               </div>
+              <div v-if="arr.sync" style="margin: 6px 0 2px">
+                <div class="small num" style="margin-bottom: 4px">
+                  {{ arr.sync.text
+                  }}<template v-if="arr.sync.finishText">
+                    · 预计剩余 {{ arr.sync.finishText }}</template
+                  >
+                  <template v-if="arr.sync.speedText"> · {{ arr.sync.speedText }}</template>
+                </div>
+                <div class="bar stripes">
+                  <i :style="{ width: `${arr.sync.percent ?? 3}%` }" />
+                </div>
+              </div>
               <ul v-if="arr.members.length || arr.volume">
                 <li v-for="(m, mi) in arr.members" :key="mi">
                   <div class="row">

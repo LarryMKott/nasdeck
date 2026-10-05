@@ -16,6 +16,7 @@ from app.services.hardware.raid_card import RaidCardCollector
 from app.services.monitor import temperature
 from app.services.monitor.cache import realtime_cache
 from app.services.storage import raid as raid_service
+from app.services.storage import sync_watch
 from app.services.storage import volumes as volume_service
 from app.services.system import docker_watch
 
@@ -71,3 +72,44 @@ async def slow_tick() -> None:
             logger.warning("容器退出 %d 个：%s", len(exits), "; ".join(e["name"] for e in exits))
     except Exception as exc:  # noqa: BLE001
         logger.warning("docker_watch 异常: %s", exc)
+
+    # 阵列同步/重建活动转换（开始广播 warning，结束仅记 info 事件）
+    try:
+        transitions = await sync_watch.detect_sync_transitions()
+        if transitions:
+            from datetime import UTC, datetime
+
+            from app.models.alert import AlertEvent
+
+            now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+            async with session_factory() as db:
+                for t in transitions:
+                    started = t["phase"] == "started"
+                    message = (
+                        f"阵列 {t['name']} 开始{t['action']}（多由降级重建引发，进度见存储卷页）"
+                        if started
+                        else f"阵列 {t['name']} {t['action']} 完成"
+                    )
+                    db.add(
+                        AlertEvent(
+                            rule_id=None,
+                            rule_name="阵列同步",
+                            metric="raid_sync",
+                            value=None,
+                            threshold=None,
+                            severity="warning" if started else "info",
+                            status="resolved",
+                            message=message,
+                            fired_at=now,
+                            resolved_at=now,
+                        )
+                    )
+                    if started:
+                        await alert_engine.notify_broadcast(db, title=f"阵列同步开始 · {t['name']}", body=message)
+                await db.commit()
+            if any(t["phase"] == "started" for t in transitions):
+                alert_engine.schedule_drain()
+            realtime_cache.set("raid_sync_events", transitions, ttl=120)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("sync_watch 异常: %s", exc)
