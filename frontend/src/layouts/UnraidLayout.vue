@@ -3,7 +3,7 @@
  * UNRAID 风格主布局：顶部横向页签导航（分组）+ 居中单列内容。
  * 左上角菜单按钮切换「完整样式 ↔ 纯图标」页签；右上角搜索/通知/主题/用户。
  */
-import { nextTick, onBeforeUnmount, ref, computed } from 'vue';
+import { nextTick, onBeforeUnmount, ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '@/stores/modules/app';
 import { useUserStore } from '@/stores/modules/user';
@@ -38,6 +38,63 @@ function toggleIconsMode() {
   localStorage.setItem(NAV_ICONS_KEY, iconsMode.value ? '1' : '0');
 }
 
+/**
+ * 响应式三档（阈值与 unraid.scss 媒体查询保持一致）：
+ * ≥1560 文本页签；1100–1559 强制纯图标（文本 13 项约需 1495px，放不下）；
+ * <1100 隐藏页签条，改用抽屉导航（小屏/手机）。
+ */
+const mqTextTabs = window.matchMedia('(min-width: 1560px)');
+const mqDrawer = window.matchMedia('(max-width: 1099px)');
+const wideEnough = ref(mqTextTabs.matches);
+const isNarrow = ref(mqDrawer.matches);
+
+/** 实际图标模式：用户偏好，或中档宽度下文本页签放不下时强制 */
+const effectiveIcons = computed(() => iconsMode.value || !wideEnough.value);
+
+/** 抽屉菜单（<1100px 时经左上角按钮呼出） */
+const drawerOpen = ref(false);
+
+function openDrawer() {
+  drawerOpen.value = true;
+  // 抽屉展开期间锁住背景滚动
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDrawer() {
+  if (!drawerOpen.value) return;
+  drawerOpen.value = false;
+  document.body.style.overflow = '';
+}
+
+function onMenuClick() {
+  if (isNarrow.value) openDrawer();
+  else toggleIconsMode();
+}
+
+function onMqChange() {
+  wideEnough.value = mqTextTabs.matches;
+  isNarrow.value = mqDrawer.matches;
+  // 跨过断点回到桌面档时收起抽屉，避免残留遮罩
+  if (!isNarrow.value) closeDrawer();
+}
+
+function bindMq(mq, fn) {
+  // 旧版 Chromium/Safari 兼容：无 addEventListener 时退回 addListener
+  if (mq.addEventListener) mq.addEventListener('change', fn);
+  else mq.addListener(fn);
+}
+
+function unbindMq(mq, fn) {
+  if (mq.removeEventListener) mq.removeEventListener('change', fn);
+  else mq.removeListener(fn);
+}
+
+bindMq(mqTextTabs, onMqChange);
+bindMq(mqDrawer, onMqChange);
+
+// 路由切换即收起抽屉（抽屉内点击跳转后不停留在遮罩下）
+watch(() => route.path, closeDrawer);
+
 /** 页签搜索：过滤页签，回车跳首个命中 */
 const searchText = ref('');
 const filteredGroups = computed(() =>
@@ -55,7 +112,10 @@ const filteredGroups = computed(() =>
 function onSearchKeydown(e) {
   if (e.key !== 'Enter') return;
   const first = filteredGroups.value[0]?.items[0];
-  if (first) router.push(first.path);
+  if (first) {
+    router.push(first.path);
+    closeDrawer();
+  }
   searchText.value = '';
 }
 
@@ -82,11 +142,24 @@ function onDocClick(e) {
     bellOpen.value = false;
   }
 }
+
+function onDocKeydown(e) {
+  if (e.key === 'Escape') closeDrawer();
+}
+
 document.addEventListener('click', onDocClick);
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick));
+document.addEventListener('keydown', onDocKeydown);
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick);
+  document.removeEventListener('keydown', onDocKeydown);
+  unbindMq(mqTextTabs, onMqChange);
+  unbindMq(mqDrawer, onMqChange);
+  closeDrawer();
+});
 
 function jump(path) {
   bellOpen.value = false;
+  closeDrawer();
   router.push(path);
 }
 
@@ -104,14 +177,22 @@ const themeMeta = computed(() => {
 <template>
   <!-- 纯图标类须加在 .nd 根容器（unraid.scss 的 &.nav-icons 编译为 .nd.nav-icons）：
        此前绑定在 .nav 上且类名不匹配，切换从未生效 -->
-  <div class="nd" :data-theme="appStore.resolvedTheme" :class="{ 'nav-icons': iconsMode }">
+  <div class="nd" :data-theme="appStore.resolvedTheme" :class="{ 'nav-icons': effectiveIcons }">
     <icon-sprite />
 
     <div class="nav">
       <button
+        v-if="wideEnough || isNarrow"
         class="iconbtn"
-        :title="iconsMode ? '页签：纯图标（点击切换完整样式）' : '页签：完整样式（点击切换纯图标）'"
-        @click="toggleIconsMode"
+        :title="
+          isNarrow
+            ? '打开导航菜单'
+            : iconsMode
+              ? '页签：纯图标（点击切换完整样式）'
+              : '页签：完整样式（点击切换纯图标）'
+        "
+        :aria-expanded="isNarrow ? drawerOpen : undefined"
+        @click="onMenuClick"
       >
         <u-icon name="menu" />
       </button>
@@ -204,6 +285,55 @@ const themeMeta = computed(() => {
         <button @click="jump('/nasdeck/automation')">查看全部告警与规则</button>
       </div>
     </div>
+
+    <!-- 小屏抽屉导航（<1100px）：遮罩 + 左滑面板，Esc/遮罩/选中项均可关闭 -->
+    <div class="ndrawer-back" :class="{ show: drawerOpen }" @click="closeDrawer" />
+    <aside
+      class="ndrawer"
+      :class="{ show: drawerOpen }"
+      role="dialog"
+      aria-modal="true"
+      aria-label="导航菜单"
+    >
+      <div class="ndrawer-h">
+        <span class="brand">
+          <span class="logo">
+            <svg viewBox="0 0 24 24">
+              <rect x="6" y="4.5" width="12" height="3.4" rx="1.7" />
+              <rect x="6" y="10.3" width="7.5" height="3.4" rx="1.7" />
+              <rect x="6" y="16.1" width="12" height="3.4" rx="1.7" />
+            </svg>
+          </span>
+          nasdeck
+        </span>
+        <button class="iconbtn" title="关闭菜单" @click="closeDrawer">
+          <u-icon name="x" />
+        </button>
+      </div>
+
+      <div class="search ndrawer-search">
+        <u-icon name="search" />
+        <input v-model="searchText" type="text" placeholder="搜索页签" @keydown="onSearchKeydown" />
+      </div>
+
+      <nav class="ndrawer-nav">
+        <div v-for="(group, gi) in filteredGroups" :key="gi" class="ndrawer-g">
+          <button
+            v-for="item in group.items"
+            :key="item.path"
+            class="ndrawer-i"
+            :class="{ on: route.path === item.path }"
+            @click="jump(item.path)"
+          >
+            <u-icon :name="item.icon" />
+            <span>{{ item.title }}</span>
+            <span v-if="item.badge" class="n" :class="{ hot: item.badgeHot }">{{
+              item.badge
+            }}</span>
+          </button>
+        </div>
+      </nav>
+    </aside>
 
     <main class="content">
       <router-view v-slot="{ Component, route: viewRoute }">

@@ -520,6 +520,128 @@
     }
   }
 
+  // 小屏抽屉导航（<1100px，UnraidLayout 左上角按钮呼出；桌面档隐藏于屏外）
+  .ndrawer-back {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    pointer-events: none;
+    background: rgb(0 0 0 / 45%);
+    opacity: 0;
+    transition: opacity var(--t) var(--ease);
+
+    &.show {
+      pointer-events: auto;
+      opacity: 1;
+    }
+  }
+
+  .ndrawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 85;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: min(82vw, 320px);
+    padding: 12px 12px 18px;
+    background: var(--sf);
+    border-right: 1px solid var(--bd);
+    box-shadow: var(--shadow);
+    transition: transform var(--t) var(--ease);
+    transform: translateX(-103%);
+
+    &.show {
+      transform: none;
+    }
+
+    .ndrawer-h {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 32px;
+    }
+
+    // 复用桌面 .search 质感，宽度撑满抽屉
+    .search {
+      width: 100%;
+    }
+
+    .ndrawer-nav {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .ndrawer-g + .ndrawer-g {
+      padding-top: 8px;
+      margin-top: 8px;
+      border-top: 1px solid var(--bd);
+    }
+
+    .ndrawer-i {
+      display: flex;
+      gap: 11px;
+      align-items: center;
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 14px;
+      color: var(--tx1);
+      text-align: left;
+      border-radius: 8px;
+      transition:
+        color var(--t) var(--ease),
+        background var(--t) var(--ease);
+
+      .ico {
+        width: 17px;
+        height: 17px;
+        opacity: 0.85;
+      }
+
+      &:hover {
+        color: var(--tx0);
+        background: var(--sf2);
+
+        .ico {
+          opacity: 1;
+        }
+      }
+
+      &.on {
+        font-weight: 600;
+        color: var(--acc);
+        background: var(--accbg);
+
+        .ico {
+          opacity: 1;
+        }
+      }
+
+      .n {
+        min-width: 16px;
+        padding: 1px 6px;
+        margin-left: auto;
+        font-size: 10.5px;
+        font-weight: 700;
+        line-height: 14px;
+        color: var(--tx1);
+        text-align: center;
+        background: var(--sf3);
+        border: 1px solid var(--bd2);
+        border-radius: 8px;
+
+        &.hot {
+          color: var(--warn);
+          background: var(--warnbg);
+          border-color: rgb(236 164 60 / 50%);
+        }
+      }
+    }
+  }
+
   // ---- 4. 内容列与页头 ----
   .content {
     max-width: 1240px;
@@ -2185,9 +2307,21 @@
     display: none;
   }
 
-  // ---- 6. 响应式（<900px 隐藏搜索；<700px 栅格纵排 + 表格转卡片） ----
+  // ---- 6. 响应式（<1100px 页签条转抽屉；<900px 隐藏头部搜索；<700px 栅格纵排 + 表格转卡片） ----
+  // 阈值与 UnraidLayout 的 matchMedia 断点一致：文本页签约需 1495px、纯图标约需 1065px（实测），
+  // 1100–1559 由组件强制 nav-icons，<1099 页签条整体隐藏、改经抽屉导航
+  @media (width <= 1099px) {
+    .tabs {
+      display: none;
+    }
+
+    .hd-x .search {
+      display: none;
+    }
+  }
+
   @media (width <= 900px) {
-    .search {
+    .hd-x .search {
       display: none;
     }
   }
