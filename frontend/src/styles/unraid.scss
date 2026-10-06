@@ -40,6 +40,15 @@
   --t: 170ms;
   --ease: cubic-bezier(0.32, 0.72, 0.24, 1);
 
+  // 图表色板（主题联动：皮肤各自覆盖，canvas 经 themeColors.js 读取）
+  --ch-acc: #f15a2c;
+  --ch-ok: #3fb68b;
+  --ch-info: #5b9cf6;
+  --ch-purp: #a077e8;
+  --ch-warn: #eca43c;
+  --ch-temp: #e8734b;
+  --ch-gpu: #c291f0;
+
   min-height: 100vh;
   font-family:
     Inter,
@@ -84,6 +93,13 @@
     --axis: #7a68a8;
     --tt: #180d2b;
     --ttbd: #3a2260;
+    --ch-acc: #e935c1;
+    --ch-ok: #00e5a0;
+    --ch-info: #29d8ff;
+    --ch-purp: #7c5cff;
+    --ch-warn: #ffd23e;
+    --ch-temp: #ff7a5c;
+    --ch-gpu: #b388ff;
 
     color-scheme: dark;
     background:
@@ -99,11 +115,11 @@
     --sf3: #0f2312;
     --bd: #1d3a22;
     --bd2: #27502e;
-    --tx0: #d8ffe2;
-    --tx1: #a8e8b4;
-    --tx2: #6fae7d;
-    --tx3: #4a7a55;
-    --acc: #3f7;
+    --tx0: #e6ece7;
+    --tx1: #b5c4b8;
+    --tx2: #7e9484;
+    --tx3: #55705c;
+    --acc: #4ade80;
     --acc-h: #66ff9e;
     --acc-d: #17c957;
     --accbg: rgb(51 255 119 / 10%);
@@ -120,6 +136,13 @@
     --axis: #52865f;
     --tt: #0a140b;
     --ttbd: #1d3a22;
+    --ch-acc: #4ade80;
+    --ch-ok: #4ade80;
+    --ch-info: #57d7ff;
+    --ch-purp: #a8e8b4;
+    --ch-warn: #e8c35a;
+    --ch-temp: #e8c35a;
+    --ch-gpu: #8fe3a4;
 
     color-scheme: dark;
 

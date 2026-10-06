@@ -1,7 +1,7 @@
 <script setup>
 /** 历史趋势：六维度 × 三区间回看 + dataZoom 框选缩放 + 区间统计与报告导出（本地 mock） */
 import { computed, onActivated, reactive, ref, watch } from 'vue';
-import { colors } from '../mock';
+import { chartColors } from '../utils/themeColors';
 import { walk, timeLabels } from '../utils/series';
 import { fetchHistorySeries, fetchHistoryStats } from '../services/monitor';
 import { historyExportUrl } from '../api/endpoints/monitor';
@@ -14,13 +14,45 @@ defineOptions({ name: 'NasSysHist' });
 
 /** 维度配置（色板/基准/波动/上下限/单位）。单位与后端口径一致：net/disk 均为 KB/s */
 const DIMS = {
-  cpu: { label: 'CPU', color: colors.acc, base: 25, vol: 14, min: 2, max: 96, unit: '%' },
-  mem: { label: '内存', color: colors.purp, base: 44, vol: 7, min: 30, max: 70, unit: '%' },
+  cpu: {
+    label: 'CPU',
+    get color() {
+      return chartColors.value.acc;
+    },
+    base: 25,
+    vol: 14,
+    min: 2,
+    max: 96,
+    unit: '%',
+  },
+  mem: {
+    label: '内存',
+    get color() {
+      return chartColors.value.purp;
+    },
+    base: 44,
+    vol: 7,
+    min: 30,
+    max: 70,
+    unit: '%',
+  },
   temp: { label: '温度', color: '#E8734B', base: 42, vol: 5, min: 28, max: 74, unit: '°C' },
-  net: { label: '网络', color: colors.ok, base: 9, vol: 8, min: 0, max: 60, unit: ' KB/s' },
+  net: {
+    label: '网络',
+    get color() {
+      return chartColors.value.ok;
+    },
+    base: 9,
+    vol: 8,
+    min: 0,
+    max: 60,
+    unit: ' KB/s',
+  },
   disk: {
     label: '磁盘 IO',
-    color: colors.info,
+    get color() {
+      return chartColors.value.info;
+    },
     base: 55,
     vol: 34,
     min: 0,

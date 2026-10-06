@@ -4,32 +4,67 @@
  * 离开时停 rAF（与停轮询约定一致）。数据零新增采集——复用既有 WS 快照。 */
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { useRealtimeStore } from '../stores/realtime';
+import { chartColors } from '../utils/themeColors';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasScope' });
 
-/** 通道定义：色板固定（canvas 取主题变量代价高且主题切换需重取） */
+/** 通道定义：色板取主题图表色（chartColors 响应式，皮肤切换随动） */
 const CHANNELS = [
-  { key: 'cpu', label: 'CPU %', color: '#f15a2c', get: (s) => s.cpu_percent },
-  { key: 'mem', label: '内存 %', color: '#5b9cf6', get: (s) => s.mem_percent },
-  { key: 'netrx', label: '网速 ↓ KB/s', color: '#3fb68b', get: (s) => sumNet(s, 'rx_kbps') },
-  { key: 'nettx', label: '网速 ↑ KB/s', color: '#eca43c', get: (s) => sumNet(s, 'tx_kbps') },
+  {
+    key: 'cpu',
+    label: 'CPU %',
+    get color() {
+      return chartColors.value.acc;
+    },
+    get: (s) => s.cpu_percent,
+  },
+  {
+    key: 'mem',
+    label: '内存 %',
+    get color() {
+      return chartColors.value.info;
+    },
+    get: (s) => s.mem_percent,
+  },
+  {
+    key: 'netrx',
+    label: '网速 ↓ KB/s',
+    get color() {
+      return chartColors.value.ok;
+    },
+    get: (s) => sumNet(s, 'rx_kbps'),
+  },
+  {
+    key: 'nettx',
+    label: '网速 ↑ KB/s',
+    get color() {
+      return chartColors.value.warn;
+    },
+    get: (s) => sumNet(s, 'tx_kbps'),
+  },
   {
     key: 'dio_r',
     label: '磁盘 读 KB/s',
-    color: '#a077e8',
+    get color() {
+      return chartColors.value.purp;
+    },
     get: (s) => s.disk_io?.read_kbps ?? null,
   },
   {
     key: 'dio_w',
     label: '磁盘 写 KB/s',
-    color: '#e5484d',
+    get color() {
+      return chartColors.value.bad || '#e5484d';
+    },
     get: (s) => s.disk_io?.write_kbps ?? null,
   },
   {
     key: 'gpu',
     label: 'GPU %',
-    color: '#57d7ff',
+    get color() {
+      return chartColors.value.gpu;
+    },
     get: (s) => (s.gpu?.available ? s.gpu.percent : null),
   },
 ];
@@ -265,7 +300,7 @@ const connText = computed(() => (realtime.connected ? '实时推送' : '轮询�
   </section>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .scope-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -278,7 +313,9 @@ const connText = computed(() => (realtime.connected ? '实时推送' : '轮询�
   position: relative;
   height: 380px;
   overflow: hidden;
-  background: radial-gradient(900px 300px at 70% -20%, rgb(91 156 246 / 6%), transparent), #07080c;
+
+  // 半透明黑叠在皮肤底色上（写死深色在花活皮肤下像补丁）
+  background: rgb(3 5 8 / 45%);
   border: 1px solid var(--bd);
   border-radius: 10px;
 }

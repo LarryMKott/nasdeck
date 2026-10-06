@@ -16,6 +16,7 @@ import IconSprite from '@/modules/nas/components/IconSprite.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 import NDanmaku from '@/modules/nas/components/NDanmaku.vue';
 import UCommandPalette from '@/modules/nas/components/UCommandPalette.vue';
+import { refreshChartColors } from '@/modules/nas/utils/themeColors';
 
 defineOptions({ name: 'UnraidLayout' });
 
@@ -29,6 +30,14 @@ const permissionStore = usePermissionStore();
 // 头像身份：管理员带标识 + 点击进设置页；普通用户点击进关于页
 const identity = useIdentityStore();
 identity.ensure();
+
+// 图表色板随皮肤切换刷新（canvas 不吃 CSS 变量，需 JS 读取）
+import { watch as vueWatch } from 'vue';
+vueWatch(
+  () => appStore.resolvedTheme,
+  () => refreshChartColors(),
+  { immediate: true }
+);
 
 const avatarTitle = computed(() =>
   identity.canWrite

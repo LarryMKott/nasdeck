@@ -1,7 +1,7 @@
 <script setup>
 /** 总览：UNRAID Dashboard 式磁贴 + GPU 监控 + 风扇/Docker/温度/缓存/告警（后端实时 + 演示回退） */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { colors } from '../mock';
+import { chartColors } from '../utils/themeColors';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
 import { useRealtimeStore } from '../stores/realtime';
@@ -149,7 +149,11 @@ const dioHistory = ref([]);
 const gpuHistory = ref([]);
 const gpuLabels = computed(() => gpuHistory.value.map((p) => p.label));
 const gpuSeries = computed(() => [
-  { name: 'GPU 使用率', color: colors.gpu, data: gpuHistory.value.map((p) => p.percent) },
+  {
+    name: 'GPU 使用率',
+    color: chartColors.value.gpu,
+    data: gpuHistory.value.map((p) => p.percent),
+  },
 ]);
 const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 </script>
@@ -267,7 +271,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           <div class="num" style="margin-top: 2px; font-size: 12px; color: var(--tx2)">
             {{ d.net.txText }}
           </div>
-          <u-spark :data="netHistory" :color="colors.ok" />
+          <u-spark :data="netHistory" :color="chartColors.ok" />
         </div>
       </div>
 
@@ -281,7 +285,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           <div class="num" style="margin-top: 2px; font-size: 12px; color: var(--tx2)">
             {{ d.diskIo.writeText }}
           </div>
-          <u-spark :data="dioHistory" :color="colors.purp" />
+          <u-spark :data="dioHistory" :color="chartColors.purp" />
         </div>
       </div>
     </div>
@@ -319,7 +323,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
         <div class="wg-b">
           <div class="cap"><u-icon name="pulse" />GPU 使用率</div>
           <div class="big num">{{ d.gpu.percent }}<small>%</small></div>
-          <u-spark :data="gpuSparkData" :color="colors.gpu" />
+          <u-spark :data="gpuSparkData" :color="chartColors.gpu" />
           <div class="mtxt">
             <span>核显 · 温度 {{ d.gpu.tempC ?? '—' }} °C</span>
             <span class="num">{{ d.gpu.vramText }}</span>
@@ -423,7 +427,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
             :y-tick-fmt="(v) => `${v}%`"
           />
           <div class="legend">
-            <span><i :style="{ background: colors.gpu }" />GPU 使用率</span>
+            <span><i :style="{ background: chartColors.gpu }" />GPU 使用率</span>
           </div>
         </div>
       </div>

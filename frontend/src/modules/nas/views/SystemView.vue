@@ -1,7 +1,7 @@
 <script setup>
 /** 系统资源：CPU/内存/网络/磁盘 IO 四图 + GPU 磁贴 + RAPL 功耗（后端 history + 演示回退） */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { colors } from '../mock';
+import { chartColors } from '../utils/themeColors';
 import { walk, timeLabels } from '../utils/series';
 import { useViewData } from '../composables/useViewData';
 import { useRealtimeStore } from '../stores/realtime';
@@ -18,10 +18,42 @@ defineOptions({ name: 'NasSystem' });
 const fallbackLabels = timeLabels(60, 1);
 const fallback = {
   labels: fallbackLabels,
-  cpuSeries: [{ name: 'CPU', color: colors.acc, data: walk(60, 5, 23, 7, 5, 60) }],
-  memSeries: [{ name: '内存', color: colors.info, data: walk(60, 6, 41, 2.5, 35, 50) }],
-  netSeries: [{ name: '总吞吐', color: colors.ok, data: walk(60, 7, 15, 6, 1, 60) }],
-  diskSeries: [{ name: '读', color: colors.acc, data: walk(60, 11, 86, 26, 5, 220) }],
+  cpuSeries: [
+    {
+      name: 'CPU',
+      get color() {
+        return chartColors.value.acc;
+      },
+      data: walk(60, 5, 23, 7, 5, 60),
+    },
+  ],
+  memSeries: [
+    {
+      name: '内存',
+      get color() {
+        return chartColors.value.info;
+      },
+      data: walk(60, 6, 41, 2.5, 35, 50),
+    },
+  ],
+  netSeries: [
+    {
+      name: '总吞吐',
+      get color() {
+        return chartColors.value.ok;
+      },
+      data: walk(60, 7, 15, 6, 1, 60),
+    },
+  ],
+  diskSeries: [
+    {
+      name: '读',
+      get color() {
+        return chartColors.value.acc;
+      },
+      data: walk(60, 11, 86, 26, 5, 220),
+    },
+  ],
 };
 
 const { data: charts, live, lastUpdated } = useViewData(fetchSystemCharts, fallback);
@@ -187,7 +219,7 @@ const dramW = computed(() => {
         <div class="wg-b">
           <div class="cap"><u-icon name="pulse" />GPU 使用率</div>
           <div class="big num">{{ gpuPercent }}<small>%</small></div>
-          <u-spark :data="gpuSparkData" :color="colors.gpu" />
+          <u-spark :data="gpuSparkData" :color="chartColors.gpu" />
         </div>
       </div>
 
