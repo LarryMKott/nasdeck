@@ -75,3 +75,15 @@ export async function fetchTimeline(source = 'all', limit = 200) {
     return { data: { list: mock.timeline }, live: false };
   }
 }
+
+/** 设置页取数（头像入口的设置页）：仅渠道 + 规则两源（比 fetchAutomation 轻）
+ * @returns {Promise<{data: {channels: Array, rules: Array}, live: boolean}>} */
+export async function fetchAlertSettings() {
+  const [chansS, rulesS] = await Promise.allSettled([getChannels(), getRules()]);
+  const channels = pick(chansS);
+  const rules = pick(rulesS);
+  if (channels === null && rules === null) {
+    return { data: { channels: mock.alertChannels, rules: mock.alertRules }, live: false };
+  }
+  return { data: { channels: channels ?? [], rules: rules ?? [] }, live: true };
+}

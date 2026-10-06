@@ -8,12 +8,12 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '@/stores/modules/app';
 import { useUserStore } from '@/stores/modules/user';
 import { usePermissionStore } from '@/stores/modules/permission';
+import { useIdentityStore } from '@/modules/nas/stores/identity';
 import { navGroups, activeAlerts as mockAlerts } from '@/modules/nas/mock';
 import { useViewData } from '@/modules/nas/composables/useViewData';
 import { fetchActiveAlerts } from '@/modules/nas/services/automation';
 import IconSprite from '@/modules/nas/components/IconSprite.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
-import UDropdown from '@/modules/nas/components/UDropdown.vue';
 
 defineOptions({ name: 'UnraidLayout' });
 
@@ -24,6 +24,19 @@ const router = useRouter();
 const appStore = useAppStore();
 const userStore = useUserStore();
 const permissionStore = usePermissionStore();
+// 头像身份：管理员带标识 + 点击进设置页；普通用户点击进关于页
+const identity = useIdentityStore();
+identity.ensure();
+
+const avatarTitle = computed(() =>
+  identity.canWrite
+    ? `${userStore.nickname || '用户'} · 管理员（设置）`
+    : userStore.nickname || '用户'
+);
+
+function onAvatarClick() {
+  router.push(identity.canWrite ? '/nasdeck/settings' : '/nasdeck/about');
+}
 
 /** 通知铃数据：后端 firing 事件，不可达回退演示值 */
 const { data: activeAlerts } = useViewData(fetchActiveAlerts, mockAlerts);
@@ -249,18 +262,18 @@ const themeMeta = computed(() => {
           <u-icon :name="themeMeta.icon" />
         </button>
 
-        <u-dropdown :min-width="150">
-          <template #trigger>
-            <span class="avatar" :title="userStore.nickname">
-              {{ (userStore.nickname || 'u').slice(0, 1) }}
-            </span>
-          </template>
-          <template #default>
-            <button @click="router.push('/nasdeck/about')">
-              <u-icon name="info" />{{ userStore.nickname }}
-            </button>
-          </template>
-        </u-dropdown>
+        <!-- 头像：管理员带盾徽标识，点击进设置页（普通用户进关于页） -->
+        <button
+          class="avatar"
+          :class="{ admin: identity.canWrite }"
+          :title="avatarTitle"
+          @click="onAvatarClick"
+        >
+          {{ (userStore.nickname || 'u').slice(0, 1) }}
+          <svg v-if="identity.canWrite" class="adm-badge" aria-hidden="true">
+            <use href="#nd-i-shield" />
+          </svg>
+        </button>
       </div>
     </div>
 

@@ -75,6 +75,13 @@ export const nasRoutes = [
         meta: { title: '风扇控制', keepAlive: true },
       },
       {
+        // 头像入口的管理员设置页：不进导航页签（navGroups 不加），hidden 元信息备用
+        path: 'settings',
+        name: 'NasSettings',
+        component: view('SettingsView'),
+        meta: { title: '设置', hidden: true },
+      },
+      {
         path: 'timeline',
         name: 'NasTimeline',
         component: view('TimelineView'),

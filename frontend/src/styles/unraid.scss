@@ -430,6 +430,7 @@
   }
 
   .avatar {
+    position: relative;
     display: inline-flex;
     flex: none;
     align-items: center;
@@ -439,9 +440,31 @@
     font-size: 12.5px;
     font-weight: 700;
     color: var(--acc);
+    cursor: pointer;
     background: var(--accbg);
     border: 1px solid var(--accbg);
     border-radius: 50%;
+    transition: border-color var(--t) var(--ease);
+
+    &:hover {
+      border-color: var(--acc);
+    }
+
+    // 管理员：accent 实边环 + 右下角盾徽（身份一眼可辨；hover 提示带"管理员"字样）
+    &.admin {
+      border: 1.5px solid var(--acc);
+      box-shadow: 0 0 0 1px rgb(241 90 44 / 25%);
+
+      .adm-badge {
+        position: absolute;
+        right: -4px;
+        bottom: -3px;
+        width: 12px;
+        height: 12px;
+        color: var(--acc);
+        fill: var(--acc);
+      }
+    }
   }
 
   @keyframes nd-drop {
