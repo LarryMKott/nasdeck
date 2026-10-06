@@ -51,6 +51,12 @@ export const nasRoutes = [
         meta: { title: '温度监控', keepAlive: true },
       },
       {
+        path: 'scope',
+        name: 'NasScope',
+        component: view('OscilloscopeView'),
+        meta: { title: '示波器', keepAlive: true },
+      },
+      {
         path: 'sys-hist',
         name: 'NasSysHist',
         component: view('SysHistView'),

@@ -18,7 +18,9 @@ import {
   fetchDashboard,
 } from '../services/dashboard';
 import { fetchActiveAlerts } from '../services/automation';
+import { downloadStatusCard } from '../utils/statusCard';
 import UPageHeader from '../components/UPageHeader.vue';
+import UTimeMachine from '../components/UTimeMachine.vue';
 import USpark from '../components/USpark.vue';
 import ULineChart from '../components/ULineChart.vue';
 import FanRotor from '../components/FanRotor.vue';
@@ -67,6 +69,24 @@ watch(
     if (gpuHistory.value.length > 60) gpuHistory.value.shift();
   }
 );
+
+// ---- 状态分享卡片（脑洞 B）：canvas 手绘 PNG，一键下载发群 ----
+const cardBusy = ref(false);
+function genStatusCard() {
+  if (cardBusy.value) return;
+  cardBusy.value = true;
+  try {
+    downloadStatusCard(d.value, {
+      diskTemps: (d.value.diskTemps || []).map((t) => ({
+        label: t.label,
+        celsius: t.tempC ?? t.celsius ?? 0,
+      })),
+      firingCount: (alerts.value || []).length,
+    });
+  } finally {
+    setTimeout(() => (cardBusy.value = false), 600);
+  }
+}
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
@@ -146,6 +166,15 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
           <span class="tr" />自动
         </label>
+        <button
+          class="btn sm"
+          title="生成状态分享图（PNG）"
+          :disabled="cardBusy"
+          @click="genStatusCard"
+        >
+          <u-icon name="dl" />状态卡
+        </button>
+        <u-time-machine ref="timeMachine" />
       </template>
     </u-page-header>
 

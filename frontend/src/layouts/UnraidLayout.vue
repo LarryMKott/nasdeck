@@ -15,6 +15,7 @@ import { fetchActiveAlerts } from '@/modules/nas/services/automation';
 import IconSprite from '@/modules/nas/components/IconSprite.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 import NDanmaku from '@/modules/nas/components/NDanmaku.vue';
+import UCommandPalette from '@/modules/nas/components/UCommandPalette.vue';
 
 defineOptions({ name: 'UnraidLayout' });
 
@@ -43,6 +44,22 @@ function toggleDanmaku() {
   window.dispatchEvent(new CustomEvent('nd-danmaku-toggle', { detail: danmakuOn.value }));
 }
 
+// 命令面板（脑洞 E）：Ctrl+K / / 呼出；快捷动作注入
+const cmdkOpen = ref(false);
+const cmdkActions = computed(() => [
+  {
+    label: `切换主题（当前：${themeMeta.value.title.split('，')[0]}）`,
+    icon: themeMeta.value.icon,
+    run: () => appStore.toggleTheme(),
+  },
+  {
+    label: `事件弹幕${danmakuOn.value ? '（点击关闭）' : '（点击开启）'}`,
+    icon: 'alert',
+    run: toggleDanmaku,
+  },
+  { label: '大屏轮播模式', icon: 'play', run: () => router.push('/nasdeck/kiosk') },
+]);
+
 function onAvatarClick() {
   router.push(identity.canWrite ? '/nasdeck/settings' : '/nasdeck/about');
 }
@@ -61,12 +78,12 @@ function toggleIconsMode() {
 }
 
 /**
- * 响应式三档（阈值与 unraid.scss 媒体查询保持一致，14 页签实测标定）：
- * ≥1600 文本页签；1165–1599 强制纯图标（文本 14 项实测 1600 起才放得下）；
- * <1165 隐藏页签条，改用抽屉导航（小屏/手机；纯图标 14 项实测 1163 起放得下）。
+ * 响应式三档（阈值与 unraid.scss 媒体查询保持一致，15 页签实测标定）：
+ * ≥1760 文本页签；1210–1759 强制纯图标（文本 15 项实测 1750 起才放得下）；
+ * <1210 隐藏页签条，改用抽屉导航（小屏/手机；纯图标 15 项实测 1220 起放得下）。
  */
-const mqTextTabs = window.matchMedia('(min-width: 1600px)');
-const mqDrawer = window.matchMedia('(max-width: 1164px)');
+const mqTextTabs = window.matchMedia('(min-width: 1760px)');
+const mqDrawer = window.matchMedia('(max-width: 1209px)');
 const wideEnough = ref(mqTextTabs.matches);
 const isNarrow = ref(mqDrawer.matches);
 
@@ -204,6 +221,7 @@ const themeMeta = computed(() => {
   <div class="nd" :data-theme="appStore.resolvedTheme" :class="{ 'nav-icons': effectiveIcons }">
     <icon-sprite />
     <n-danmaku />
+    <u-command-palette v-model="cmdkOpen" :actions="cmdkActions" />
 
     <div class="nav">
       <button

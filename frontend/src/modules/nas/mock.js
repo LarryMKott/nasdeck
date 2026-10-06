@@ -33,6 +33,7 @@ export const navGroups = [
       { path: '/nasdeck/system', title: '系统', icon: 'pulse' },
       { path: '/nasdeck/temps', title: '温度', icon: 'temp' },
       { path: '/nasdeck/sys-hist', title: '趋势', icon: 'hist' },
+      { path: '/nasdeck/scope', title: '示波器', icon: 'power' },
     ],
   },
   {
