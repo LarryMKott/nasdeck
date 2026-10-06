@@ -14,6 +14,7 @@ import { useViewData } from '@/modules/nas/composables/useViewData';
 import { fetchActiveAlerts } from '@/modules/nas/services/automation';
 import IconSprite from '@/modules/nas/components/IconSprite.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
+import NDanmaku from '@/modules/nas/components/NDanmaku.vue';
 
 defineOptions({ name: 'UnraidLayout' });
 
@@ -33,6 +34,14 @@ const avatarTitle = computed(() =>
     ? `${userStore.nickname || '用户'} · 管理员（设置）`
     : userStore.nickname || '用户'
 );
+
+// 事件弹幕开关（花活 H）：localStorage 持久化，切给 NDanmaku 的 CustomEvent 通知
+const danmakuOn = ref(localStorage.getItem('nd_danmaku') === '1');
+function toggleDanmaku() {
+  danmakuOn.value = !danmakuOn.value;
+  localStorage.setItem('nd_danmaku', danmakuOn.value ? '1' : '0');
+  window.dispatchEvent(new CustomEvent('nd-danmaku-toggle', { detail: danmakuOn.value }));
+}
 
 function onAvatarClick() {
   router.push(identity.canWrite ? '/nasdeck/settings' : '/nasdeck/about');
@@ -181,7 +190,9 @@ const themeMeta = computed(() => {
   const meta = {
     dark: { icon: 'moon', title: '当前黑主题，点击切换白主题' },
     light: { icon: 'sun', title: '当前白主题，点击跟随系统' },
-    system: { icon: 'monitor', title: '当前跟随系统，点击切换黑主题' },
+    system: { icon: 'monitor', title: '当前跟随系统，点击切换赛博朋克' },
+    cyber: { icon: 'pulse', title: '当前赛博朋克，点击切换终端绿' },
+    terminal: { icon: 'server', title: '当前终端绿 CRT，点击切换黑主题' },
   };
   return meta[appStore.theme] || meta.dark;
 });
@@ -192,6 +203,7 @@ const themeMeta = computed(() => {
        此前绑定在 .nav 上且类名不匹配，切换从未生效 -->
   <div class="nd" :data-theme="appStore.resolvedTheme" :class="{ 'nav-icons': effectiveIcons }">
     <icon-sprite />
+    <n-danmaku />
 
     <div class="nav">
       <button
@@ -295,6 +307,11 @@ const themeMeta = computed(() => {
         </span>
       </button>
       <div class="pm-f">
+        <button @click="toggleDanmaku">
+          <u-icon :name="danmakuOn ? 'check' : 'x'" />事件弹幕：{{
+            danmakuOn ? '已开启' : '已关闭'
+          }}
+        </button>
         <button @click="jump('/nasdeck/automation')">查看全部告警与规则</button>
       </div>
     </div>

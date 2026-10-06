@@ -12,14 +12,14 @@ export const useAppStore = defineStore('app', {
     device: 'desktop',
     /** Element Plus 组件尺寸：large | default | small */
     size: 'default',
-    /** UNRAID 界面主题：dark（默认）| light | system（跟随系统） */
+    /** UNRAID 界面主题：dark（默认）| light | system | cyber（赛博朋克）| terminal（终端绿 CRT） */
     theme: 'dark',
     /** 系统是否偏好暗色（prefers-color-scheme，theme 为 system 时据此解析） */
     systemPrefersDark: false,
   }),
 
   getters: {
-    /** 实际生效的主题：theme 为 system 时按系统偏好解析，其余原样返回 */
+    /** 实际生效的主题：system 按系统偏好解析，其余（含花活皮肤）原样返回 */
     resolvedTheme() {
       if (this.theme !== 'system') return this.theme;
       return this.systemPrefersDark ? 'dark' : 'light';
@@ -32,9 +32,9 @@ export const useAppStore = defineStore('app', {
       this.sidebarCollapsed = !this.sidebarCollapsed;
     },
 
-    /** 切换 UNRAID 界面主题：dark → light → system 循环 */
+    /** 切换 UNRAID 界面主题：dark → light → system → cyber → terminal 循环 */
     toggleTheme() {
-      const order = ['dark', 'light', 'system'];
+      const order = ['dark', 'light', 'system', 'cyber', 'terminal'];
       this.theme = order[(order.indexOf(this.theme) + 1) % order.length];
     },
 

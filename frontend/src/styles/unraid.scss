@@ -55,6 +55,89 @@
   color-scheme: dark;
   background: var(--bg);
 
+  // ---- 花活皮肤：赛博朋克（霓虹紫青）----
+  &[data-theme='cyber'] {
+    --bg: #0d0716;
+    --sf: #150b24;
+    --sf2: #1c1030;
+    --sf3: #25163e;
+    --bd: #3a2260;
+    --bd2: #4b2d7d;
+    --tx0: #f2eaff;
+    --tx1: #cfc0f2;
+    --tx2: #9a86c9;
+    --tx3: #6b5b96;
+    --acc: #e935c1;
+    --acc-h: #ff5fe0;
+    --acc-d: #b01e94;
+    --accbg: rgb(233 53 193 / 14%);
+    --ok: #00e5a0;
+    --okbg: rgb(0 229 160 / 12%);
+    --warn: #ffd23e;
+    --warnbg: rgb(255 210 62 / 12%);
+    --bad: #ff3d81;
+    --badbg: rgb(255 61 129 / 15%);
+    --info: #29d8ff;
+    --infobg: rgb(41 216 255 / 12%);
+    --purp: #7c5cff;
+    --grid: rgb(233 53 193 / 9%);
+    --axis: #7a68a8;
+    --tt: #180d2b;
+    --ttbd: #3a2260;
+
+    color-scheme: dark;
+    background:
+      radial-gradient(1200px 500px at 80% -10%, rgb(233 53 193 / 8%), transparent),
+      radial-gradient(900px 400px at 0% 110%, rgb(41 216 255 / 7%), transparent), var(--bg);
+  }
+
+  // ---- 花活皮肤：终端绿（磷光 CRT：扫描线 + 轻辉光）----
+  &[data-theme='terminal'] {
+    --bg: #050a06;
+    --sf: #081209;
+    --sf2: #0b1a0d;
+    --sf3: #0f2312;
+    --bd: #1d3a22;
+    --bd2: #27502e;
+    --tx0: #d8ffe2;
+    --tx1: #a8e8b4;
+    --tx2: #6fae7d;
+    --tx3: #4a7a55;
+    --acc: #3f7;
+    --acc-h: #66ff9e;
+    --acc-d: #17c957;
+    --accbg: rgb(51 255 119 / 10%);
+    --ok: #3f7;
+    --okbg: rgb(51 255 119 / 10%);
+    --warn: #e8c35a;
+    --warnbg: rgb(232 195 90 / 12%);
+    --bad: #ff5f5f;
+    --badbg: rgb(255 95 95 / 14%);
+    --info: #57d7ff;
+    --infobg: rgb(87 215 255 / 10%);
+    --purp: #9dffb0;
+    --grid: rgb(51 255 119 / 7%);
+    --axis: #52865f;
+    --tt: #0a140b;
+    --ttbd: #1d3a22;
+
+    color-scheme: dark;
+
+    // CRT 扫描线叠层（pointer-events:none 不影响交互；reduced-motion 下无闪烁仅静纹）
+    &::after {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      pointer-events: none;
+      content: '';
+      background: repeating-linear-gradient(
+        to bottom,
+        rgb(51 255 119 / 3%) 0 1px,
+        transparent 1px 3px
+      );
+    }
+  }
+
   &[data-theme='light'] {
     color-scheme: light;
 

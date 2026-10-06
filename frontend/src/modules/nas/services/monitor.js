@@ -152,3 +152,23 @@ export async function fetchHistoryStats(dim, rangeKey) {
     return null;
   }
 }
+
+/** 大屏轮播取数（花活 A）：realtime + 温度 + 硬盘健康 + 最近事件四源并发，
+ * 单源失败该屏数据置 null（轮播跳过空屏，不造数）
+ * @returns {Promise<{data: object, live: boolean}>} */
+export async function fetchKiosk() {
+  const [rtS, tempsS, disksS, eventsS] = await Promise.allSettled([
+    getRealtime(),
+    getTemperatures(),
+    import('../api/endpoints/storage').then((m) => m.getDisks()),
+    import('../api/endpoints/alert').then((m) => m.getEvents(6)),
+  ]);
+  const realtime = pick(rtS);
+  const temps = pick(tempsS);
+  const disks = pick(disksS);
+  const events = pick(eventsS);
+  return {
+    data: { realtime, temps, disks, events },
+    live: realtime != null,
+  };
+}

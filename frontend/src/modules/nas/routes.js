@@ -108,3 +108,11 @@ export const nasRoutes = [
     ],
   },
 ];
+
+/** 大屏轮播（花活 A）：独立全屏路由，不套 UnraidLayout 顶栏；不进导航页签 */
+export const kioskRoute = {
+  path: '/nasdeck/kiosk',
+  name: 'NasKiosk',
+  component: view('KioskView'),
+  meta: { title: '大屏轮播', hidden: true },
+};

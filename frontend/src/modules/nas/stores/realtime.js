@@ -11,6 +11,8 @@ export const useRealtimeStore = defineStore('nas-realtime', {
     snapshot: null,
     /** 最新风扇调速输出（WS fans 事件） */
     fanOutputs: [],
+    /** 最近一条 WS alert 帧（事件弹幕等氛围组件订阅；轮询降级形态无此数据） */
+    lastAlert: null,
     connected: false,
     _socket: null,
     _refCount: 0,
@@ -28,6 +30,9 @@ export const useRealtimeStore = defineStore('nas-realtime', {
         },
         onFans: (fans) => {
           this.fanOutputs = fans;
+        },
+        onAlert: (event) => {
+          this.lastAlert = event;
         },
         pollFallback: () => getRealtime(),
       });
