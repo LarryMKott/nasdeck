@@ -766,6 +766,45 @@ export const chassis = {
   ],
 };
 
+/** 跑分演示成绩（花活二期 Q；fetchBenchHistory 后端不可达时回退） */
+export const benchHistory = [
+  {
+    id: 3,
+    device: 'sdc',
+    seconds: 20,
+    duty: 30,
+    avg_mbps: 142.3,
+    peak_mbps: 158.7,
+    bytes_read: 2983,
+    direct: true,
+    created_at: '2026-10-08T21:40:00',
+    curve: [
+      { t: 0.5, mbps: 138.2 },
+      { t: 1, mbps: 149.6 },
+      { t: 1.5, mbps: 155.1 },
+      { t: 2, mbps: 158.7 },
+      { t: 2.5, mbps: 141.9 },
+    ],
+  },
+  {
+    id: 2,
+    device: 'sda',
+    seconds: 20,
+    duty: 30,
+    avg_mbps: 118.6,
+    peak_mbps: 131.4,
+    bytes_read: 2486,
+    direct: true,
+    created_at: '2026-10-08T21:30:00',
+    curve: [
+      { t: 0.5, mbps: 112.0 },
+      { t: 1, mbps: 124.5 },
+      { t: 1.5, mbps: 131.4 },
+      { t: 2, mbps: 118.8 },
+    ],
+  },
+];
+
 /** 网络星图演示聚合（花活二期 L；UNetMap 后端不可达时回退） */
 export const networkMap = {
   listening: 12,

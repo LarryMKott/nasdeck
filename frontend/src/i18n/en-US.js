@@ -410,6 +410,28 @@ export default {
   '生成分享 PNG': 'Share PNG',
   点击任意处跳过动画: 'Click anywhere to skip animation',
 
+  // ---- 花活二期 Q：跑分中心 ----
+  跑分中心: 'Disk benchmark',
+  '只读顺序读基准 · 占空比限速 · 同一时间仅一块盘':
+    'Read-only sequential benchmark · duty-cycled · one disk at a time',
+  开始跑分: 'Start benchmark',
+  取消跑分: 'Cancel benchmark',
+  占用: 'duty',
+  已读: 'Read',
+  '速度曲线随采样点逐步出现…': 'Speed curve builds up as samples arrive…',
+  '基准期间该盘业务延迟会上升（物理规律）；休眠盘默认跳过不唤醒':
+    'Disk latency will rise during the benchmark (physics); standby disks are skipped, never woken',
+  '只读不写（O_DIRECT 绕页缓存）；standby 盘默认跳过不唤醒':
+    'Read-only, never writes (O_DIRECT bypasses page cache); standby disks are skipped, never woken',
+  上次跑分出错: 'Last benchmark failed',
+  '盘与盘对比（最新成绩 · 墙钟均值含限速窗口）':
+    'Disk vs disk (latest results · wall-clock average incl. duty windows)',
+  历史成绩: 'History',
+  '暂无成绩（—）：跑分完成后此处出榜':
+    'No results yet (—): the board appears after a benchmark finishes',
+  时长: 'Duration',
+  平均: 'Avg',
+
   // ---- 花活二期 M：Docker 舰牌墙 ----
   容器舰队: 'Container fleet',
   意外退出: 'Unexpected exit',

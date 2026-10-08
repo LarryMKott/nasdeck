@@ -197,3 +197,41 @@ class SmartTrendResponse(BaseModel):
     granularity: str  # 1h（days≤30）/ 1d（更长）
     days: int
     points: list[SmartTrendPoint]
+
+
+class BenchIn(BaseModel):
+    """跑分触发参数（花活二期 Q）。"""
+    device: str
+    seconds: int = Field(default=20, ge=5, le=120)
+    duty: int = Field(default=30, ge=10, le=100)
+
+
+class BenchResultItem(BaseModel):
+    """跑分成绩行（avg_mbps 为墙钟均值，含限速休眠窗——业务真实视角）。"""
+    id: int
+    device: str
+    seconds: int
+    duty: int
+    avg_mbps: float
+    peak_mbps: float
+    bytes_read: int
+    direct: bool = True
+    created_at: str | None = None
+    curve: list = []
+
+
+class BenchState(BaseModel):
+    """跑分实时状态（GET current 1s 轮询数据面）。"""
+    status: str  # idle/running/done/error
+    device: str | None = None
+    seconds: int = 20
+    duty: int = 30
+    direct: bool = False
+    started_at: str | None = None
+    elapsed: float = 0.0
+    progress: float = 0.0
+    bps: float = 0.0
+    curve: list = []
+    bytes_read: int = 0
+    error: str | None = None
+    result_id: int | None = None

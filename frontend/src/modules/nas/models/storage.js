@@ -166,3 +166,34 @@
  */
 
 export {};
+
+/** 跑分成绩行（avg_mbps = 墙钟均值，含限速休眠窗，业务真实视角）
+ * @typedef {object} BenchResultItem
+ * @property {number} id
+ * @property {string} device
+ * @property {number} seconds
+ * @property {number} duty
+ * @property {number} avg_mbps
+ * @property {number} peak_mbps
+ * @property {number} bytes_read
+ * @property {boolean} direct O_DIRECT 是否生效（绕页缓存）
+ * @property {string|null} [created_at]
+ * @property {Array<{t: number, mbps: number}>} curve 采样序列 ≤64 点
+ */
+
+/** 跑分实时状态（GET current 1s 轮询）
+ * @typedef {object} BenchState
+ * @property {'idle'|'running'|'done'|'error'} status
+ * @property {string|null} device
+ * @property {number} seconds
+ * @property {number} duty
+ * @property {boolean} direct
+ * @property {string|null} started_at
+ * @property {number} elapsed
+ * @property {number} progress 0-100
+ * @property {number} bps 最近窗口吞吐 B/s
+ * @property {Array<{t: number, mbps: number}>} curve
+ * @property {number} bytes_read
+ * @property {string|null} error
+ * @property {number|null} result_id
+ */

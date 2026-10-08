@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Float, Index, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Float, Index, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -59,3 +59,29 @@ class VolumePoint(Base, TimestampMixin):
     mount: Mapped[str] = mapped_column(String(128))
     used_gb: Mapped[float] = mapped_column(Float)
     total_gb: Mapped[float] = mapped_column(Float)
+
+
+class BenchResult(Base, TimestampMixin):
+    """只读跑分成绩（花活二期 Q）：O_DIRECT 顺序读，占空比限速口径。
+
+    Attributes:
+        device (str): 盘名（SMART 探测键）。
+        seconds / duty (int): 基准时长与 IO 占用百分比（跑分参数随成绩存档）。
+        avg_mbps (float): 墙钟平均吞吐（含限速休眠窗，业务真实视角）。
+        peak_mbps (float): 窗口峰值吞吐。
+        bytes_read (int): 总读取字节。
+        direct (bool): O_DIRECT 是否生效（绕页缓存口径标志）。
+        curve (list | None): 采样序列 [{t 秒, mbps}]（≤64 点，历史对比用）。
+    """
+
+    __tablename__ = "bench_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    device: Mapped[str] = mapped_column(String(24), index=True)
+    seconds: Mapped[int] = mapped_column(Integer)
+    duty: Mapped[int] = mapped_column(Integer)
+    avg_mbps: Mapped[float] = mapped_column(Float)
+    peak_mbps: Mapped[float] = mapped_column(Float)
+    bytes_read: Mapped[int] = mapped_column(BigInteger)
+    direct: Mapped[bool] = mapped_column(Boolean, default=True)
+    curve: Mapped[list | None] = mapped_column(JSON, nullable=True)
