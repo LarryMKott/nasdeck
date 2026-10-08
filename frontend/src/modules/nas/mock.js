@@ -677,6 +677,69 @@ export const temps = {
   ],
 };
 
+/** 机箱热力图（花活 F）演示回退：与 fetchChassis 输出同形（sensors/fans/disks） */
+export const chassis = {
+  sensors: [
+    { key: 'm:pkg', label: 'CPU Package', zone: 'cpu', celsius: 45, grade: 'normal' },
+    { key: 'm:core1', label: 'Core 1', zone: 'cpu', celsius: 44, grade: 'normal' },
+    { key: 'm:core3', label: 'Core 3', zone: 'cpu', celsius: 52, grade: 'normal' },
+    { key: 'm:pch', label: 'PCH', zone: 'board', celsius: 41, grade: 'normal' },
+    { key: 'm:board', label: '主板', zone: 'board', celsius: 38, grade: 'normal' },
+    { key: 'm:nvme', label: 'NVMe 盘 5', zone: 'nvme', celsius: 41, grade: 'normal' },
+    { key: 'm:raid', label: '阵列卡', zone: 'other', celsius: 36, grade: 'normal' },
+    { key: 'm:rear', label: '机箱后部', zone: 'other', celsius: 61, grade: 'hot' },
+    { key: 'm:intake', label: '进风', zone: 'other', celsius: 28, grade: 'normal' },
+    { key: 'm:psu', label: 'PSU', zone: 'other', celsius: 33, grade: 'normal' },
+  ],
+  fans: [
+    { id: 1, name: 'CPU_FAN', rpm: 1220, duty: 46 },
+    { id: 2, name: '前板_FAN', rpm: 980, duty: 38 },
+    { id: 3, name: '后板_FAN', rpm: 1450, duty: 52 },
+  ],
+  disks: [
+    {
+      slot: 1,
+      device: 'sda',
+      model: 'WDC WD40EFRX',
+      capacity: '4 TB',
+      tempC: 34,
+      health: '正常',
+      kind: 'HDD',
+      serial: null,
+    },
+    {
+      slot: 2,
+      device: 'sdb',
+      model: 'WDC WD40EFRX',
+      capacity: '4 TB',
+      tempC: 35,
+      health: '正常',
+      kind: 'HDD',
+      serial: null,
+    },
+    {
+      slot: 3,
+      device: 'sdc',
+      model: 'Seagate ST8000VN0022',
+      capacity: '8 TB',
+      tempC: 47,
+      health: '警告 (05)',
+      kind: 'HDD',
+      serial: null,
+    },
+    {
+      slot: 5,
+      device: 'sdd',
+      model: 'Samsung PM883',
+      capacity: '480 G',
+      tempC: 41,
+      health: '正常',
+      kind: 'SSD',
+      serial: null,
+    },
+  ],
+};
+
 /** Docker 页 */
 export const docker = {
   containers: [

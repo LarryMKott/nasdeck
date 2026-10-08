@@ -1,12 +1,13 @@
 <script setup>
-/** 温度监控：关键传感器速览磁贴 + 温度墙（45/60 分档着色，后端 + 演示回退） */
+/** 温度监控：速览磁贴 + 温度墙 / 机箱热力图（花活 F），5s 轮询，后端 + 演示回退 */
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { temps as mockTemps } from '../mock';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
-import { fetchTemps } from '../services/monitor';
+import { fetchChassis, fetchTemps } from '../services/monitor';
 import UPageHeader from '../components/UPageHeader.vue';
 import USpark from '../components/USpark.vue';
+import UChassis from '../components/UChassis.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasTemps' });
@@ -15,7 +16,23 @@ defineOptions({ name: 'NasTemps' });
 const warmAt = 45;
 const hotAt = 60;
 
-const { data: d, live, refresh, lastUpdated } = useViewData(fetchTemps, mockTemps);
+/** 视图模式：速览（磁贴+温度墙）/ 机箱（热力图），记忆上次选择 */
+const MODE_KEY = 'nd_temps_mode';
+const mode = ref(localStorage.getItem(MODE_KEY) === 'chassis' ? 'chassis' : 'quick');
+function setMode(m) {
+  if (mode.value === m) return;
+  mode.value = m;
+  localStorage.setItem(MODE_KEY, m);
+  refresh(); // 立即拉取新形态数据，不等下一轮 5s
+}
+
+// 两种形态取数器不同（机箱还需风区+硬盘），按模式分发
+const {
+  data: d,
+  live,
+  refresh,
+  lastUpdated,
+} = useViewData(() => (mode.value === 'chassis' ? fetchChassis() : fetchTemps()), mockTemps);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
@@ -77,51 +94,96 @@ onDeactivated(stopTimer);
       :updated="lastUpdated"
     >
       <template #right>
+        <div class="seg">
+          <button :class="{ on: mode === 'quick' }" @click="setMode('quick')">速览</button>
+          <button :class="{ on: mode === 'chassis' }" @click="setMode('chassis')">机箱</button>
+        </div>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
           <span class="tr" />5s
         </label>
       </template>
     </u-page-header>
 
-    <div class="grid">
-      <div v-for="t in d.tiles" :key="t.key" class="wg tile-wg t3">
-        <div class="wg-b">
-          <div class="cap"><u-icon :name="t.icon" />{{ t.label }}</div>
-          <div class="big num">{{ t.tempC }}<small>°C</small></div>
-          <u-spark :data="sparkData[t.key]" color="#E8734B" />
-        </div>
-      </div>
-    </div>
+    <template v-if="mode === 'chassis'">
+      <u-chassis
+        :sensors="d.sensors ?? []"
+        :fans="d.fans ?? []"
+        :disks="d.disks ?? []"
+        :warm-at="warmAt"
+        :hot-at="hotAt"
+      />
+    </template>
 
-    <div class="wg" style="margin-bottom: 0">
-      <div class="wg-h">
-        <u-icon name="temp" />
-        <h3>温度墙</h3>
-        <span class="x">全部传感器 · 按温度分档着色</span>
-      </div>
-      <div class="wg-b">
-        <div class="temps" style="grid-template-columns: repeat(auto-fill, minmax(126px, 1fr))">
-          <div
-            v-for="t in d.wall"
-            :key="t.label"
-            class="temp"
-            :class="tempClass(t.tempC, warmAt, hotAt)"
-          >
-            <div class="n">{{ t.label }}</div>
-            <div class="v num">{{ t.tempC }} °C</div>
+    <template v-else>
+      <div class="grid">
+        <div v-for="t in d.tiles" :key="t.key" class="wg tile-wg t3">
+          <div class="wg-b">
+            <div class="cap"><u-icon :name="t.icon" />{{ t.label }}</div>
+            <div class="big num">{{ t.tempC }}<small>°C</small></div>
+            <u-spark :data="sparkData[t.key]" color="#E8734B" />
           </div>
         </div>
-        <div class="legend">
-          <span><i style="background: var(--sf3)" />&lt; 45 正常</span>
-          <span
-            ><i style="background: var(--warnbg); border: 1px solid var(--warn)" />45 – 60
-            偏高</span
-          >
-          <span
-            ><i style="background: var(--badbg); border: 1px solid var(--bad)" />&gt; 60 过热</span
-          >
+      </div>
+
+      <div class="wg" style="margin-bottom: 0">
+        <div class="wg-h">
+          <u-icon name="temp" />
+          <h3>温度墙</h3>
+          <span class="x">全部传感器 · 按温度分档着色</span>
+        </div>
+        <div class="wg-b">
+          <div class="temps" style="grid-template-columns: repeat(auto-fill, minmax(126px, 1fr))">
+            <div
+              v-for="t in d.wall"
+              :key="t.label"
+              class="temp"
+              :class="tempClass(t.tempC, warmAt, hotAt)"
+            >
+              <div class="n">{{ t.label }}</div>
+              <div class="v num">{{ t.tempC }} °C</div>
+            </div>
+          </div>
+          <div class="legend">
+            <span><i style="background: var(--sf3)" />&lt; 45 正常</span>
+            <span
+              ><i style="background: var(--warnbg); border: 1px solid var(--warn)" />45 – 60
+              偏高</span
+            >
+            <span
+              ><i style="background: var(--badbg); border: 1px solid var(--bad)" />&gt; 60
+              过热</span
+            >
+          </div>
         </div>
       </div>
-    </div>
+    </template>
   </section>
 </template>
+
+<style scoped>
+.seg {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--bd2);
+  border-radius: 6px;
+
+  button {
+    height: 28px;
+    padding: 0 12px;
+    font-size: 13px;
+    color: var(--tx2);
+    background: transparent;
+    border: none;
+    transition: all var(--t) var(--ease);
+
+    &.on {
+      color: #fff;
+      background: var(--acc);
+    }
+
+    &:hover:not(.on) {
+      color: var(--acc);
+    }
+  }
+}
+</style>

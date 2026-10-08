@@ -153,6 +153,50 @@ export async function fetchHistoryStats(dim, rangeKey) {
   }
 }
 
+/** 机箱热力图取数（花活 F）：温度 + 风区 + 硬盘三源并发。
+ * 温度是主源（不可达才演示回退）；风区/硬盘缺失是合法真值（视图显式降级，不造数）
+ * @returns {Promise<{data: {sensors: Array, fans: Array, disks: Array}, live: boolean}>} */
+export async function fetchChassis() {
+  const [tempsS, fansS, disksS] = await Promise.allSettled([
+    getTemperatures(),
+    import('../api/endpoints/control').then((m) => m.getFans()),
+    import('../api/endpoints/storage').then((m) => m.getDisks()),
+  ]);
+  const temps = pick(tempsS);
+  if (!temps?.length) return { data: mock.chassis, live: false };
+  const zones = pick(fansS);
+  const disks = pick(disksS);
+  const HEALTH_TEXT = { passed: '正常', warning: '警告', failing: '故障', unknown: '未知' };
+  return {
+    data: {
+      sensors: temps.map((t) => ({
+        key: t.key,
+        label: t.label || t.key,
+        zone: t.zone,
+        celsius: Math.round(t.celsius),
+        grade: t.grade,
+      })),
+      fans: (zones ?? []).map((z) => ({
+        id: z.id,
+        name: z.name,
+        rpm: z.current_rpm ?? 0,
+        duty: Math.round(z.current_pwm_pct ?? 0),
+      })),
+      disks: (disks ?? []).map((disk, i) => ({
+        slot: i + 1,
+        device: disk.device,
+        model: disk.model || disk.device,
+        capacity: disk.size_human,
+        tempC: disk.temp_c != null ? Math.round(disk.temp_c) : null,
+        health: HEALTH_TEXT[disk.health] ?? '未知',
+        kind: disk.rotational ? 'HDD' : 'SSD',
+        serial: disk.serial,
+      })),
+    },
+    live: true,
+  };
+}
+
 /** 大屏轮播取数（花活 A）：realtime + 温度 + 硬盘健康 + 最近事件四源并发，
  * 单源失败该屏数据置 null（轮播跳过空屏，不造数）
  * @returns {Promise<{data: object, live: boolean}>} */
