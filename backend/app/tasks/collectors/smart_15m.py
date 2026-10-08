@@ -14,6 +14,7 @@ from app.services.alert.engine import evaluate_smart_rate_rules, schedule_drain
 from app.services.monitor.cache import realtime_cache
 from app.services.storage import smart as smart_service
 from app.services.storage import smart_history
+from app.services.storage import smart_oracle
 from app.services.storage import volumes as volume_service
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,8 @@ async def smart_15m_tick() -> None:
                 _last_day = today
             events = await evaluate_smart_rate_rules(db)
             await db.commit()
+        # 健康预言（花活二期 J）：喂入 THRESH 与最新指标缓存（/storage/disks 装配时消费）
+        smart_oracle.remember_reports(reports)
         if events:
             realtime_cache.set("latest_alert_events", events, ttl=600)
         schedule_drain()

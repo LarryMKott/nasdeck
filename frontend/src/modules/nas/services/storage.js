@@ -268,6 +268,7 @@ export async function fetchDisks() {
         { passed: '正常', warning: '警告', failing: '故障', unknown: '未知' }[disk.health] ??
         '未知',
       serial: disk.serial,
+      oracle: disk.oracle ?? null, // 健康预言（花活二期 J；盘未采样时 null 显"—"）
     })),
     // 无进行中自检 = 合法真值：置 null 由视图隐藏区块（回退 mock 会显示假进度条）
     selftest: running

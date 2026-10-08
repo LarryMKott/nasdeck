@@ -13,6 +13,30 @@
  * @property {string} [type] lsblk TYPE（part/lvm/crypt…）
  */
 
+/** 健康雷达维度（0-100 子分；null = 无数据）
+ * @typedef {object} OracleDim
+ * @property {'reallocated'|'pending'|'media'|'temp'|'wear'} key
+ * @property {number|null} [value]
+ */
+
+/** 触阈值倒计时（拿得到 THRESH 且有正增速才给出）
+ * @typedef {object} OracleEta
+ * @property {string} metric
+ * @property {number} days
+ * @property {number} current
+ * @property {number} threshold
+ * @property {number} slope_per_day
+ */
+
+/** 硬盘健康预言（花活二期 J：smart_points 1h 桶斜率）
+ * @typedef {object} DiskOracle
+ * @property {number|null} score 0-100；null = 盘未采样
+ * @property {'good'|'watch'|'bad'|null} [grade] good(≥85)/watch(≥60)/bad(<60)
+ * @property {boolean} has_history 窗口内有无 1h 桶历史（新盘只按当前值给分）
+ * @property {OracleDim[]} dims 五维雷达
+ * @property {OracleEta[]} etas 触阈值倒计时
+ */
+
 /** 物理磁盘（SMART 慢采集缓存回填，health 缺省 unknown）
  * @typedef {object} DiskItem
  * @property {string} device 不带 /dev/ 前缀
@@ -27,6 +51,7 @@
  * @property {'passed'|'warning'|'failing'|'unknown'} [health]
  * @property {number|null} [temp_c]
  * @property {number|null} [power_on_hours]
+ * @property {DiskOracle|null} [oracle] 健康预言（盘未采样时 null）
  * @property {PartitionItem[]} [partitions] lsblk children 平铺
  */
 

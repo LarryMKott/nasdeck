@@ -370,4 +370,24 @@ export default {
   '暂无进程采样（—）：实时通道接入后自动出现':
     'No process samples yet (—): appears once the realtime channel connects',
   'CPU 榜首': 'Top CPU',
+
+  // ---- 花活二期 J：硬盘健康预言 ----
+  健康分: 'Score',
+  健康预言: 'Health oracle',
+  良好: 'Good',
+  观察: 'Watch',
+  异常: 'Bad',
+  新盘: 'New disk',
+  重映射增速: 'Realloc growth',
+  温度余量: 'Temp margin',
+  磨损度: 'Wear',
+  寿命已用: 'Life used',
+  '评分 = 五维加权（变化速率为主、绝对值为辅）':
+    'Score = 5-dim weighted (growth rate primary, absolute secondary)',
+  '预计 {n} 天后触及阈值 {v}': 'Hits threshold {v} in ~{n} days',
+  '当前 {c} · 日增 {r}': 'now {c} · +{r}/day',
+  '暂无触阈值预测（—）：拿得到 SMART 阈值且有正增速时给出':
+    'No ETA yet (—): shown when a SMART threshold exists and growth is positive',
+  '该盘暂无评分（—）：接入并完成 SMART 采样后自动给出':
+    'No score yet (—): appears automatically after SMART sampling',
 };

@@ -443,6 +443,19 @@ export const disks = {
       tempC: 34,
       hours: '18240 h',
       health: '正常',
+      oracle: {
+        score: 92,
+        grade: 'good',
+        has_history: true,
+        dims: [
+          { key: 'reallocated', value: 100 },
+          { key: 'pending', value: 100 },
+          { key: 'media', value: 100 },
+          { key: 'temp', value: 92 },
+          { key: 'wear', value: 65 },
+        ],
+        etas: [],
+      },
     },
     {
       slot: 2,
@@ -461,6 +474,19 @@ export const disks = {
       tempC: 47,
       hours: '29511 h',
       health: '警告 (05)',
+      oracle: {
+        score: 71,
+        grade: 'watch',
+        has_history: true,
+        dims: [
+          { key: 'reallocated', value: 55 },
+          { key: 'pending', value: 100 },
+          { key: 'media', value: 100 },
+          { key: 'temp', value: 52 },
+          { key: 'wear', value: 44 },
+        ],
+        etas: [{ metric: 'reallocated', days: 20, current: 8, threshold: 10, slope_per_day: 0.1 }],
+      },
     },
     {
       slot: 5,

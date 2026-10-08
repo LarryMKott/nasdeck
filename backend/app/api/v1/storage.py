@@ -20,7 +20,7 @@ from app.schemas.storage import (
     VolumeItem,
 )
 from app.services.monitor import temperature
-from app.services.storage import capacity, disk_name, self_test, smart, smart_history
+from app.services.storage import capacity, disk_name, self_test, smart, smart_history, smart_oracle
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
 from app.utils.validators import validate_device_name
@@ -42,12 +42,17 @@ async def _disk_items(db: AsyncSession) -> list[DiskItem]:
     # 健康与温度来自 SMART 慢采集缓存（temperature 60s 一轮，零额外 fork）
     health_map = await temperature.disk_health()
     temps = await temperature.disk_temps()
+    # 健康预言（花活二期 J）：smart_points 1h 桶斜率批量装配，一查不逐盘
+    oracle_map = await smart_oracle.forecast_all(
+        db, [smart_history.smart_key(d.get("device") or "") for d in disks]
+    )
     items = []
     for d in disks:
         d["alias"] = aliases.get(d.get("serial") or "")
         key = smart_history.smart_key(d.get("device") or "")
         d["health"] = health_map.get(key, "unknown")
         d["temp_c"] = temps.get(key)
+        d["oracle"] = oracle_map.get(key)
         items.append(DiskItem(**d))
     return items
 

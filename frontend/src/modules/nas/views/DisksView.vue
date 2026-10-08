@@ -110,10 +110,95 @@ watch(
     if (n && !trendDevice.value) {
       trendDevice.value = d.value.list[0].device || `sd${d.value.list[0].slot}`;
     }
+    if (n && !oracleDevice.value) {
+      oracleDevice.value = d.value.list[0].device || `sd${d.value.list[0].slot}`;
+    }
   },
   { immediate: true }
 );
 watch([trendDevice, trendMetric], loadTrend);
+
+// ---- 健康预言（花活二期 J）：五维雷达 + 触阈值倒计时条 ----
+const oracleDevice = ref('');
+const oracleDisk = computed(
+  () => d.value.list.find((x) => (x.device || `sd${x.slot}`) === oracleDevice.value) ?? null
+);
+
+const RADAR_LABELS = {
+  reallocated: '重映射增速',
+  pending: '待定扇区',
+  media: '介质错误',
+  temp: '温度余量',
+  wear: '磨损度',
+};
+const METRIC_LABELS = {
+  reallocated: '重映射扇区',
+  pending: '待定扇区',
+  uncorrectable: '不可修正扇区',
+  percent_used: '寿命已用',
+};
+const GRADE_TEXT = { good: '良好', watch: '观察', bad: '异常' };
+
+// 雷达几何：五轴正五边形（起点正上，顺时针），viewBox 0 0 220 190
+const RCX = 110;
+const RCY = 96;
+const RR = 68;
+function rpt(idx, ratio) {
+  const ang = -Math.PI / 2 + (idx * 2 * Math.PI) / 5;
+  return `${(RCX + Math.cos(ang) * RR * ratio).toFixed(1)},${(RCY + Math.sin(ang) * RR * ratio).toFixed(1)}`;
+}
+const radarRings = [0.25, 0.5, 0.75, 1].map((r) =>
+  Array.from({ length: 5 }, (_, i) => rpt(i, r)).join(' ')
+);
+const radarAxes = Array.from({ length: 5 }, (_, i) => {
+  const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+  return {
+    x1: RCX,
+    y1: RCY,
+    x2: RCX + Math.cos(ang) * RR,
+    y2: RCY + Math.sin(ang) * RR,
+  };
+});
+const radarPoly = computed(() => {
+  const o = oracleDisk.value?.oracle;
+  if (!o?.dims?.length) return '';
+  return o.dims.map((dim, i) => rpt(i, (dim.value ?? 0) / 100)).join(' ');
+});
+const radarVertexes = computed(() => {
+  const o = oracleDisk.value?.oracle;
+  if (!o?.dims?.length) return [];
+  return o.dims.map((dim, i) => {
+    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+    const ratio = (dim.value ?? 0) / 100;
+    return { dim, cx: RCX + Math.cos(ang) * RR * ratio, cy: RCY + Math.sin(ang) * RR * ratio };
+  });
+});
+const radarLabels = computed(() => {
+  const o = oracleDisk.value?.oracle;
+  return (o?.dims ?? []).map((dim, i) => {
+    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+    return {
+      dim,
+      text: t(RADAR_LABELS[dim.key] || dim.key),
+      x: RCX + Math.cos(ang) * (RR + 20),
+      y: RCY + Math.sin(ang) * (RR + 18),
+      anchor: Math.abs(Math.cos(ang)) < 0.3 ? 'middle' : Math.cos(ang) > 0 ? 'start' : 'end',
+    };
+  });
+});
+
+function etaClass(days) {
+  return days <= 30 ? 't-bad' : days <= 90 ? 't-warn' : 't-ok';
+}
+function etaMeterClass(days) {
+  return days <= 30 ? 'c-bad' : days <= 90 ? 'c-warn' : 'c-ok';
+}
+function etaWidth(days) {
+  return Math.max(4, Math.min(100, (days / 365) * 100));
+}
+function etaText(eta) {
+  return t('预计 {n} 天后触及阈值 {v}', { n: Math.round(eta.days), v: eta.threshold });
+}
 
 /** 折线坐标（viewBox 0 0 100 30 归一化） */
 const trendLine = computed(() => {
@@ -190,6 +275,7 @@ const trendDelta = computed(() => {
               <th class="r">{{ t('容量') }}</th>
               <th class="r">{{ t('转速') }}</th>
               <th class="r">{{ t('温度') }}</th>
+              <th class="r">{{ t('健康分') }}</th>
               <th class="r">{{ t('通电时间') }}</th>
               <th>{{ t('健康') }}</th>
               <th>{{ t('操作') }}</th>
@@ -205,6 +291,12 @@ const trendDelta = computed(() => {
               <td class="r num">{{ disk.rpm }}</td>
               <td class="r num" :class="disk.tempC >= 45 ? 't-warn' : 't-ok'">
                 {{ disk.tempC }} °C
+              </td>
+              <td class="r">
+                <span v-if="disk.oracle?.score != null" class="obadge" :class="disk.oracle.grade">
+                  {{ disk.oracle.score }}
+                </span>
+                <span v-else class="muted">—</span>
               </td>
               <td class="r num">{{ disk.hours }}</td>
               <td>
@@ -336,6 +428,129 @@ const trendDelta = computed(() => {
       </div>
     </div>
 
+    <!-- 健康预言（花活二期 J）：五维雷达 + 触阈值倒计时；评分=速率为主绝对值为辅 -->
+    <div class="wg" style="margin-top: 14px">
+      <div class="wg-h">
+        <u-icon name="pulse" />
+        <h3>{{ t('健康预言') }}</h3>
+        <span v-if="oracleDisk?.oracle?.grade" class="x">
+          <span
+            class="tag"
+            :class="
+              oracleDisk.oracle.grade === 'good'
+                ? 'ok'
+                : oracleDisk.oracle.grade === 'watch'
+                  ? 'warn'
+                  : 'bad'
+            "
+            ><span class="dot" />{{ t(GRADE_TEXT[oracleDisk.oracle.grade] || '') }}</span
+          >
+        </span>
+        <span v-if="oracleDisk?.oracle && !oracleDisk.oracle.has_history" class="x">
+          <span class="tag acc"><span class="dot" />{{ t('新盘') }}</span>
+        </span>
+      </div>
+      <div class="wg-b">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px">
+          <label class="small muted" style="align-self: center">
+            {{ t('磁盘') }}
+            <select v-model="oracleDevice" style="margin-left: 6px">
+              <option
+                v-for="disk in d.list"
+                :key="disk.slot"
+                :value="disk.device || `sd${disk.slot}`"
+              >
+                {{ t('盘位 {n}', { n: disk.slot }) }} · {{ disk.model.split(' ').pop() }}
+              </option>
+            </select>
+          </label>
+          <span class="small muted num" style="align-self: center">
+            {{ t('评分 = 五维加权（变化速率为主、绝对值为辅）') }}
+          </span>
+        </div>
+
+        <template v-if="oracleDisk?.oracle?.score != null">
+          <div class="oracle-wrap">
+            <svg class="radar" viewBox="-52 0 324 196" role="img">
+              <polygon
+                v-for="(ring, i) in radarRings"
+                :key="'r' + i"
+                :points="ring"
+                fill="none"
+                stroke="var(--bd)"
+                stroke-width="0.6"
+              />
+              <line
+                v-for="(ax, i) in radarAxes"
+                :key="'a' + i"
+                :x1="ax.x1"
+                :y1="ax.y1"
+                :x2="ax.x2"
+                :y2="ax.y2"
+                stroke="var(--bd)"
+                stroke-width="0.6"
+              />
+              <polygon
+                :points="radarPoly"
+                fill="var(--acc)"
+                fill-opacity="0.18"
+                stroke="var(--acc)"
+                stroke-width="1.2"
+              />
+              <circle
+                v-for="(v, i) in radarVertexes"
+                :key="'v' + i"
+                :cx="v.cx"
+                :cy="v.cy"
+                r="2.4"
+                :fill="v.dim.value == null ? 'var(--tx3)' : 'var(--acc)'"
+              />
+              <text
+                v-for="l in radarLabels"
+                :key="l.dim.key"
+                :x="l.x"
+                :y="l.y"
+                :text-anchor="l.anchor"
+                class="rlabel"
+                :class="{ none: l.dim.value == null }"
+              >
+                {{ l.text }} {{ l.dim.value != null ? Math.round(l.dim.value) : '—' }}
+              </text>
+            </svg>
+            <div class="eta-col">
+              <div class="score-big">
+                <b class="num" :class="oracleDisk.oracle.grade">{{ oracleDisk.oracle.score }}</b>
+                <small>/ 100</small>
+              </div>
+              <template v-if="oracleDisk.oracle.etas.length">
+                <div v-for="eta in oracleDisk.oracle.etas" :key="eta.metric" class="eta">
+                  <div class="small num" style="margin-bottom: 3px">
+                    {{ t(METRIC_LABELS[eta.metric] || eta.metric) }}
+                    <b :class="etaClass(eta.days)">{{ etaText(eta) }}</b>
+                  </div>
+                  <div class="meter thin">
+                    <i
+                      :class="etaMeterClass(eta.days)"
+                      :style="{ width: `${etaWidth(eta.days)}%` }"
+                    />
+                  </div>
+                  <div class="small muted num">
+                    {{ t('当前 {c} · 日增 {r}', { c: eta.current, r: eta.slope_per_day }) }}
+                  </div>
+                </div>
+              </template>
+              <div v-else class="small muted">
+                {{ t('暂无触阈值预测（—）：拿得到 SMART 阈值且有正增速时给出') }}
+              </div>
+            </div>
+          </div>
+        </template>
+        <div v-else class="small muted" style="padding: 10px 0">
+          {{ t('该盘暂无评分（—）：接入并完成 SMART 采样后自动给出') }}
+        </div>
+      </div>
+    </div>
+
     <!-- 进行中的自检（无自检任务 = 合法真值：整卡隐藏，不显示假进度） -->
     <div v-if="d.selftest" class="wg" style="margin-top: 14px">
       <div class="wg-h">
@@ -357,6 +572,86 @@ const trendDelta = computed(() => {
 </template>
 
 <style scoped>
+/* 健康分徽章与预言卡（花活二期 J） */
+.obadge {
+  display: inline-block;
+  min-width: 34px;
+  padding: 1px 8px;
+  font-weight: 600;
+  color: var(--ok);
+  background: var(--okbg);
+  border: 1px solid var(--ok);
+  border-radius: 10px;
+
+  &.watch {
+    color: var(--warn);
+    background: var(--warnbg);
+    border-color: var(--warn);
+  }
+
+  &.bad {
+    color: var(--bad);
+    background: var(--badbg);
+    border-color: var(--bad);
+  }
+}
+
+.oracle-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+}
+
+.radar {
+  flex: 0 0 300px;
+  max-width: 100%;
+}
+
+.rlabel {
+  font-size: 10.5px;
+  fill: var(--tx2);
+
+  &.none {
+    fill: var(--tx3);
+  }
+}
+
+.eta-col {
+  flex: 1;
+  min-width: 240px;
+}
+
+.score-big {
+  margin-bottom: 10px;
+
+  b {
+    font-size: 34px;
+    line-height: 1.1;
+
+    &.good {
+      color: var(--ok);
+    }
+
+    &.watch {
+      color: var(--warn);
+    }
+
+    &.bad {
+      color: var(--bad);
+    }
+  }
+
+  small {
+    margin-left: 4px;
+    color: var(--tx3);
+  }
+}
+
+.eta {
+  margin-bottom: 10px;
+}
+
 .seg {
   display: inline-flex;
   overflow: hidden;
