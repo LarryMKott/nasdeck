@@ -409,4 +409,17 @@ export default {
   端口暴露面: 'Port exposure',
   '生成分享 PNG': 'Share PNG',
   点击任意处跳过动画: 'Click anywhere to skip animation',
+
+  // ---- 花活二期 M：Docker 舰牌墙 ----
+  容器舰队: 'Container fleet',
+  意外退出: 'Unexpected exit',
+  '↓ 读 · ↑ 写': '↓ read · ↑ write',
+  '24h CPU': '24h CPU',
+  '暂无 24h 趋势（1m 桶积累中）': 'No 24h trend yet (1m buckets accumulating)',
+  重启: 'Restart',
+  停止: 'Stop',
+  启动: 'Start',
+  '确认重启容器 {n}？': 'Restart container {n}?',
+  '确认停止容器 {n}？': 'Stop container {n}?',
+  'Docker 不可用（—）': 'Docker unavailable (—)',
 };

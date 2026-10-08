@@ -32,6 +32,26 @@ export function getDocker() {
   return apiData('/api/v1/system/docker/containers');
 }
 
+/** 单容器资源趋势（1m 桶，花活二期 M）
+ * @param {string} name 容器名
+ * @param {number} hours 回看小时数 1-168
+ * @returns {Promise<import('../../models/system').ContainerTrendResponse>} */
+export function getContainerTrend(name, hours = 24) {
+  return apiData(
+    `/api/v1/system/docker/containers/${encodeURIComponent(name)}/trend?hours=${hours}`
+  );
+}
+
+/** 容器生命周期控制：start/stop/restart（写操作，后端非 GET 管理员强校验；花活二期 M）
+ * @param {string} name 容器名
+ * @param {'start'|'stop'|'restart'} action
+ * @returns {Promise<{name: string, action: string, ok: boolean}>} */
+export function controlContainer(name, action) {
+  return apiData(`/api/v1/system/docker/containers/${encodeURIComponent(name)}/${action}`, {
+    method: 'POST',
+  });
+}
+
 /** 监听/连接端口清单
  * @returns {Promise<import('../../models/system').PortEntry[]>} */
 export function getPorts() {

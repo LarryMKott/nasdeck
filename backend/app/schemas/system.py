@@ -33,7 +33,27 @@ class ContainerItem(BaseModel):
     created: str
     ports: list[str] = []
     cpu_percent: float | None = None
+    mem_bytes: int | None = None  # working set 字节（花活二期 M，舰牌条形归一用）
     mem_usage: str | None = None
+    # cgroup v2 io.stat 差分 B/s；v1/无 io.stat 为 null（前端显"—"，花活二期 M）
+    read_bps: float | None = None
+    write_bps: float | None = None
+
+
+class ContainerTrendPoint(BaseModel):
+    """容器资源趋势点（1m 桶，花活二期 M）。"""
+    ts: str
+    cpu_percent: float | None = None
+    mem_mb: float | None = None
+    read_kbps: float | None = None
+    write_kbps: float | None = None
+
+
+class ContainerTrendResponse(BaseModel):
+    """容器资源趋势（花活二期 M：1m 桶最长 7 天）。"""
+    name: str
+    hours: int
+    points: list[ContainerTrendPoint] = []
 
 
 class DockerResponse(BaseModel):

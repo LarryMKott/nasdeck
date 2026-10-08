@@ -30,6 +30,8 @@ _REQUIRED_COLUMNS = {
     "volume_points": {"ts", "mount", "used_gb"},
     # actions 列（M2.1 剧本动作）：旧表缺列 → 触发整库重建（开发期约定）
     "alert_rules": {"name", "metric", "actions"},
+    # 容器资源 1m 桶（花活二期 M）
+    "container_points": {"ts", "name", "cpu_percent", "read_kbps"},
 }
 
 # 重建白名单：仅登记过的表可被整库重建
@@ -38,6 +40,7 @@ _REBUILD_TABLES = (
     "fan_zones", "fan_curves", "metric_points",
     "hardware_items", "disk_aliases", "port_aliases",
     "kill_whitelist", "system_settings", "smart_points", "volume_points",
+    "container_points",
 )
 
 # 历史版本建过、已从模型移除的 metric_points 单列索引

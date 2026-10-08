@@ -16,6 +16,7 @@ from app.core.exceptions import NotFoundError
 from app.models.system import KillWhitelist, SystemSetting
 from app.schemas.system import (
     ConfigExportIn,
+    ContainerTrendResponse,
     DockerResponse,
     PortAliasIn,
     PortAliasOut,
@@ -34,6 +35,7 @@ from app.services.hardware.policy import TOOLS, get_policy
 from app.services.report import digest as report_digest
 from app.services.storage import selftest_schedule
 from app.services.system import backup as backup_service
+from app.services.system import container_points as container_points_service
 from app.services.system import docker as docker_service
 from app.services.system import ports as port_service
 from app.services.system import process as process_service
@@ -137,6 +139,42 @@ async def docker_containers() -> dict:
         dict: 见 schemas.system.DockerResponse。
     """
     return await docker_service.list_containers()
+
+
+@router.get("/docker/containers/{name}/trend", response_model=ContainerTrendResponse)
+async def docker_container_trend(
+    name: str,
+    hours: int = Query(default=24, ge=1, le=168),
+    db: AsyncSession = DbDep,
+) -> dict:
+    """单容器资源趋势（1m 桶，最长 7 天；花活二期 M）。
+
+    Args:
+        name (str): 容器名。
+        hours (int): 回看小时数（1-168）。
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: 见 schemas.system.ContainerTrendResponse。
+    """
+    return await container_points_service.trend(db, name, hours)
+
+
+@router.post("/docker/containers/{name}/{action}")
+async def docker_container_control(name: str, action: str) -> dict:
+    """容器生命周期控制：start/stop/restart（花活二期 M）。
+
+    写操作经路由级 TrimAuthDep 非 GET 管理员强校验；演示/无 docker CLI 时 500
+    信封（ExternalToolError）。
+
+    Args:
+        name (str): 容器名（docker 命名约束校验，防注入）。
+        action (str): start / stop / restart。
+
+    Returns:
+        dict: {name, action, ok: True}。
+    """
+    return await docker_service.container_control(name, action)
 
 
 @router.get("/ports", response_model=list[PortEntry])

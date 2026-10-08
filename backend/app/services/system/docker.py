@@ -8,6 +8,7 @@ docker ps 一轮上，按容器 cgroup 目录读 cpu/memory，进程内上次采
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -15,6 +16,8 @@ SOCKET = Path("/var/run/docker.sock")
 _CGROUP_V2_ROOT = Path("/sys/fs/cgroup")
 # 上次采样：cid12 → (usage_usec, monotonic)；容器重建后 id 变化自然失效
 _prev_cpu: dict[str, tuple[int, float]] = {}
+# 上次 IO 采样：cid12 → (rbytes, wbytes, monotonic)（花活二期 M）
+_prev_io: dict[str, tuple[int, int, float]] = {}
 
 
 def docker_available() -> str | None:
@@ -114,6 +117,53 @@ def container_cpu_percent(cid: str, full_id: str) -> float | None:
     if dt <= 0 or usage < prev_usage:
         return None  # 容器重建（计数器回绕）或时钟异常
     return round((usage - prev_usage) / (dt * 1_000_000) * 100, 1)
+
+
+def _cgroup_io(full_id: str) -> tuple[int | None, int | None]:
+    """容器 full id → (读累计字节, 写累计字节)（cgroup v2 io.stat 多设备求和）。
+
+    v1 blkio 不回退（花活二期 M 约定该列显"—"）；io.stat 缺失/不可读取 (None, None)。
+    """
+    io_stat = _CGROUP_V2_ROOT / "system.slice" / f"docker-{full_id}.scope" / "io.stat"
+    if not io_stat.is_file():
+        return None, None
+    rbytes = wbytes = 0
+    try:
+        for line in io_stat.read_text().splitlines():
+            for kv in line.split()[1:]:
+                if kv.startswith("rbytes="):
+                    rbytes += int(kv[7:])
+                elif kv.startswith("wbytes="):
+                    wbytes += int(kv[7:])
+    except (OSError, ValueError):
+        return None, None
+    return rbytes, wbytes
+
+
+def container_io_bps(cid: str, full_id: str) -> tuple[float | None, float | None]:
+    """按上次采样增量算容器磁盘 IO（B/s）；口径同 docker stats。
+
+    Args:
+        cid (str): 12 位短容器 id（采样缓存键）。
+        full_id (str): 64 位完整容器 id（定位 cgroup 目录）。
+
+    Returns:
+        tuple[float | None, float | None]: (read_bps, write_bps) 一位小数；
+            首轮无增量、计数回绕或无 v2 io.stat 时 (None, None)（合法真值）。
+    """
+    r, w = _cgroup_io(full_id)
+    if r is None:
+        return None, None
+    now = time.monotonic()
+    prev = _prev_io.get(cid)
+    _prev_io[cid] = (r, w, now)
+    if prev is None:
+        return None, None
+    prev_r, prev_w, prev_ts = prev
+    dt = now - prev_ts
+    if dt <= 0 or r < prev_r or w < prev_w:
+        return None, None
+    return round((r - prev_r) / dt, 1), round((w - prev_w) / dt, 1)
 
 
 def mem_human(bytes_used: int | None) -> str | None:
@@ -219,9 +269,11 @@ async def list_containers() -> dict:
         full_id = c.get("ID", "")
         cid = full_id[:12]
         cpu_percent, mem_bytes = (None, None)
+        read_bps = write_bps = None
         if c.get("State") == "running" and full_id:
             cpu_percent = container_cpu_percent(cid, full_id)
             _u, mem_bytes = _cgroup_stats(full_id)
+            read_bps, write_bps = container_io_bps(cid, full_id)
         containers.append(
             {
                 "id": cid,
@@ -232,7 +284,61 @@ async def list_containers() -> dict:
                 "created": c.get("CreatedAt", ""),
                 "ports": [p for p in (c.get("Ports") or "").split(",") if p],
                 "cpu_percent": cpu_percent,
+                "mem_bytes": mem_bytes,
                 "mem_usage": mem_human(mem_bytes),
+                "read_bps": read_bps,
+                "write_bps": write_bps,
             }
         )
     return {"available": True, "reason": None, "containers": containers}
+
+
+# 容器名合法字符（docker 对容器名的约束；防注入——CLI 参数仍以列表形式传入）
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_CONTROL_ACTIONS = ("start", "stop", "restart")
+
+
+async def container_control(name: str, action: str) -> dict:
+    """容器生命周期控制：docker start/stop/restart（写操作，管理员经路由级
+    TrimAuthDep 非 GET 强校验后可达）。
+
+    Args:
+        name (str): 容器名（docker 名称约束，防注入校验）。
+        action (str): start / stop / restart。
+
+    Returns:
+        dict: {name, action, ok: True}。
+
+    Raises:
+        InvalidParamsError: 容器名不合法或 action 不在白名单。
+        ExternalToolError: docker CLI 不可用或执行失败/超时。
+    """
+    from app.core.exceptions import ExternalToolError, InvalidParamsError
+
+    if action not in _CONTROL_ACTIONS:
+        raise InvalidParamsError(f"action 须为 {'/'.join(_CONTROL_ACTIONS)}")
+    if not _NAME_RE.match(name):
+        raise InvalidParamsError("容器名不合法")
+    import asyncio
+    import contextlib
+
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", action, name,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except FileNotFoundError as exc:
+        raise ExternalToolError("docker CLI 不可用") from exc
+    except TimeoutError as exc:
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                proc.kill()
+                await proc.wait()
+        raise ExternalToolError(f"docker {action} {name} 超时（30s）") from exc
+    if proc.returncode != 0:
+        raise ExternalToolError(
+            f"docker {action} {name} 失败：{stderr.decode(errors='replace').strip()[:200]}"
+        )
+    return {"name": name, "action": action, "ok": True}

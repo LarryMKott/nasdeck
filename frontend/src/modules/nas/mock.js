@@ -766,43 +766,91 @@ export const chassis = {
   ],
 };
 
+/** 容器 24h 趋势演示序列（花活二期 M；后端不可达时 fetchContainerTrend 回退） */
+export function dockerTrendDemo(name, hours = 24) {
+  const n = Math.min(hours * 60, 400);
+  const points = [];
+  const t0 = Date.now() - n * 60000;
+  for (let i = 0; i < n; i += 1) {
+    const wave = Math.sin(i / 23) * 1.6 + Math.sin(i / 7) * 0.7;
+    points.push({
+      ts: new Date(t0 + i * 60000).toISOString().slice(0, 19),
+      cpu_percent: Math.max(0.2, 3 + wave),
+      mem_mb: 420 + Math.sin(i / 40) * 60,
+      read_kbps: Math.max(0, 40 + wave * 18),
+      write_kbps: Math.max(0, 12 + Math.cos(i / 15) * 8),
+    });
+  }
+  return { name, hours, points };
+}
+
 /** Docker 页 */
 export const docker = {
   containers: [
     {
       name: 'plex',
+      image: 'plexinc/pms-docker:latest',
       av: 'P',
       avClass: 'c4',
       running: true,
+      statusText: 'Up 6 days',
       mem: '1.2 GB',
+      memBytes: 1.2 * 1024 ** 3,
       cpu: '3.4%',
-      net: '↓2.1 ↑0.4 MB/s',
+      cpuPercent: 3.4,
+      readBps: 2.1 * 1024 ** 2,
+      writeBps: 0.4 * 1024 ** 2,
       ports: '32400→32400',
       up: '6 天',
     },
     {
       name: 'qBittorrent',
+      image: 'linuxserver/qbittorrent:latest',
       av: 'q',
       avClass: 'c1',
       running: true,
+      statusText: 'Up 2 days',
       mem: '420 MB',
+      memBytes: 420 * 1024 ** 2,
       cpu: '1.1%',
-      net: '↓8.9 ↑1.2 MB/s',
+      cpuPercent: 1.1,
+      readBps: 8.9 * 1024 ** 2,
+      writeBps: 1.2 * 1024 ** 2,
       ports: '6881→6881',
       up: '2 天',
     },
     {
       name: 'homeassistant',
+      image: 'homeassistant/home-assistant:stable',
       av: 'h',
       avClass: 'c3',
       running: true,
+      statusText: 'Up 23 days',
       mem: '660 MB',
+      memBytes: 660 * 1024 ** 2,
       cpu: '0.8%',
-      net: '↓0.1 ↑0.1 MB/s',
+      cpuPercent: 0.8,
+      readBps: 0.1 * 1024 ** 2,
+      writeBps: 0.1 * 1024 ** 2,
       ports: '8123→8123',
       up: '23 天',
     },
-    { name: 'memcached', av: 'm', avClass: 'c2', running: false },
+    {
+      name: 'memcached',
+      image: 'memcached:alpine',
+      av: 'm',
+      avClass: 'c2',
+      running: false,
+      statusText: 'Exited (0) 3 days ago',
+      mem: '—',
+      memBytes: null,
+      cpu: '—',
+      cpuPercent: null,
+      readBps: null,
+      writeBps: null,
+      ports: '—',
+      up: '—',
+    },
   ],
 };
 

@@ -28,7 +28,25 @@
  * @property {string} created
  * @property {string[]} [ports]
  * @property {number|null} [cpu_percent] cgroup 增量口径；首轮采样无增量为 null
+ * @property {number|null} [mem_bytes] working set 字节（花活二期 M，条形归一用）
  * @property {string|null} [mem_usage] working set 人读串（docker stats 同口径）
+ * @property {number|null} [read_bps] cgroup v2 io.stat 差分读 B/s；v1/缺 io.stat null
+ * @property {number|null} [write_bps] cgroup v2 io.stat 差分写 B/s
+ */
+
+/** 容器资源趋势点（1m 桶，花活二期 M）
+ * @typedef {object} ContainerTrendPoint
+ * @property {string} ts 桶起点 UTC
+ * @property {number|null} [cpu_percent]
+ * @property {number|null} [mem_mb]
+ * @property {number|null} [read_kbps]
+ * @property {number|null} [write_kbps]
+ */
+
+/** @typedef {object} ContainerTrendResponse
+ * @property {string} name
+ * @property {number} hours
+ * @property {ContainerTrendPoint[]} points
  */
 
 /** @typedef {object} DockerResponse
