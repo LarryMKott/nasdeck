@@ -44,8 +44,11 @@ async function runSelftest(row, type = 'short') {
 
 const headerTag = computed(() => {
   const warned = d.value.list.filter((x) => x.health !== '正常').length;
-  if (!live.value) return { type: 'acc', text: '演示数据' };
-  return { type: warned ? 'warn' : 'ok', text: warned ? `${warned} 块警告` : '全部正常' };
+  if (!live.value) return { type: 'acc', text: t('演示数据') };
+  return {
+    type: warned ? 'warn' : 'ok',
+    text: warned ? t('{n} 块警告', { n: warned }) : t('全部正常'),
+  };
 });
 
 // ---- SMART 健康趋势（smart_15m 每 15 分钟落 1h/1d 桶；近 30 天用 1h 桶） ----
@@ -79,8 +82,9 @@ async function loadTrend() {
 watch(
   () => d.value.list?.length,
   (n) => {
-    if (n && !trendDevice.value)
+    if (n && !trendDevice.value) {
       trendDevice.value = d.value.list[0].device || `sd${d.value.list[0].slot}`;
+    }
   },
   { immediate: true }
 );
@@ -116,8 +120,8 @@ const trendDelta = computed(() => {
 <template>
   <section>
     <u-page-header
-      title="硬盘 SMART"
-      sub="健康状态 · 自检"
+      :title="t('硬盘 SMART')"
+      :sub="t('健康状态 · 自检')"
       :tag="headerTag"
       :updated="lastUpdated"
     />
@@ -128,14 +132,14 @@ const trendDelta = computed(() => {
         <table class="u">
           <thead>
             <tr>
-              <th>盘位</th>
-              <th>型号</th>
-              <th class="r">容量</th>
-              <th class="r">转速</th>
-              <th class="r">温度</th>
-              <th class="r">通电时间</th>
-              <th>健康</th>
-              <th>操作</th>
+              <th>{{ t('盘位') }}</th>
+              <th>{{ t('型号') }}</th>
+              <th class="r">{{ t('容量') }}</th>
+              <th class="r">{{ t('转速') }}</th>
+              <th class="r">{{ t('温度') }}</th>
+              <th class="r">{{ t('通电时间') }}</th>
+              <th>{{ t('健康') }}</th>
+              <th>{{ t('操作') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -160,19 +164,20 @@ const trendDelta = computed(() => {
                 <u-dropdown v-if="identity.canWrite" v-model="menuOpen[disk.slot]" :min-width="190">
                   <template #trigger>
                     <button class="btn sm">
-                      自检<svg class="ico" style="width: 11px; height: 11px">
+                      {{ t('自检')
+                      }}<svg class="ico" style="width: 11px; height: 11px">
                         <use href="#nd-i-chevd" />
                       </svg>
                     </button>
                   </template>
                   <button @click="runSelftest(disk, 'short')">
-                    <u-icon name="pulse" />短自检（B · 约 2 分钟）
+                    <u-icon name="pulse" />{{ t('短自检（B · 约 2 分钟）') }}
                   </button>
                   <button @click="runSelftest(disk, 'long')">
-                    <u-icon name="clock" />长自检（C · 约 4 小时）
+                    <u-icon name="clock" />{{ t('长自检（C · 约 4 小时）') }}
                   </button>
                   <button @click="runSelftest(disk, 'conveyance')">
-                    <u-icon name="refresh" />短修复（A · 离线）
+                    <u-icon name="refresh" />{{ t('短修复（A · 离线）') }}
                   </button>
                 </u-dropdown>
               </td>
@@ -187,7 +192,7 @@ const trendDelta = computed(() => {
       <div v-for="disk in d.list" :key="disk.slot" class="wg" style="margin-bottom: 10px">
         <div class="wg-b">
           <div style="display: flex; justify-content: space-between; margin-bottom: 7px">
-            <b>盘位 {{ disk.slot }} · {{ disk.model.split(' ').pop() }}</b>
+            <b>{{ t('盘位 {n}', { n: disk.slot }) }} · {{ disk.model.split(' ').pop() }}</b>
             <span class="st" :class="disk.health.startsWith('警告') ? 'warn' : ''"
               ><span class="dot" />{{ disk.health }}</span
             >
@@ -199,16 +204,16 @@ const trendDelta = computed(() => {
             <!-- 写操作仅管理员：不渲染而非禁用 -->
             <u-dropdown v-if="identity.canWrite" v-model="menuOpen[disk.slot]" :min-width="190">
               <template #trigger>
-                <button class="btn sm">自检 ▾</button>
+                <button class="btn sm">{{ t('自检') }} ▾</button>
               </template>
               <button @click="runSelftest(disk, 'short')">
-                <u-icon name="pulse" />短自检（B · 约 2 分钟）
+                <u-icon name="pulse" />{{ t('短自检（B · 约 2 分钟）') }}
               </button>
               <button @click="runSelftest(disk, 'long')">
-                <u-icon name="clock" />长自检（C · 约 4 小时）
+                <u-icon name="clock" />{{ t('长自检（C · 约 4 小时）') }}
               </button>
               <button @click="runSelftest(disk, 'conveyance')">
-                <u-icon name="refresh" />短修复（A · 离线）
+                <u-icon name="refresh" />{{ t('短修复（A · 离线）') }}
               </button>
             </u-dropdown>
           </div>
@@ -220,30 +225,36 @@ const trendDelta = computed(() => {
     <div class="wg" style="margin-top: 14px">
       <div class="wg-h">
         <u-icon name="hist" />
-        <h3>健康趋势</h3>
-        <span v-if="trend && !trend.live" class="tag acc" style="margin-left: auto">演示数据</span>
+        <h3>{{ t('健康趋势') }}</h3>
+        <span v-if="trend && !trend.live" class="tag acc" style="margin-left: auto">
+          {{ t('演示数据') }}
+        </span>
       </div>
       <div class="wg-b">
         <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px">
           <label class="small muted" style="align-self: center">
-            磁盘
+            {{ t('磁盘') }}
             <select v-model="trendDevice" style="margin-left: 6px">
               <option
                 v-for="disk in d.list"
                 :key="disk.slot"
                 :value="disk.device || `sd${disk.slot}`"
               >
-                盘位 {{ disk.slot }} · {{ disk.model.split(' ').pop() }}
+                {{ t('盘位 {n}', { n: disk.slot }) }} · {{ disk.model.split(' ').pop() }}
               </option>
             </select>
           </label>
           <label class="small muted" style="align-self: center">
-            指标
+            {{ t('指标') }}
             <select v-model="trendMetric" style="margin-left: 6px">
-              <option v-for="m in TREND_METRICS" :key="m.key" :value="m.key">{{ m.label }}</option>
+              <option v-for="m in TREND_METRICS" :key="m.key" :value="m.key">
+                {{ t(m.label) }}
+              </option>
             </select>
           </label>
-          <span class="small muted num" style="align-self: center">近 30 天 · 1h 桶</span>
+          <span class="small muted num" style="align-self: center">{{
+            t('近 30 天 · 1h 桶')
+          }}</span>
         </div>
 
         <template v-if="trend && trend.points.length >= 2">
@@ -261,13 +272,13 @@ const trendDelta = computed(() => {
             />
           </svg>
           <div v-if="trendDelta" class="small num" style="margin-top: 9px">
-            窗口变化
+            {{ t('窗口变化') }}
             <b :class="trendDelta.delta > 0 ? 't-warn' : 't-ok'">{{ trendDelta.text }}</b>
             · {{ trendDelta.first }} → {{ trendDelta.last }}
           </div>
         </template>
         <div v-else-if="!trendLoading" class="small muted">
-          该盘暂无趋势数据（—）：功能上线后按 1h 桶逐渐积累，休眠盘不采样
+          {{ t('该盘暂无趋势数据（—）：功能上线后按 1h 桶逐渐积累，休眠盘不采样') }}
         </div>
       </div>
     </div>
@@ -276,7 +287,7 @@ const trendDelta = computed(() => {
     <div v-if="d.selftest" class="wg" style="margin-top: 14px">
       <div class="wg-h">
         <u-icon name="pulse" />
-        <h3>进行中的自检</h3>
+        <h3>{{ t('进行中的自检') }}</h3>
       </div>
       <div class="wg-b">
         <div style="display: flex; justify-content: space-between; margin-bottom: 8px">
@@ -285,7 +296,7 @@ const trendDelta = computed(() => {
         </div>
         <div class="bar stripes"><i :style="{ width: `${d.selftest.percent}%` }" /></div>
         <div class="small muted" style="margin-top: 9px">
-          自检类型：A 短修 / B 短检 / C 长检 · 完成后健康状态在本页更新
+          {{ t('自检类型：A 短修 / B 短检 / C 长检 · 完成后健康状态在本页更新') }}
         </div>
       </div>
     </div>
