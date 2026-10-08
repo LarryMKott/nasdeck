@@ -6,7 +6,14 @@
  * 纯 2D SVG 无 3D transform——老 WebView 无 z 排序兼容雷区（三期方案比选结论 B）。 */
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { boxFaces, boxCenter, depthCompare, iso, sceneViewBox } from '../utils/isochassis/project';
+import {
+  boxFaces,
+  boxCenter,
+  CAMERA_PRESETS,
+  depthCompare,
+  iso,
+  sceneViewBox,
+} from '../utils/isochassis/project';
 import { buildLayout, tempGrade } from '../utils/isochassis/templates';
 
 defineOptions({ name: 'UChassis3D' });
@@ -26,29 +33,96 @@ const props = defineProps({
   gpuAvailable: { type: Boolean, default: false },
   warmAt: { type: Number, default: 60 },
   hotAt: { type: Number, default: 75 },
+  // R3：强制模板（auto=DMI 自适配）+ 机位预设 + 分解视图
+  template: { type: String, default: 'auto' }, // auto/tower/rack/compact/virtual
+  preset: { type: String, default: 'iso' }, // iso/high/side
+  explode: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['jump']);
 const router = useRouter();
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /** layout：纯函数生成（模板自动选择 tower/virtual；R3 提供手动切换与持久化） */
 const layout = computed(() =>
-  buildLayout({
-    sensors: props.sensors,
-    fans: props.fans,
-    disks: props.disks,
-    board: props.board,
-    dimms: props.dimms,
-    nics: props.nics,
-    gpuAvailable: props.gpuAvailable,
-  })
+  buildLayout(
+    {
+      sensors: props.sensors,
+      fans: props.fans,
+      disks: props.disks,
+      board: props.board,
+      dimms: props.dimms,
+      nics: props.nics,
+      gpuAvailable: props.gpuAvailable,
+    },
+    props.template
+  )
 );
 
-const viewBox = computed(() => sceneViewBox(layout.value.size));
+// ---- R3：机位平滑重投影 + 分解系数（rAF 三次缓出插值；reduced-motion 直跳） ----
+const projP = ref({ ...CAMERA_PRESETS.iso });
+const explodeF = ref(0);
+let tweenRaf = 0;
+
+function tween(target, apply) {
+  cancelAnimationFrame(tweenRaf);
+  if (reduced) {
+    apply(1, target);
+    return;
+  }
+  const t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / 500);
+    const e = 1 - (1 - k) ** 3;
+    apply(e, target);
+    if (k < 1) tweenRaf = requestAnimationFrame(step);
+  };
+  tweenRaf = requestAnimationFrame(step);
+}
+watch(
+  () => props.preset,
+  (name) => {
+    const target = CAMERA_PRESETS[name] ?? CAMERA_PRESETS.iso;
+    const fromP = { ...projP.value };
+    tween(target, (e, t) => {
+      projP.value = {
+        kx: fromP.kx + (t.kx - fromP.kx) * e,
+        ky: fromP.ky + (t.ky - fromP.ky) * e,
+        kz: fromP.kz + (t.kz - fromP.kz) * e,
+      };
+    });
+  },
+  { immediate: true }
+);
+watch(
+  () => props.explode,
+  (on) => {
+    const f0 = explodeF.value;
+    tween(on ? 1 : 0, (e, t) => {
+      explodeF.value = f0 + (t - f0) * e;
+    });
+  }
+);
+
+const viewBox = computed(() =>
+  sceneViewBox(layout.value.size, 2.5 + explodeF.value * 5, projP.value)
+);
 
 /** 深度排序后的可见盒体（含三面投影点串与数据绑定求值） */
 const drawn = computed(() =>
-  [...layout.value.boxes].sort(depthCompare).map((b) => {
+  [...layout.value.boxes].sort(depthCompare).map((b0) => {
+    const p = projP.value;
+    const f = explodeF.value;
+    let b = b0;
+    if (f > 0) {
+      const size = layout.value.size;
+      b = {
+        ...b0,
+        x: b0.x + (b0.x + b0.w / 2 - size.w / 2) * f * 0.6,
+        y: b0.y + (b0.y + b0.d / 2 - size.d / 2) * f * 0.6,
+        z: b0.z + (b0.z + b0.h / 2) * f * 0.45,
+      };
+    }
     const bind = b.bind ?? {};
     let celsius = bind.celsius ?? null;
     let iops = null;
@@ -72,15 +146,15 @@ const drawn = computed(() =>
     let blade = null;
     let led = null;
     if (b.kind === 'fan') {
-      blade = iso(b.x + b.w / 2, b.y + b.d, b.z + b.h / 2);
+      blade = iso(b.x + b.w / 2, b.y + b.d, b.z + b.h / 2, p);
     }
     if (b.kind === 'bay') {
-      led = iso(b.x + b.w / 2, b.y + b.d, b.z + b.h);
+      led = iso(b.x + b.w / 2, b.y + b.d, b.z + b.h, p);
     }
     return {
       ...b,
-      faces: boxFaces(b),
-      center: boxCenter(b),
+      faces: boxFaces(b, p),
+      center: boxCenter(b, p),
       grade: tempGrade(celsius),
       celsius,
       iops,
@@ -112,7 +186,6 @@ const airCv = ref(null);
 const AIR_CAP = 80;
 const drops = [];
 let airRaf = 0;
-const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function airSpawn() {
   const fans = props.fans ?? [];

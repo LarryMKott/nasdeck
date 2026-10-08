@@ -334,13 +334,258 @@ export function virtualTemplate(inv) {
   return { kind: 'virtual', size: { w: W, d: D, h: H }, boxes };
 }
 
+/** 机架式模板（1U/2U/4U）：前置横排盘位（8/12 盘多列）、风扇横列、后置长条电源。 */
+export function rackTemplate(inv) {
+  const W = 22;
+  const D = 11;
+  const H = 6;
+  const boxes = [];
+  const add = (b) => boxes.push(b);
+
+  add({ id: 'case-floor', kind: 'case', x: 0, y: 0, z: 0, w: W, d: D, h: 0.4 });
+  add({ id: 'case-wall-l', kind: 'case', x: 0, y: 0, z: 0, w: 0.4, d: D, h: H });
+  add({ id: 'case-wall-r', kind: 'case', x: 0, y: 0, z: 0, w: W, d: 0.4, h: H });
+
+  const m = mapSensors(inv.sensors);
+  const cpu = m.cpu;
+  add({ id: 'mobo', kind: 'mobo', x: 7.4, y: 0.5, z: 0.4, w: 9, d: 9.6, h: 0.35 });
+  add({
+    id: 'cpu',
+    kind: 'cpu',
+    x: 8.2,
+    y: 1.1,
+    z: 0.75,
+    w: 3,
+    d: 3,
+    h: 1.4,
+    label: 'CPU',
+    bind: cpu
+      ? { type: 'temp', key: cpu.key, celsius: cpu.celsius }
+      : { type: 'temp', key: null, celsius: null },
+  });
+  const dimmN = Math.max(2, Math.min(6, inv.dimms || 2));
+  for (let i = 0; i < dimmN; i += 1) {
+    add({
+      id: `ram${i}`,
+      kind: 'ram',
+      x: 12 + (i % 3) * 0.85,
+      y: 1.1 + Math.floor(i / 3) * 3.2,
+      z: 0.75,
+      w: 0.55,
+      d: 2.8,
+      h: 1.2,
+      label: `DIMM${i + 1}`,
+    });
+  }
+  if (m.nvme.length) {
+    add({
+      id: 'm2',
+      kind: 'm2',
+      x: 8.2,
+      y: 5,
+      z: 0.75,
+      w: 4.4,
+      d: 1.5,
+      h: 0.4,
+      label: 'M.2',
+      bind: { type: 'temp', key: m.nvme[0].key, celsius: m.nvme[0].celsius },
+    });
+  }
+
+  // 前置横排盘位：近半区（大 y），单/双行
+  const disks = inv.disks ?? [];
+  disks.slice(0, 12).forEach((disk, i) => {
+    add({
+      id: `bay${i}`,
+      kind: 'bay',
+      x: 0.6 + (i % 6) * 1.5,
+      y: D - 2.6 - Math.floor(i / 6) * 2.4,
+      z: 0.4,
+      w: 1.3,
+      d: 2.1,
+      h: 1.5,
+      label: disk.device || `#${i + 1}`,
+      bind: { type: 'bay', device: disk.device, celsius: disk.tempC, iops: null },
+      tooltip: [disk.model, disk.capacity].filter(Boolean).join(' · '),
+    });
+  });
+
+  add({
+    id: 'psu',
+    kind: 'psu',
+    x: 0.6,
+    y: 0.5,
+    z: 0.4,
+    w: 6.2,
+    d: 3.2,
+    h: 1.6,
+    label: 'PSU',
+    bind: { type: 'power' },
+  });
+  const fans = (inv.fans ?? []).slice(0, 3);
+  fans.forEach((fan, i) => {
+    add({
+      id: `fan${i}`,
+      kind: 'fan',
+      x: 7.6 + i * 2.9,
+      y: 0.45,
+      z: H - 2.4,
+      w: 2.4,
+      d: 0.5,
+      h: 1.9,
+      label: fan.name || `FAN${i + 1}`,
+      bind: { type: 'fan', rpm: fan.rpm ?? 0 },
+    });
+  });
+  const nics = Math.min(4, inv.nics ?? 1);
+  for (let i = 0; i < nics; i += 1) {
+    add({
+      id: `net${i}`,
+      kind: 'net',
+      x: 0.45,
+      y: D - 1.6 - i * 1,
+      z: H - 1.6,
+      w: 0.7,
+      d: 0.8,
+      h: 0.7,
+      label: '',
+      bind: { type: 'net', index: i },
+    });
+  }
+  (m.other ?? []).slice(0, 3).forEach((s, i) => {
+    add({
+      id: `free${i}`,
+      kind: 'free',
+      x: 7.6 + i * 1.1,
+      y: 8.6,
+      z: 0.75,
+      w: 0.85,
+      d: 0.85,
+      h: 0.65,
+      label: s.label || s.key,
+      bind: { type: 'temp', key: s.key, celsius: s.celsius },
+    });
+  });
+  return { kind: 'rack', size: { w: W, d: D, h: H }, boxes };
+}
+
+/** 紧凑型模板（NUC / ITX / 蜗牛星际）：单列盘位、低矮散热块、无 GPU 位、电源外置块。 */
+export function compactTemplate(inv) {
+  const W = 9;
+  const D = 10;
+  const H = 6.5;
+  const boxes = [];
+  const add = (b) => boxes.push(b);
+
+  add({ id: 'case-floor', kind: 'case', x: 0, y: 0, z: 0, w: W, d: D, h: 0.4 });
+  add({ id: 'case-wall-l', kind: 'case', x: 0, y: 0, z: 0, w: 0.4, d: D, h: H });
+  add({ id: 'case-wall-r', kind: 'case', x: 0, y: 0, z: 0, w: W, d: 0.4, h: H });
+
+  const m = mapSensors(inv.sensors);
+  const cpu = m.cpu;
+  add({ id: 'mobo', kind: 'mobo', x: 0.6, y: 0.5, z: 0.4, w: 6.4, d: 8.8, h: 0.35 });
+  add({
+    id: 'cpu',
+    kind: 'cpu',
+    x: 0.9,
+    y: 0.9,
+    z: 0.75,
+    w: 2.6,
+    d: 2.6,
+    h: 1, // 板载低矮散热块
+    label: 'CPU',
+    bind: cpu
+      ? { type: 'temp', key: cpu.key, celsius: cpu.celsius }
+      : { type: 'temp', key: null, celsius: null },
+  });
+  const dimmN = Math.max(1, Math.min(2, inv.dimms || 1));
+  for (let i = 0; i < dimmN; i += 1) {
+    add({
+      id: `ram${i}`,
+      kind: 'ram',
+      x: 4.4 + i * 0.8,
+      y: 0.9,
+      z: 0.75,
+      w: 0.6,
+      d: 4.4,
+      h: 1.2,
+      label: `DIMM${i + 1}`,
+    });
+  }
+  (inv.disks ?? []).slice(0, 5).forEach((disk, i) => {
+    add({
+      id: `bay${i}`,
+      kind: 'bay',
+      x: 0.8,
+      y: D - 1.4 - i * 1.9,
+      z: 0.4,
+      w: 5.4,
+      d: 1.6,
+      h: 1.3,
+      label: disk.device || `#${i + 1}`,
+      bind: { type: 'bay', device: disk.device, celsius: disk.tempC, iops: null },
+      tooltip: [disk.model, disk.capacity].filter(Boolean).join(' · '),
+    });
+  });
+  add({
+    id: 'psu',
+    kind: 'psu',
+    x: 0.5,
+    y: 7.4,
+    z: 0.4,
+    w: 2.6,
+    d: 2,
+    h: 1.4,
+    label: 'PSU',
+    bind: { type: 'power' },
+  });
+  const fans = (inv.fans ?? []).slice(0, 1);
+  fans.forEach((fan, i) => {
+    add({
+      id: `fan${i}`,
+      kind: 'fan',
+      x: 3.4 + i * 2.6,
+      y: 0.45,
+      z: H - 2.2,
+      w: 2,
+      d: 0.45,
+      h: 1.7,
+      label: fan.name || 'FAN',
+      bind: { type: 'fan', rpm: fan.rpm ?? 0 },
+    });
+  });
+  const nics = Math.min(2, inv.nics ?? 1);
+  for (let i = 0; i < nics; i += 1) {
+    add({
+      id: `net${i}`,
+      kind: 'net',
+      x: 0.45,
+      y: D - 1.2 - i * 1,
+      z: H - 1.3,
+      w: 0.6,
+      d: 0.7,
+      h: 0.6,
+      label: '',
+      bind: { type: 'net', index: i },
+    });
+  }
+  return { kind: 'compact', size: { w: W, d: D, h: H }, boxes };
+}
+
 /**
  * 模板自动选择：DMI 厂商/型号命中虚拟化特征 → virtual；其余默认 tower。
  * 读不到 DMI（board 缺失）按 tower（切错只影响观感不影响数据）。
  * @param {object} inv inventory（含 board: {vendor, model, product_name}）
  * @returns {{kind: 'tower'|'virtual', size: object, boxes: object[]}}
  */
-export function buildLayout(inv) {
+export function buildLayout(inv, forced = 'auto') {
+  const map = {
+    tower: towerTemplate,
+    rack: rackTemplate,
+    compact: compactTemplate,
+    virtual: virtualTemplate,
+  };
+  if (forced && forced !== 'auto' && map[forced]) return map[forced](inv);
   const txt = [inv.board?.vendor, inv.board?.model, inv.board?.product_name]
     .filter(Boolean)
     .join(' ')

@@ -214,18 +214,27 @@ export async function fetchChassis() {
  * 单源失败该屏数据置 null（轮播跳过空屏，不造数）
  * @returns {Promise<{data: object, live: boolean}>} */
 export async function fetchKiosk() {
-  const [rtS, tempsS, disksS, eventsS] = await Promise.allSettled([
+  const [rtS, tempsS, disksS, eventsS, fansS] = await Promise.allSettled([
     getRealtime(),
     getTemperatures(),
     import('../api/endpoints/storage').then((m) => m.getDisks()),
     import('../api/endpoints/alert').then((m) => m.getEvents(6)),
+    import('../api/endpoints/control').then((m) => m.getFans()),
   ]);
   const realtime = pick(rtS);
   const temps = pick(tempsS);
   const disks = pick(disksS);
   const events = pick(eventsS);
+  const zones = pick(fansS);
   return {
-    data: { realtime, temps, disks, events },
+    data: {
+      realtime,
+      temps,
+      events,
+      // 立体机箱（三期 R3）温度屏数据面：风扇/盘清单映射同 fetchChassis 口径
+      fans: (zones ?? []).map((z) => ({ name: z.name, rpm: z.current_rpm ?? 0 })),
+      disks,
+    },
     live: realtime != null,
   };
 }

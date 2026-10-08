@@ -1,11 +1,22 @@
 <script setup>
 /** 温度监控：速览磁贴 + 温度墙 / 机箱热力图（花活 F），5s 轮询，后端 + 演示回退 */
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
 import { temps as mockTemps } from '../mock';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
 import { fetchChassis, fetchTemps } from '../services/monitor';
+import { getSettings, putSetting } from '../api/endpoints/system';
 import { useRealtimeStore } from '../stores/realtime';
+import { useIdentityStore } from '../stores/identity';
 import UPageHeader from '../components/UPageHeader.vue';
 import USpark from '../components/USpark.vue';
 import UChassis from '../components/UChassis.vue';
@@ -31,6 +42,39 @@ const ioMap = computed(() => realtime.snapshot?.disk_io_devices ?? null);
 const netMap = computed(() => realtime.snapshot?.net ?? null);
 const powerSnap = computed(() => realtime.snapshot?.power ?? null);
 const gpuOn = computed(() => !!realtime.snapshot?.gpu?.available);
+
+// 权限铁律沿用：chassis3d 配置仅管理员可写（GET 全员可读）
+const identity = useIdentityStore();
+identity.ensure();
+
+// R3：模板/机位/分解——机器级配置存 system_settings（所有访问者与 Kiosk 共享），
+// 仅管理员可写（PUT 被后端非 GET 强校验拒绝时静默，本地态仍生效到刷新为止）
+const chassis3d = reactive({ template: 'auto', preset: 'iso', explode: false });
+const chassisEditable = ref(false);
+onMounted(async () => {
+  try {
+    const settings = await getSettings();
+    const v = settings?.chassis3d?.value;
+    if (v && typeof v === 'object') {
+      chassis3d.template = ['auto', 'tower', 'rack', 'compact', 'virtual'].includes(v.template)
+        ? v.template
+        : 'auto';
+      chassis3d.preset = ['iso', 'high', 'side'].includes(v.preset) ? v.preset : 'iso';
+      chassis3d.explode = !!v.explode;
+    }
+    chassisEditable.value = true;
+  } catch {
+    chassisEditable.value = false;
+  }
+});
+async function saveChassis3d() {
+  if (!identity.canWrite) return;
+  try {
+    await putSetting('chassis3d', { ...chassis3d });
+  } catch {
+    /* 非管理员写入被拒：本地生效即可 */
+  }
+}
 function setMode(m) {
   if (mode.value === m) return;
   mode.value = m;
@@ -123,8 +167,49 @@ onDeactivated(stopTimer);
       </template>
     </u-page-header>
 
-    <!-- 立体机箱（三期 R1）：inventory × 模板 → layout → 等距 SVG 渲染器 -->
+    <!-- 立体机箱（三期 R1/R3）：inventory × 模板 → layout → 等距 SVG 渲染器 -->
     <template v-if="mode === 'iso'">
+      <div class="wg" style="margin-bottom: 14px">
+        <div class="wg-b iso-ctl">
+          <label class="small muted" style="align-self: center">
+            {{ t('机型模板') }}
+            <select v-model="chassis3d.template" style="margin-left: 6px" @change="saveChassis3d">
+              <option value="auto">{{ t('自动（DMI 自适配）') }}</option>
+              <option value="tower">{{ t('塔式侧透') }}</option>
+              <option value="rack">{{ t('机架式') }}</option>
+              <option value="compact">{{ t('紧凑型') }}</option>
+              <option value="virtual">{{ t('逻辑视图') }}</option>
+            </select>
+          </label>
+          <div class="seg">
+            <button
+              v-for="pc in [
+                ['iso', '正等测'],
+                ['high', '高俯'],
+                ['side', '侧俯'],
+              ]"
+              :key="pc[0]"
+              :class="{ on: chassis3d.preset === pc[0] }"
+              @click="
+                chassis3d.preset = pc[0];
+                saveChassis3d();
+              "
+            >
+              {{ t(pc[1]) }}
+            </button>
+          </div>
+          <label
+            class="switch"
+            :class="{ on: chassis3d.explode }"
+            @click="
+              chassis3d.explode = !chassis3d.explode;
+              saveChassis3d();
+            "
+          >
+            <span class="tr" />{{ t('分解视图') }}
+          </label>
+        </div>
+      </div>
       <u-chassis3-d
         :sensors="d.sensors ?? []"
         :fans="d.fans ?? []"
@@ -138,6 +223,9 @@ onDeactivated(stopTimer);
         :gpu-available="gpuOn"
         :warm-at="60"
         :hot-at="75"
+        :template="chassis3d.template"
+        :preset="chassis3d.preset"
+        :explode="chassis3d.explode"
         @jump="refresh"
       />
     </template>
@@ -199,6 +287,13 @@ onDeactivated(stopTimer);
 </template>
 
 <style scoped>
+.iso-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
 .seg {
   display: inline-flex;
   overflow: hidden;

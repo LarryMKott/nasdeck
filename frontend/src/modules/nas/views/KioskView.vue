@@ -8,6 +8,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAppStore } from '@/stores/modules/app';
 import { fetchKiosk } from '../services/monitor';
+import UChassis3D from '../components/UChassis3D.vue';
 import { drawGlowChannel } from '../utils/scopeCore';
 
 defineOptions({ name: 'NasKiosk' });
@@ -30,7 +31,7 @@ const intervalSec = computed(() => {
   return Number.isFinite(n) ? Math.min(60, Math.max(5, n)) : 10;
 });
 
-const d = ref({ realtime: null, temps: null, disks: null, events: null });
+const d = ref({ realtime: null, temps: null, disks: null, events: null, fans: [] });
 const screenIdx = ref(0);
 const now = ref(new Date());
 const showExit = ref(false);
@@ -250,8 +251,8 @@ onBeforeUnmount(() => {
           <div v-else class="k-empty">{{ t('磁盘清单不可用') }}</div>
         </section>
 
-        <!-- 屏 3：温度 -->
-        <section v-else-if="screenIdx === 2" key="tp" class="k-screen">
+        <!-- 屏 3：温度（右半立体机箱，三期 R3；内联变量桥接 kiosk 固定深色调色板） -->
+        <section v-else-if="screenIdx === 2" key="tp" class="k-screen k-tp">
           <div v-if="topTemps.length" class="k-rows">
             <div v-for="(t, i) in topTemps" :key="i" class="k-row">
               <span class="k-name">{{ t.label || t.chip }}</span>
@@ -272,6 +273,42 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div v-else class="k-empty">{{ t('温度传感器不可用') }}</div>
+          <div
+            class="k-iso"
+            :style="{
+              '--sf2': '#17181c',
+              '--sf3': '#101116',
+              '--bd': '#26282f',
+              '--acc': accent,
+              '--ok': '#3fb68b',
+              '--warn': '#eca43c',
+              '--bad': '#e5484d',
+              '--info': '#4c8bf5',
+              '--purp': '#a78bfa',
+              '--tx0': '#e8ecf4',
+              '--tx2': '#8b8d95',
+              '--tx3': '#5b5d65',
+            }"
+          >
+            <u-chassis3-d
+              :sensors="d.temps ?? []"
+              :fans="d.fans ?? []"
+              :disks="
+                (d.disks ?? []).map((dk, i) => ({
+                  device: dk.device,
+                  model: dk.model || dk.device,
+                  capacity: dk.size_human,
+                  tempC: dk.temp_c != null ? Math.round(dk.temp_c) : null,
+                }))
+              "
+              :io="rt.disk_io_devices ?? null"
+              :net="rt.net ?? null"
+              :power="rt.power ?? null"
+              :gpu-available="!!rt.gpu?.available"
+              template="compact"
+              preset="high"
+            />
+          </div>
         </section>
 
         <!-- 屏 4：事件 -->
@@ -557,6 +594,27 @@ onBeforeUnmount(() => {
   font-size: 15px;
   color: #5b5d65;
   text-align: center;
+}
+
+/* 温度屏：左读数右立体机箱（三期 R3 Kiosk 挂载） */
+.k-tp {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+
+  > .k-rows {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .k-iso {
+    flex: 0 0 44%;
+    min-width: 0;
+
+    svg {
+      height: 360px;
+    }
+  }
 }
 
 /* 星舰 HUD（花活二期 P）：firing 告警红光呼吸（全屏边缘） */

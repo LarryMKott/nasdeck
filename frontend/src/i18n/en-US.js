@@ -410,6 +410,17 @@ export default {
   '生成分享 PNG': 'Share PNG',
   点击任意处跳过动画: 'Click anywhere to skip animation',
 
+  // ---- 花活三期 R3：立体机箱交互 ----
+  机型模板: 'Chassis template',
+  '自动（DMI 自适配）': 'Auto (DMI detect)',
+  机架式: 'Rackmount',
+  紧凑型: 'Compact',
+  逻辑视图: 'Logical view',
+  正等测: 'Isometric',
+  高俯: 'High angle',
+  侧俯: 'Side angle',
+  分解视图: 'Exploded view',
+
   // ---- 花活三期 R1：立体机箱 ----
   立体: '3D',
   塔式侧透: 'Tower (side panel off)',

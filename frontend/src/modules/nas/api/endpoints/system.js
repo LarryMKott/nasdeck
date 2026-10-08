@@ -122,3 +122,20 @@ export function putReportSchedule(cfg) {
 export function sendReportNow() {
   return apiData('/api/v1/system/report/send', { method: 'POST', body: {} });
 }
+
+/** 系统设置清单（键值 KV）
+ * @returns {Promise<Record<string, {value: unknown, description: string|null}>>} */
+export function getSettings() {
+  return apiData('/api/v1/system/settings');
+}
+
+/** 写系统设置（upsert；写操作后端非 GET 管理员强校验）
+ * @param {string} key
+ * @param {unknown} value
+ * @returns {Promise<{key: string, value: unknown}>} */
+export function putSetting(key, value) {
+  return apiData(`/api/v1/system/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+}

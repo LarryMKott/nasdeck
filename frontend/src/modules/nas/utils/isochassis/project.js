@@ -8,6 +8,14 @@
 const COS30 = Math.cos(Math.PI / 6);
 const SIN30 = 0.5;
 
+/** 机位预设（花活三期 R3）：正等测 / 高俯 / 侧俯——投影系数组 {kx, ky, kz}。
+ * kx/ky 为水平两轴的屏面权重，kz 为高度权重（越大越俯视）。 */
+export const CAMERA_PRESETS = {
+  iso: { kx: COS30, ky: SIN30, kz: 1 },
+  high: { kx: 0.78, ky: 0.63, kz: 1.22 },
+  side: { kx: 0.93, ky: 0.4, kz: 0.88 },
+};
+
 /**
  * 世界坐标 → 投影坐标（未含偏移与缩放）。
  * @param {number} x 右
@@ -15,8 +23,8 @@ const SIN30 = 0.5;
  * @param {number} z 上
  * @returns {{x: number, y: number}}
  */
-export function iso(x, y, z) {
-  return { x: (x - y) * COS30, y: (x + y) * SIN30 - z };
+export function iso(x, y, z, p = CAMERA_PRESETS.iso) {
+  return { x: (x - y) * p.kx, y: (x + y) * p.ky - z * p.kz };
 }
 
 /**
@@ -25,15 +33,30 @@ export function iso(x, y, z) {
  * @param {object} b 盒体 {x, y, z, w, d, h}
  * @returns {{top: string, left: string, right: string}} 各面 points 串
  */
-export function boxFaces(b) {
+export function boxFaces(b, p = CAMERA_PRESETS.iso) {
   const { x, y, z, w, d, h } = b;
   const zt = z + h;
-  const top = [iso(x, y, zt), iso(x + w, y, zt), iso(x + w, y + d, zt), iso(x, y + d, zt)];
+  const top = [
+    iso(x, y, zt, p),
+    iso(x + w, y, zt, p),
+    iso(x + w, y + d, zt, p),
+    iso(x, y + d, zt, p),
+  ];
   // 左面：y+d 侧（屏幕左前方），由 x/z 张成
-  const left = [iso(x, y + d, z), iso(x + w, y + d, z), iso(x + w, y + d, zt), iso(x, y + d, zt)];
+  const left = [
+    iso(x, y + d, z, p),
+    iso(x + w, y + d, z, p),
+    iso(x + w, y + d, zt, p),
+    iso(x, y + d, zt, p),
+  ];
   // 右面：x+w 侧（屏幕右前方），由 y/z 张成
-  const right = [iso(x + w, y, z), iso(x + w, y + d, z), iso(x + w, y + d, zt), iso(x + w, y, zt)];
-  const pts = (poly) => poly.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const right = [
+    iso(x + w, y, z, p),
+    iso(x + w, y + d, z, p),
+    iso(x + w, y + d, zt, p),
+    iso(x + w, y, zt, p),
+  ];
+  const pts = (poly) => poly.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(' ');
   return { top: pts(top), left: pts(left), right: pts(right) };
 }
 
@@ -54,8 +77,8 @@ export function depthCompare(a, b) {
  * @param {object} b 盒体
  * @returns {{x: number, y: number}}
  */
-export function boxCenter(b) {
-  return iso(b.x + b.w / 2, b.y + b.d / 2, b.z + b.h);
+export function boxCenter(b, p = CAMERA_PRESETS.iso) {
+  return iso(b.x + b.w / 2, b.y + b.d / 2, b.z + b.h, p);
 }
 
 /**
@@ -64,16 +87,16 @@ export function boxCenter(b) {
  * @param {number} [pad] 留白
  * @returns {{minX: number, minY: number, vw: number, vh: number}}
  */
-export function sceneViewBox(size, pad = 2.5) {
+export function sceneViewBox(size, pad = 2.5, p = CAMERA_PRESETS.iso) {
   const corners = [
-    iso(0, 0, 0),
-    iso(size.w, 0, 0),
-    iso(0, size.d, 0),
-    iso(size.w, size.d, 0),
-    iso(0, 0, size.h),
-    iso(size.w, 0, size.h),
-    iso(0, size.d, size.h),
-    iso(size.w, size.d, size.h),
+    iso(0, 0, 0, p),
+    iso(size.w, 0, 0, p),
+    iso(0, size.d, 0, p),
+    iso(size.w, size.d, 0, p),
+    iso(0, 0, size.h, p),
+    iso(size.w, 0, size.h, p),
+    iso(0, size.d, size.h, p),
+    iso(size.w, size.d, size.h, p),
   ];
   const xs = corners.map((p) => p.x);
   const ys = corners.map((p) => p.y);
