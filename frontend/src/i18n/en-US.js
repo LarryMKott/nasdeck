@@ -390,4 +390,8 @@ export default {
     'No ETA yet (—): shown when a SMART threshold exists and growth is positive',
   '该盘暂无评分（—）：接入并完成 SMART 采样后自动给出':
     'No score yet (—): appears automatically after SMART sampling',
+
+  // ---- 花活二期 O：开机自检动画 ----
+  不再播放: "Don't play again",
+  点击任意处跳过: 'Click anywhere to skip',
 };
