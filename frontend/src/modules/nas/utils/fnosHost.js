@@ -9,8 +9,10 @@
  * 独立浏览器页签（isStandaloneWeb）无宿主环境，返回 false 由调用方回退媒体查询。
  *
  * 真机实测（fnOS 1.2.0701）：初值正确，但桌面换肤不派发 os/theme postMessage——
- * 故以 10s 轮询 getPlatformConfig 兜底实时性（一次 postMessage 往返，开销可忽略）；
- * 事件在新系统上若正常派发，则轮询成为冗余保险，语义不变。
+ * 官方平台配置文档（developer.fnnas.com/api/platform-config/）也只有 getPlatformConfig
+ * 读取、无任何变更事件，服务端 API 读不到 theme——故以 10s 轮询兜底实时性
+ * （一次 postMessage 往返，开销可忽略）；事件在新系统上若正常派发，则轮询成为冗余
+ * 保险，语义不变。前端 SDK 调用官方口径无需 Scope（api-scope 为老版本兼容保险）。
  */
 
 const TRIM_THEME = { dark: 'dark', light: 'light' };
