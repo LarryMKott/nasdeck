@@ -40,9 +40,14 @@ const headerTag = computed(() => {
 
 <template>
   <section>
-    <u-page-header title="设置" sub="告警阈值 · 推送渠道" :tag="headerTag" :updated="lastUpdated">
+    <u-page-header
+      title="设置"
+      :sub="t('告警阈值 · 推送渠道')"
+      :tag="headerTag"
+      :updated="lastUpdated"
+    >
       <template #right>
-        <button class="btn sm" @click="goBack">返回</button>
+        <button class="btn sm" @click="goBack">{{ t('返回') }}</button>
       </template>
     </u-page-header>
 

@@ -1,6 +1,8 @@
 <script setup>
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
+import en from 'element-plus/es/locale/lang/en';
 import { useAppStore } from '@/stores/modules/app';
+import { locale } from '@/i18n/locale';
 
 defineOptions({ name: 'App' });
 
@@ -14,10 +16,13 @@ watchEffect(() => {
   document.documentElement.classList.toggle('dark', dark);
   document.body.classList.toggle('nd-dark', dark);
 });
+
+// Element Plus 组件语言随 i18n locale 联动
+const epLocale = computed(() => (locale.value === 'en-US' ? en : zhCn));
 </script>
 
 <template>
-  <el-config-provider :locale="zhCn" :size="appStore.size">
+  <el-config-provider :locale="epLocale" :size="appStore.size">
     <router-view />
   </el-config-provider>
 </template>

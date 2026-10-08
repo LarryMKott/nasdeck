@@ -21,20 +21,22 @@ const POLL_MS = 10000;
 let sdk = null;
 
 /**
- * 尝试接通 fnOS 宿主主题信号
+ * 尝试接通 fnOS 宿主信号（主题 + 语言）
  * @param {(theme: 'dark' | 'light') => void} onTheme 桌面主题变化回调
- * @returns {Promise<boolean>} true = 已接通（后续变化经 onTheme 推送）
+ * @param {(language: string) => void} [onLanguage] 桌面语言变化回调
+ * @returns {Promise<boolean>} true = 已接通（后续变化经回调推送）
  */
-export async function initFnosThemeBridge(onTheme) {
+export async function initFnosThemeBridge(onTheme, onLanguage) {
   try {
     const { TrimApp } = await import('@trimjs/web-app');
     sdk = new TrimApp();
-    // 非微应用宿主（独立浏览器 / 移动内嵌）不提供 os/theme 事件
+    // 非微应用宿主（独立浏览器 / 移动内嵌）不提供宿主事件
     if (sdk.isWeb !== true || sdk.isStandaloneWeb === true) return false;
     const pull = async () => {
       const cfg = await sdk.getPlatformConfig();
       const next = TRIM_THEME[cfg?.theme];
       if (next) onTheme(next);
+      if (cfg?.language && onLanguage) onLanguage(cfg.language);
     };
     await pull();
     // 事件监听优先（官方口径）；1.2.0701 实测不派发，轮询兜底保实时
@@ -43,6 +45,11 @@ export async function initFnosThemeBridge(onTheme) {
         const next = TRIM_THEME[theme];
         if (next) onTheme(next);
       });
+      if (onLanguage) {
+        await sdk.$on('os/language', (language) => {
+          if (language) onLanguage(language);
+        });
+      }
     } catch {
       /* 事件不可用不影响轮询 */
     }

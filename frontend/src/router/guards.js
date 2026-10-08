@@ -10,6 +10,7 @@ import 'nprogress/nprogress.css';
 import { useUserStore } from '@/stores/modules/user';
 import { usePermissionStore } from '@/stores/modules/permission';
 import { defaultSettings } from '@/config/settings';
+import { t } from '@/i18n';
 
 /**
  * 注册全局前置/后置守卫
@@ -19,7 +20,7 @@ export function setupGuard(router) {
   router.beforeEach((to) => {
     NProgress.start();
     document.title = to.meta?.title
-      ? `${to.meta.title} - ${defaultSettings.title}`
+      ? `${t(to.meta.title)} - ${defaultSettings.title}`
       : defaultSettings.title;
 
     const userStore = useUserStore();

@@ -88,6 +88,12 @@
     "watch": true,
     "watchEffect": true,
     "watchPostEffect": true,
-    "watchSyncEffect": true
+    "watchSyncEffect": true,
+    "dictFor": true,
+    "enUS": true,
+    "locale": true,
+    "setHostLanguage": true,
+    "setLocale": true,
+    "t": true
   }
 }

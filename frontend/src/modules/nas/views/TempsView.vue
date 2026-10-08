@@ -88,15 +88,19 @@ onDeactivated(stopTimer);
 <template>
   <section>
     <u-page-header
-      title="温度监控"
-      sub="关键传感器速览 · 温度墙"
+      :title="t('温度监控')"
+      :sub="t('关键传感器速览 · 温度墙')"
       :tag="headerTag"
       :updated="lastUpdated"
     >
       <template #right>
         <div class="seg">
-          <button :class="{ on: mode === 'quick' }" @click="setMode('quick')">速览</button>
-          <button :class="{ on: mode === 'chassis' }" @click="setMode('chassis')">机箱</button>
+          <button :class="{ on: mode === 'quick' }" @click="setMode('quick')">
+            {{ t('速览') }}
+          </button>
+          <button :class="{ on: mode === 'chassis' }" @click="setMode('chassis')">
+            {{ t('机箱') }}
+          </button>
         </div>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
           <span class="tr" />5s
@@ -128,8 +132,8 @@ onDeactivated(stopTimer);
       <div class="wg" style="margin-bottom: 0">
         <div class="wg-h">
           <u-icon name="temp" />
-          <h3>温度墙</h3>
-          <span class="x">全部传感器 · 按温度分档着色</span>
+          <h3>{{ t('温度墙') }}</h3>
+          <span class="x">{{ t('全部传感器 · 按温度分档着色') }}</span>
         </div>
         <div class="wg-b">
           <div class="temps" style="grid-template-columns: repeat(auto-fill, minmax(126px, 1fr))">

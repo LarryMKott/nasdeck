@@ -202,8 +202,9 @@ const fanSides = computed(() => {
 const maxRpm = computed(() => Math.max(0, ...props.fans.map((f) => f.rpm ?? 0)));
 const flowDur = computed(() => spinDur(maxRpm.value));
 const hasFlow = computed(() => props.fans.some((f) => (f.rpm ?? 0) > 0));
-const fanTip = (f) => `${f.name} · ${f.rpm ?? 0} RPM · 占空比 ${f.duty ?? 0}%`;
-const overTip = (names) => `其余 ${names.length} 个风扇：${names.join('、')}`;
+const fanTip = (f) => `${f.name} · ${f.rpm ?? 0} RPM · ${t('占空比 {d}%', { d: f.duty ?? 0 })}`;
+const overTip = (names) =>
+  t('其余 {n} 个风扇：{names}', { n: names.length, names: names.join('、') });
 
 /* ---- 硬盘笼 ---- */
 const slotCount = computed(() => {
@@ -218,7 +219,7 @@ const slots = computed(() =>
 );
 const hiddenDisks = computed(() => Math.max(0, props.disks.length - MAX_SLOTS));
 const diskTip = (d) =>
-  `${d.device} · ${d.model} · ${d.tempC != null ? `${d.tempC}°C` : '—'} · ${d.health}`;
+  `${d.device} · ${d.model} · ${d.tempC != null ? `${d.tempC}°C` : '—'} · ${t(d.health)}`;
 
 /* ---- 盘位详情弹窗 ---- */
 const selDisk = ref(null);
@@ -240,21 +241,25 @@ function gradeOf(s) {
   <div class="wg">
     <div class="wg-h">
       <u-icon name="temp" />
-      <h3>机箱热力图</h3>
-      <span class="x">传感器按温度着色 · 气流随实际转速</span>
+      <h3>{{ t('机箱热力图') }}</h3>
+      <span class="x">{{ t('传感器按温度着色 · 气流随实际转速') }}</span>
       <span class="acts">
         <template v-if="editing">
-          <button class="btn sm" @click="resetLayout"><u-icon name="refresh" />重置布局</button>
-          <button class="btn sm pri" @click="editing = false"><u-icon name="check" />完成</button>
+          <button class="btn sm" @click="resetLayout">
+            <u-icon name="refresh" />{{ t('重置布局') }}
+          </button>
+          <button class="btn sm pri" @click="editing = false">
+            <u-icon name="check" />{{ t('完成') }}
+          </button>
         </template>
         <button v-else class="btn sm" @click="editing = true">
-          <u-icon name="plus" />编辑布局
+          <u-icon name="plus" />{{ t('编辑布局') }}
         </button>
       </span>
     </div>
     <div class="wg-b">
       <p v-if="editing" class="edit-hint">
-        拖动传感器芯片摆放到主板开阔区；拖回下方托盘移出机箱；占用格不可落。
+        {{ t('拖动传感器芯片摆放到主板开阔区；拖回下方托盘移出机箱；占用格不可落。') }}
       </p>
 
       <div class="chassis-scroll">
@@ -264,11 +269,15 @@ function gradeOf(s) {
             <i /><i /><i />
           </div>
 
-          <div class="rg rg-mb"><span>主板</span></div>
+          <div class="rg rg-mb">
+            <span>{{ t('主板') }}</span>
+          </div>
           <div class="rg rg-cpu"><span>CPU</span></div>
-          <div class="rg rg-psu"><span>电源</span></div>
+          <div class="rg rg-psu">
+            <span>{{ t('电源') }}</span>
+          </div>
           <div class="rg rg-cage">
-            <span>硬盘笼</span>
+            <span>{{ t('硬盘笼') }}</span>
             <div class="slots">
               <div
                 v-for="sl in slots"
@@ -278,26 +287,26 @@ function gradeOf(s) {
                   sl.disk ? tempClass(sl.disk.tempC, warmAt, hotAt) : 'empty',
                   { has: !!sl.disk },
                 ]"
-                :data-tip="sl.disk ? diskTip(sl.disk) : `盘位 ${sl.n} · 空`"
+                :data-tip="sl.disk ? diskTip(sl.disk) : t('盘位 {n} · 空', { n: sl.n })"
                 :style="sl.disk && sl.disk.tempC == null ? 'opacity:.75' : ''"
                 @click="openDisk(sl.disk)"
               >
                 <template v-if="sl.disk">
                   <b>{{ sl.disk.tempC != null ? `${sl.disk.tempC}°` : '—' }}</b>
-                  <i>盘{{ sl.n }}</i>
+                  <i>{{ t('盘{n}', { n: sl.n }) }}</i>
                 </template>
                 <template v-else
-                  ><i>空位 {{ sl.n }}</i></template
+                  ><i>{{ t('空位 {n}', { n: sl.n }) }}</i></template
                 >
               </div>
               <span
                 v-if="hiddenDisks"
                 class="slot-more"
-                :data-tip="`其余 ${hiddenDisks} 块盘请到硬盘页查看`"
+                :data-tip="t('其余 {n} 块盘请到硬盘页查看', { n: hiddenDisks })"
               >
                 +{{ hiddenDisks }}
               </span>
-              <span v-if="!disks.length" class="rg-empty">无硬盘读数</span>
+              <span v-if="!disks.length" class="rg-empty">{{ t('无硬盘读数') }}</span>
             </div>
           </div>
 
@@ -374,7 +383,9 @@ function gradeOf(s) {
             <b class="num">{{ s.celsius }}°</b>
           </div>
 
-          <div v-if="!sensors.length" class="chassis-empty">后端暂无温度传感器读数</div>
+          <div v-if="!sensors.length" class="chassis-empty">
+            {{ t('后端暂无温度传感器读数') }}
+          </div>
         </div>
       </div>
 
@@ -386,7 +397,7 @@ function gradeOf(s) {
         @dragover.prevent
         @drop.prevent="dropTray"
       >
-        <span class="tray-cap">未定位 {{ tray.length }}</span>
+        <span class="tray-cap">{{ t('未定位') }} {{ tray.length }}</span>
         <div
           v-for="s in tray"
           :key="s.key"
@@ -403,40 +414,40 @@ function gradeOf(s) {
       </div>
 
       <div class="legend">
-        <span><i style="background: var(--sf3)" />&lt; {{ warmAt }} 正常</span>
+        <span><i style="background: var(--sf3)" />&lt; {{ warmAt }} {{ t('正常') }}</span>
         <span
           ><i style="background: var(--warnbg); border: 1px solid var(--warn)" />{{ warmAt }} –
-          {{ hotAt }} 偏高</span
+          {{ hotAt }} {{ t('偏高') }}</span
         >
         <span
-          ><i style="background: var(--badbg); border: 1px solid var(--bad)" />&gt;
-          {{ hotAt }} 过热</span
+          ><i style="background: var(--badbg); border: 1px solid var(--bad)" />&gt; {{ hotAt }}
+          {{ t('过热') }}</span
         >
-        <span class="lg-flow"><i class="flow-dot" />气流方向 进→排</span>
+        <span class="lg-flow"><i class="flow-dot" />{{ t('气流方向 进→排') }}</span>
       </div>
     </div>
 
     <u-modal
       v-model="diskModal"
-      :title="selDisk ? `盘位 ${selDisk.slot} · ${selDisk.device}` : ''"
+      :title="selDisk ? t('盘位 {n} · {d}', { n: selDisk.slot, d: selDisk.device }) : ''"
       icon="drive"
     >
       <table v-if="selDisk" class="dkv">
         <tbody>
           <tr>
-            <td>型号</td>
+            <td>{{ t('型号') }}</td>
             <td>{{ selDisk.model }}</td>
           </tr>
           <tr>
-            <td>容量</td>
+            <td>{{ t('容量') }}</td>
             <td>{{ selDisk.capacity }}</td>
           </tr>
           <tr>
-            <td>介质</td>
+            <td>{{ t('介质') }}</td>
             <td>{{ selDisk.kind }}</td>
           </tr>
           <tr>
-            <td>温度</td>
+            <td>{{ t('温度') }}</td>
             <td>
               <span class="num" :class="tempClass(selDisk.tempC, warmAt, hotAt)">
                 {{ selDisk.tempC != null ? `${selDisk.tempC} °C` : '—' }}
@@ -444,16 +455,16 @@ function gradeOf(s) {
             </td>
           </tr>
           <tr>
-            <td>健康</td>
-            <td>{{ selDisk.health }}</td>
+            <td>{{ t('健康') }}</td>
+            <td>{{ t(selDisk.health) }}</td>
           </tr>
           <tr>
-            <td>序列号</td>
+            <td>{{ t('序列号') }}</td>
             <td>{{ selDisk.serial || '—' }}</td>
           </tr>
         </tbody>
       </table>
-      <p class="dkv-hint">SMART 详情与在线自检请到「硬盘」页。</p>
+      <p class="dkv-hint">{{ t('SMART 详情与在线自检请到「硬盘」页。') }}</p>
     </u-modal>
   </div>
 </template>
@@ -587,6 +598,7 @@ function gradeOf(s) {
   &.left {
     grid-area: 1 / 1 / 9 / 2;
   }
+
   &.right {
     grid-area: 1 / 12 / 9 / 13;
   }
@@ -924,6 +936,7 @@ function gradeOf(s) {
     &.warm {
       color: var(--warn);
     }
+
     &.hot {
       color: var(--bad);
     }

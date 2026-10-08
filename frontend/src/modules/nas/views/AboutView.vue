@@ -25,9 +25,9 @@ const headerTag = computed(() =>
 
 <template>
   <section>
-    <u-page-header title="关于 nasdeck" sub="版本 · 更新 · 构建信息" :tag="headerTag">
+    <u-page-header title="关于 nasdeck" :sub="t('版本 · 更新 · 构建信息')" :tag="headerTag">
       <template #right>
-        <button class="btn sm" @click="goBack">返回</button>
+        <button class="btn sm" @click="goBack">{{ t('返回') }}</button>
       </template>
     </u-page-header>
 

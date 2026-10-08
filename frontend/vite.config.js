@@ -29,6 +29,8 @@ export default defineConfig(({ mode }) => {
       // API 自动导入：Vue / Vue Router / Pinia 及 Element Plus 消息类 API
       AutoImport({
         imports: ['vue', 'vue-router', 'pinia'],
+        // i18n 目录仅导出 t()——中文原文作 key 的全局翻译函数（SFC 模板/脚本直用）
+        dirs: ['src/i18n'],
         resolvers: [ElementPlusResolver({ importStyle: 'sass' })],
         vueTemplate: true,
         dts: false,

@@ -4,6 +4,7 @@
 import { defineStore } from 'pinia';
 import { STORAGE_PREFIX } from '@/constants';
 import { initFnosThemeBridge } from '@/modules/nas/utils/fnosHost';
+import { setHostLanguage } from '@/i18n/locale';
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -46,7 +47,7 @@ export const useAppStore = defineStore('app', {
       this.theme = order[(order.indexOf(this.theme) + 1) % order.length];
     },
 
-    /** 监听系统配色与 fnOS 桌面主题变化，供「跟随系统」模式实时联动；应用入口调用一次 */
+    /** 监听系统配色/语言与 fnOS 桌面主题/语言变化，供跟随模式实时联动；应用入口调用一次 */
     initThemeWatcher() {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
       this.systemPrefersDark = mq.matches;
@@ -56,10 +57,13 @@ export const useAppStore = defineStore('app', {
       };
       if (typeof mq.addEventListener === 'function') mq.addEventListener('change', on);
       else if (typeof mq.addListener === 'function') mq.addListener(on);
-      // fnOS 桌面主题桥：嵌入桌面时桌面亮暗优先于浏览器媒体查询
-      initFnosThemeBridge((theme) => {
-        this.hostTheme = theme;
-      });
+      // fnOS 桌面桥：主题（fnos 档）与语言（i18n 跟随）均以桌面为准
+      initFnosThemeBridge(
+        (theme) => {
+          this.hostTheme = theme;
+        },
+        (language) => setHostLanguage(language)
+      );
     },
 
     /**

@@ -41,8 +41,8 @@ vueWatch(
 
 const avatarTitle = computed(() =>
   identity.canWrite
-    ? `${userStore.nickname || '用户'} · 管理员（设置）`
-    : userStore.nickname || '用户'
+    ? `${userStore.nickname || t('用户')} · ${t('管理员（设置）')}`
+    : userStore.nickname || t('用户')
 );
 
 // 事件弹幕开关（花活 H）：localStorage 持久化，切给 NDanmaku 的 CustomEvent 通知
@@ -57,16 +57,16 @@ function toggleDanmaku() {
 const cmdkOpen = ref(false);
 const cmdkActions = computed(() => [
   {
-    label: `切换主题（当前：${themeMeta.value.title.split('，')[0]}）`,
+    label: t('切换主题（当前：{c}）', { c: themeMeta.value.label }),
     icon: themeMeta.value.icon,
     run: () => appStore.toggleTheme(),
   },
   {
-    label: `事件弹幕${danmakuOn.value ? '（点击关闭）' : '（点击开启）'}`,
+    label: danmakuOn.value ? t('事件弹幕（点击关闭）') : t('事件弹幕（点击开启）'),
     icon: 'alert',
     run: toggleDanmaku,
   },
-  { label: '大屏轮播模式', icon: 'play', run: () => router.push('/nasdeck/kiosk') },
+  { label: t('大屏轮播模式'), icon: 'play', run: () => router.push('/nasdeck/kiosk') },
 ]);
 
 function onAvatarClick() {
@@ -200,19 +200,30 @@ function jump(path) {
  * system=浏览器/操作系统深浅色，fnos=飞牛桌面亮暗（桌面内数秒联动）。带出解析结果：
  * 与期望不符时可一眼定位信号源——fnos 档未接入桌面宿主（独立页签打开）时注明回退口径 */
 const themeMeta = computed(() => {
-  const resolved = appStore.resolvedTheme === 'light' ? '浅' : '深';
+  const resolved = t(appStore.resolvedTheme === 'light' ? '浅色' : '深色');
   const meta = {
-    dark: { icon: 'moon', title: '当前黑主题，点击切换白主题' },
-    light: { icon: 'sun', title: '当前白主题，点击切换跟随系统' },
-    system: { icon: 'monitor', title: `当前跟随系统（解析为${resolved}色），点击切换跟随飞牛` },
+    dark: { icon: 'moon', label: t('黑主题'), title: t('当前黑主题，点击切换白主题') },
+    light: { icon: 'sun', label: t('白主题'), title: t('当前白主题，点击切换跟随系统') },
+    system: {
+      icon: 'monitor',
+      label: t('跟随系统'),
+      title: t('当前跟随系统（解析为{c}），点击切换跟随飞牛', { c: resolved }),
+    },
     fnos: {
       icon: 'cloud',
+      label: t('跟随飞牛'),
       title: appStore.hostTheme
-        ? `当前跟随飞牛（桌面为${appStore.hostTheme === 'light' ? '浅' : '深'}色），点击切换赛博朋克`
-        : `当前跟随飞牛（未接入桌面宿主，暂按系统偏好解析为${resolved}色），点击切换赛博朋克`,
+        ? t('当前跟随飞牛（桌面为{c}），点击切换赛博朋克', { c: resolved })
+        : t('当前跟随飞牛（未接入桌面宿主，暂按系统偏好解析为{c}），点击切换赛博朋克', {
+            c: resolved,
+          }),
     },
-    cyber: { icon: 'pulse', title: '当前赛博朋克，点击切换终端绿' },
-    terminal: { icon: 'server', title: '当前终端绿 CRT，点击切换黑主题' },
+    cyber: { icon: 'pulse', label: t('赛博朋克'), title: t('当前赛博朋克，点击切换终端绿') },
+    terminal: {
+      icon: 'server',
+      label: t('终端绿'),
+      title: t('当前终端绿 CRT，点击切换黑主题'),
+    },
   };
   return meta[appStore.theme] || meta.dark;
 });
@@ -231,10 +242,10 @@ const themeMeta = computed(() => {
         class="iconbtn"
         :title="
           isNarrow
-            ? '打开导航菜单'
+            ? t('打开导航菜单')
             : effectiveIcons
-              ? '页签：纯图标（点击切换完整样式）'
-              : '页签：完整样式（点击切换纯图标）'
+              ? t('页签：纯图标（点击切换完整样式）')
+              : t('页签：完整样式（点击切换纯图标）')
         "
         :aria-expanded="isNarrow ? drawerOpen : undefined"
         @click="onMenuClick"
@@ -260,11 +271,11 @@ const themeMeta = computed(() => {
             :key="item.path"
             class="tab"
             :class="{ on: route.path === item.path }"
-            :title="item.title"
+            :title="t(item.title)"
             @click="router.push(item.path)"
           >
             <u-icon :name="item.icon" />
-            <span class="lbl">{{ item.title }}</span>
+            <span class="lbl">{{ t(item.title) }}</span>
             <span v-if="item.badge" class="n" :class="{ hot: item.badgeHot }">{{
               item.badge
             }}</span>
@@ -274,7 +285,7 @@ const themeMeta = computed(() => {
 
       <div class="hd-x">
         <span class="nd-bell-host">
-          <button class="iconbtn" title="通知" @click.stop="toggleBell">
+          <button class="iconbtn" :title="t('通知')" @click.stop="toggleBell">
             <u-icon name="bell" />
             <span v-if="activeAlerts.length" class="b">{{ activeAlerts.length }}</span>
           </button>
@@ -301,7 +312,7 @@ const themeMeta = computed(() => {
 
     <!-- 通知下拉 -->
     <div ref="bellPopRef" class="popmenu nd-bell-pop" :class="{ show: bellOpen }">
-      <div class="pm-h">活动告警 · {{ activeAlerts.length }}</div>
+      <div class="pm-h">{{ t('活动告警') }} · {{ activeAlerts.length }}</div>
       <button
         v-for="(alert, i) in activeAlerts"
         :key="i"
@@ -318,11 +329,11 @@ const themeMeta = computed(() => {
       </button>
       <div class="pm-f">
         <button @click="toggleDanmaku">
-          <u-icon :name="danmakuOn ? 'check' : 'x'" />事件弹幕：{{
-            danmakuOn ? '已开启' : '已关闭'
+          <u-icon :name="danmakuOn ? 'check' : 'x'" />{{
+            danmakuOn ? t('事件弹幕（点击关闭）') : t('事件弹幕（点击开启）')
           }}
         </button>
-        <button @click="jump('/nasdeck/automation')">查看全部告警与规则</button>
+        <button @click="jump('/nasdeck/automation')">{{ t('查看全部告警与规则') }}</button>
       </div>
     </div>
 
@@ -334,7 +345,7 @@ const themeMeta = computed(() => {
       :class="{ show: drawerOpen }"
       role="dialog"
       aria-modal="true"
-      aria-label="导航菜单"
+      :aria-label="t('导航菜单')"
       :inert="!drawerOpen"
     >
       <div class="ndrawer-h">
@@ -348,7 +359,7 @@ const themeMeta = computed(() => {
           </span>
           nasdeck
         </span>
-        <button class="iconbtn" title="关闭菜单" @click="closeDrawer">
+        <button class="iconbtn" :title="t('关闭菜单')" @click="closeDrawer">
           <u-icon name="x" />
         </button>
       </div>
@@ -363,7 +374,7 @@ const themeMeta = computed(() => {
             @click="jump(item.path)"
           >
             <u-icon :name="item.icon" />
-            <span>{{ item.title }}</span>
+            <span>{{ t(item.title) }}</span>
             <span v-if="item.badge" class="n" :class="{ hot: item.badgeHot }">{{
               item.badge
             }}</span>

@@ -217,8 +217,8 @@ const headerTag = computed(() => ({
 <template>
   <section>
     <u-page-header
-      title="控制与自动化"
-      sub="告警 · 通知 · 报告"
+      :title="t('控制与自动化')"
+      :sub="t('告警 · 通知 · 报告')"
       :tag="headerTag"
       :updated="lastUpdated"
     />
@@ -226,11 +226,15 @@ const headerTag = computed(() => ({
     <div class="wg">
       <div class="wg-b" style="padding-bottom: 0">
         <div class="tabs2">
-          <button :class="{ on: activeTab === 't1' }" @click="activeTab = 't1'">活动告警</button>
-          <button :class="{ on: activeTab === 't2' }" @click="activeTab = 't2'">
-            告警规则与通知
+          <button :class="{ on: activeTab === 't1' }" @click="activeTab = 't1'">
+            {{ t('活动告警') }}
           </button>
-          <button :class="{ on: activeTab === 't3' }" @click="activeTab = 't3'">报告导出</button>
+          <button :class="{ on: activeTab === 't2' }" @click="activeTab = 't2'">
+            {{ t('告警规则与通知') }}
+          </button>
+          <button :class="{ on: activeTab === 't3' }" @click="activeTab = 't3'">
+            {{ t('报告导出') }}
+          </button>
         </div>
 
         <!-- 活动告警 -->

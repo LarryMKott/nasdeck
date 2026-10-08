@@ -42,10 +42,11 @@ function refresh() {
     <span v-if="sub" class="sub">{{ sub }}</span>
     <span v-if="tag" class="tag" :class="tag.type"> <span class="dot" />{{ tag.text }} </span>
     <div class="right">
-      <span class="lup num">最后更新 {{ lastUpdated }}</span>
+      <span class="lup num">{{ t('最后更新') }} {{ lastUpdated }}</span>
       <slot name="right" />
       <button class="btn sm" @click="refresh">
-        <svg class="ico" :class="{ spin: spinning }"><use href="#nd-i-refresh" /></svg>立即刷新
+        <svg class="ico" :class="{ spin: spinning }"><use href="#nd-i-refresh" /></svg
+        >{{ t('立即刷新') }}
       </button>
     </div>
   </div>
