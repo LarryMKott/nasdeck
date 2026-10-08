@@ -235,7 +235,7 @@ function onLeave() {
   cursorX.value = null;
 }
 
-const connText = computed(() => (realtime.connected ? '实时推送' : '轮询降级'));
+const connText = computed(() => (realtime.connected ? t('实时推送') : t('轮询降级')));
 </script>
 
 <template>
@@ -289,11 +289,15 @@ const connText = computed(() => (realtime.connected ? '实时推送' : '轮询�
             </span>
           </div>
           <div v-else-if="!points.length" class="scope-empty small muted">
-            等待实时数据流入（—）：WS 推送或轮询降级接入后开始绘制
+            {{ t('等待实时数据流入（—）：WS 推送或轮询降级接入后开始绘制') }}
           </div>
         </div>
         <div class="small muted" style="margin-top: 10px">
-          悬停画布显示游标读数；数据源为 1s 实时快照，页面隐藏或离开本页自动停绘（零常驻开销）。
+          {{
+            t(
+              '悬停画布显示游标读数；数据源为 1s 实时快照，页面隐藏或离开本页自动停绘（零常驻开销）。'
+            )
+          }}
         </div>
       </div>
     </div>

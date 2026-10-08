@@ -30,34 +30,40 @@ function rowColor(e) {
 }
 
 function severityText(e) {
-  return SEVERITY_META[e.severity]?.text || e.severity;
+  const raw = SEVERITY_META[e.severity]?.text || e.severity;
+  return t(raw);
 }
 
 /** 系统级事件显示类型徽标（rule_name 已带语义），规则事件显示规则名 */
 function sourceText(e) {
-  return e.rule_id != null ? '告警' : '系统';
+  return e.rule_id != null ? t('告警') : t('系统');
 }
 
 const headerTag = computed(() => {
-  if (!live.value) return { type: 'acc', text: '演示数据' };
+  if (!live.value) return { type: 'acc', text: t('演示数据') };
   const firing = d.value.list.filter((e) => e.status === 'firing').length;
-  return { type: firing ? 'warn' : 'ok', text: firing ? `${firing} 条活跃` : '全部平静' };
+  return {
+    type: firing ? 'warn' : 'ok',
+    text: firing ? t('{n} 条活跃', { n: firing }) : t('全部平静'),
+  };
 });
 </script>
 
 <template>
   <section>
     <u-page-header
-      title="事件时间线"
-      sub="告警 · 系统事件 一屏回溯"
+      :title="t('事件时间线')"
+      :sub="t('告警 · 系统事件 一屏回溯')"
       :tag="headerTag"
       :updated="lastUpdated"
     />
 
     <div class="chips" style="margin-bottom: 14px">
-      <button :class="{ on: source === 'all' }" @click="source = 'all'">全部</button>
-      <button :class="{ on: source === 'alert' }" @click="source = 'alert'">告警</button>
-      <button :class="{ on: source === 'system' }" @click="source = 'system'">系统</button>
+      <button :class="{ on: source === 'all' }" @click="source = 'all'">{{ t('全部') }}</button>
+      <button :class="{ on: source === 'alert' }" @click="source = 'alert'">{{ t('告警') }}</button>
+      <button :class="{ on: source === 'system' }" @click="source = 'system'">
+        {{ t('系统') }}
+      </button>
     </div>
 
     <div class="wg">
@@ -72,14 +78,14 @@ const headerTag = computed(() => {
                   <b class="small">{{ e.rule_name }}</b>
                   <span
                     class="tag"
-                    :class="sourceText(e) === '告警' ? 'acc' : ''"
+                    :class="sourceText(e) === t('告警') ? 'acc' : ''"
                     style="height: 19px"
                   >
                     {{ sourceText(e) }} · {{ severityText(e) }}
                   </span>
-                  <span v-if="e.status === 'firing'" class="tag warn" style="height: 19px"
-                    >进行中</span
-                  >
+                  <span v-if="e.status === 'firing'" class="tag warn" style="height: 19px">{{
+                    t('进行中')
+                  }}</span>
                 </div>
                 <div class="small" style="margin-top: 3px">{{ e.message || '—' }}</div>
               </div>
@@ -87,7 +93,9 @@ const headerTag = computed(() => {
           </div>
         </template>
         <div v-else class="small muted" style="padding: 20px 0; text-align: center">
-          暂无事件记录（—）：告警触发、巡检、容器退出、端口异动、日志哨兵命中都会出现在这里
+          {{
+            t('暂无事件记录（—）：告警触发、巡检、容器退出、端口异动、日志哨兵命中都会出现在这里')
+          }}
         </div>
       </div>
     </div>

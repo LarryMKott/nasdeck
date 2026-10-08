@@ -50,7 +50,11 @@ const filtered = computed(() =>
 
 <template>
   <section>
-    <u-page-header title="端口占用" sub="监听端口 · 进程 · 可达性" :updated="lastUpdated" />
+    <u-page-header
+      :title="t('端口占用')"
+      :sub="t('监听端口 · 进程 · 可达性')"
+      :updated="lastUpdated"
+    />
 
     <div class="wg" style="margin-bottom: 0">
       <div
@@ -60,26 +64,26 @@ const filtered = computed(() =>
         <input
           v-model="keyword"
           type="text"
-          placeholder="搜索端口 / 进程 / 应用"
+          :placeholder="t('搜索端口 / 进程 / 应用')"
           style="flex: 1; min-width: 180px"
         />
         <select v-model="reachFilter">
-          <option value="">全部可达性</option>
-          <option value="ok">可达</option>
-          <option value="warn">受限</option>
-          <option value="err">不可达</option>
+          <option value="">{{ t('全部可达性') }}</option>
+          <option value="ok">{{ t('可达') }}</option>
+          <option value="warn">{{ t('受限') }}</option>
+          <option value="err">{{ t('不可达') }}</option>
         </select>
       </div>
       <div class="tscroll">
         <table class="u">
           <thead>
             <tr>
-              <th>应用</th>
-              <th class="r">端口</th>
-              <th>协议</th>
-              <th>进程 (PID)</th>
-              <th>可达性</th>
-              <th>操作</th>
+              <th>{{ t('应用') }}</th>
+              <th class="r">{{ t('端口') }}</th>
+              <th>{{ t('协议') }}</th>
+              <th>{{ t('进程 (PID)') }}</th>
+              <th>{{ t('可达性') }}</th>
+              <th>{{ t('操作') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -99,7 +103,7 @@ const filtered = computed(() =>
               <td>
                 <u-pop
                   v-model="popOpen[p.port]"
-                  :ok-text="p.danger ? '确认释放' : '确认'"
+                  :ok-text="p.danger ? t('确认释放') : t('确认')"
                   :danger="!!p.danger"
                   @confirm="releasePort(p)"
                 >
@@ -112,7 +116,7 @@ const filtered = computed(() =>
             </tr>
             <tr v-if="!filtered.length">
               <td colspan="6" class="muted" style="padding: 26px 0; text-align: center">
-                无匹配端口
+                {{ t('无匹配端口') }}
               </td>
             </tr>
           </tbody>

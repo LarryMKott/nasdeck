@@ -243,4 +243,111 @@ export default {
   介质错误: 'Media errors',
   '温度 °C': 'Temp °C',
   通电小时: 'Power-on hours',
+
+  // ---- 硬件检测页 ----
+  硬件检测: 'Hardware detection',
+  '系统 · 主板 · CPU · 内存 · 网络 · RAID · 硬盘':
+    'System · Board · CPU · Memory · Network · RAID · Disks',
+  系统信息: 'System info',
+  内存: 'Memory',
+  运行环境自检: 'Runtime environment check',
+  '安装期自举结果 · 实时探测': 'Install-time bootstrap results · live probing',
+  每核实时占用: 'Per-core live usage',
+  点击格子看详情: 'Click a slot for details',
+
+  // ---- 系统资源页 ----
+  系统资源: 'System resources',
+  'CPU · 内存 · 网络 · 磁盘 IO · GPU': 'CPU · Memory · Network · Disk I/O · GPU',
+  网络: 'Network',
+  全网聚合: 'All interfaces',
+  读: 'Read',
+  写: 'Write',
+  'RAPL 功耗': 'RAPL power',
+  合计: 'Total',
+  '— % · 60s 窗口': '— % · 60s window',
+  '60s 窗口': '60s window',
+
+  // ---- Docker 页 ----
+  '容器运行状态 · 资源占用': 'Container status · resource usage',
+  容器: 'Container',
+  网速: 'Net',
+  端口映射: 'Port mapping',
+  运行时长: 'Uptime',
+  '演示数据（本机无 Docker 或后端不可达）': 'Demo data (no Docker on host or backend unreachable)',
+  '{a} 个运行中 · {b} 已退出': '{a} running · {b} exited',
+  '移动端：表格横向滚动（卡片化列入迭代评估）':
+    'Mobile: the table scrolls horizontally (card layout under evaluation)',
+
+  // ---- 事件时间线页 ----
+  事件时间线: 'Event timeline',
+  '告警 · 系统事件 一屏回溯': 'Alerts · system events at a glance',
+  严重: 'Critical',
+  信息: 'Info',
+  告警: 'Alert',
+  全部: 'All',
+  '{n} 条活跃': '{n} active',
+  全部平静: 'All quiet',
+  进行中: 'Active now',
+  '暂无事件记录（—）：告警触发、巡检、容器退出、端口异动、日志哨兵命中都会出现在这里':
+    'No events yet (—): alert firings, inspections, container exits, port changes and log-sentinel hits appear here',
+
+  // ---- 历史趋势页 ----
+  历史趋势: 'History trends',
+  '六维度历史数据回看 · 报告导出': 'Six-dimension history · report export',
+  'Markdown 报告': 'Markdown report',
+  'HTML 报告': 'HTML report',
+  'CSV 数据': 'CSV data',
+  区间统计: 'Range stats',
+  均值: 'Avg',
+  峰值: 'Peak',
+  采样点: 'Samples',
+  导出格式: 'Export format',
+  立即下载: 'Download now',
+
+  // ---- 示波器页 ----
+  实时推送: 'Live push',
+  轮询降级: 'Polling fallback',
+  '等待实时数据流入（—）：WS 推送或轮询降级接入后开始绘制':
+    'Waiting for live data (—): drawing starts once the WS push or polling connects',
+  '悬停画布显示游标读数；数据源为 1s 实时快照，页面隐藏或离开本页自动停绘（零常驻开销）。':
+    'Hover the canvas for cursor readouts; data source is the 1s live snapshot — drawing pauses when the page is hidden or left (zero resident cost).',
+
+  // ---- 大屏 ----
+  '网速 ↓': 'Net ↓',
+  '网速 ↑': 'Net ↑',
+  负载: 'Load',
+  进程: 'Procs',
+  运行: 'Up',
+  天: 'd',
+  磁盘清单不可用: 'Disk list unavailable',
+  温度传感器不可用: 'Temperature sensors unavailable',
+  '暂无事件（—）': 'No events (—)',
+  '退出大屏（Esc）': 'Exit kiosk (Esc)',
+  已暂停: 'Paused',
+  屏: 'screen',
+
+  // ---- 端口页 ----
+  端口占用: 'Port occupancy',
+  '监听端口 · 进程 · 可达性': 'Listening ports · processes · reachability',
+  '搜索端口 / 进程 / 应用': 'Search ports / processes / apps',
+  全部可达性: 'All reachability',
+  可达: 'Reachable',
+  受限: 'Restricted',
+  不可达: 'Unreachable',
+  '进程 (PID)': 'Process (PID)',
+  可达性: 'Reachability',
+  确认释放: 'Confirm release',
+  确认: 'Confirm',
+  无匹配端口: 'No matching ports',
+  应用: 'App',
+  协议: 'Protocol',
+
+  // ---- 关于页 ----
+  后端已连接: 'Backend connected',
+  检查更新: 'Check updates',
+  当前版本: 'Current version',
+  最新版本: 'Latest version',
+  '（已是最新）': ' (up to date)',
+  更新日志: 'Changelog',
+  构建信息: 'Build info',
 };

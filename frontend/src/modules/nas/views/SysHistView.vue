@@ -123,7 +123,7 @@ onActivated(() => {
 
 const histSeries = computed(() => [
   {
-    name: DIMS[activeDim.value].label,
+    name: t(DIMS[activeDim.value].label),
     color: DIMS[activeDim.value].color,
     data: remoteLive.value ? remote.value.series : histData.value,
   },
@@ -151,7 +151,11 @@ const fmtOpen = reactive({ md: false, html: false, csv: false });
 
 <template>
   <section>
-    <u-page-header title="历史趋势" sub="六维度历史数据回看 · 报告导出" :updated="lastUpdated">
+    <u-page-header
+      :title="t('历史趋势')"
+      :sub="t('六维度历史数据回看 · 报告导出')"
+      :updated="lastUpdated"
+    >
       <template #right>
         <div class="seg">
           <button
@@ -166,14 +170,17 @@ const fmtOpen = reactive({ md: false, html: false, csv: false });
         <u-dropdown v-model="exportOpen">
           <template #trigger>
             <button class="btn">
-              <u-icon name="dl" />报告导出<svg class="ico" style="width: 11px; height: 11px">
+              <u-icon name="dl" />{{ t('报告导出')
+              }}<svg class="ico" style="width: 11px; height: 11px">
                 <use href="#nd-i-chevd" />
               </svg>
             </button>
           </template>
-          <button @click="exportAs('markdown')"><u-icon name="dl" />Markdown 报告</button>
-          <button @click="exportAs('html')"><u-icon name="dl" />HTML 报告</button>
-          <button @click="exportAs('csv')"><u-icon name="dl" />CSV 数据</button>
+          <button @click="exportAs('markdown')">
+            <u-icon name="dl" />{{ t('Markdown 报告') }}
+          </button>
+          <button @click="exportAs('html')"><u-icon name="dl" />{{ t('HTML 报告') }}</button>
+          <button @click="exportAs('csv')"><u-icon name="dl" />{{ t('CSV 数据') }}</button>
         </u-dropdown>
       </template>
     </u-page-header>
@@ -204,17 +211,20 @@ const fmtOpen = reactive({ md: false, html: false, csv: false });
       <div class="wg t4">
         <div class="wg-h">
           <u-icon name="hist" />
-          <h3>区间统计</h3>
+          <h3>{{ t('区间统计') }}</h3>
         </div>
         <div class="wg-b">
           <div class="kvrow kvline">
-            <span class="muted small">均值</span><span class="small num">{{ histStats.avg }}</span>
+            <span class="muted small">{{ t('均值') }}</span
+            ><span class="small num">{{ histStats.avg }}</span>
           </div>
           <div class="kvrow kvline">
-            <span class="muted small">峰值</span><span class="small num">{{ histStats.max }}</span>
+            <span class="muted small">{{ t('峰值') }}</span
+            ><span class="small num">{{ histStats.max }}</span>
           </div>
           <div class="kvrow">
-            <span class="muted small">采样点</span><span class="small num">{{ histStats.n }}</span>
+            <span class="muted small">{{ t('采样点') }}</span
+            ><span class="small num">{{ histStats.n }}</span>
           </div>
         </div>
       </div>
@@ -222,7 +232,7 @@ const fmtOpen = reactive({ md: false, html: false, csv: false });
       <div class="wg t8">
         <div class="wg-h">
           <u-icon name="dl" />
-          <h3>导出格式</h3>
+          <h3>{{ t('导出格式') }}</h3>
         </div>
         <div class="wg-b">
           <div class="chips">
@@ -230,19 +240,19 @@ const fmtOpen = reactive({ md: false, html: false, csv: false });
               <template #trigger>
                 <button class="btn sm">Markdown</button>
               </template>
-              <button><u-icon name="dl" />立即下载</button>
+              <button><u-icon name="dl" />{{ t('立即下载') }}</button>
             </u-dropdown>
             <u-dropdown v-model="fmtOpen.html" :min-width="130">
               <template #trigger>
                 <button class="btn sm">HTML</button>
               </template>
-              <button><u-icon name="dl" />立即下载</button>
+              <button><u-icon name="dl" />{{ t('立即下载') }}</button>
             </u-dropdown>
             <u-dropdown v-model="fmtOpen.csv" :min-width="130">
               <template #trigger>
                 <button class="btn sm">CSV</button>
               </template>
-              <button><u-icon name="dl" />立即下载</button>
+              <button><u-icon name="dl" />{{ t('立即下载') }}</button>
             </u-dropdown>
           </div>
           <div class="small muted" style="margin-top: 10px">

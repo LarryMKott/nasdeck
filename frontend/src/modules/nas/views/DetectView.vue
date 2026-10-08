@@ -48,8 +48,8 @@ function showDimm(dimm) {
 <template>
   <section>
     <u-page-header
-      title="硬件检测"
-      sub="系统 · 主板 · CPU · 内存 · 网络 · RAID · 硬盘"
+      :title="t('硬件检测')"
+      :sub="t('系统 · 主板 · CPU · 内存 · 网络 · RAID · 硬盘')"
       :tag="headerTag"
       :updated="lastUpdated"
     />
@@ -59,7 +59,7 @@ function showDimm(dimm) {
       <div class="wg t6">
         <div class="wg-h">
           <u-icon name="info" />
-          <h3>系统信息</h3>
+          <h3>{{ t('系统信息') }}</h3>
         </div>
         <div class="wg-b">
           <div
@@ -77,7 +77,7 @@ function showDimm(dimm) {
       <div class="wg t6">
         <div class="wg-h">
           <u-icon name="server" />
-          <h3>主板</h3>
+          <h3>{{ t('主板') }}</h3>
         </div>
         <div class="wg-b">
           <div
@@ -96,8 +96,10 @@ function showDimm(dimm) {
     <!-- 运行环境自检（安装期自举结果：工具/驱动/运行时/生效配置） -->
     <div class="sec" :class="{ open: open.env }">
       <button class="sec-h" @click="toggle('env')">
-        <span class="sico"><u-icon name="info" /></span>运行环境自检
-        <span class="small muted" style="font-weight: 400">安装期自举结果 · 实时探测</span>
+        <span class="sico"><u-icon name="info" /></span>{{ t('运行环境自检') }}
+        <span class="small muted" style="font-weight: 400">{{
+          t('安装期自举结果 · 实时探测')
+        }}</span>
         <u-icon class="arr" name="chev" />
       </button>
       <div class="sec-b">
@@ -196,15 +198,15 @@ function showDimm(dimm) {
             ><i :style="{ height: `${v}%` }"
           /></span>
         </div>
-        <div class="small muted" style="margin-top: 6px">每核实时占用</div>
+        <div class="small muted" style="margin-top: 6px">{{ t('每核实时占用') }}</div>
       </div>
     </div>
 
     <!-- 内存 -->
     <div class="sec" :class="{ open: open.mem }">
       <button class="sec-h" @click="toggle('mem')">
-        <span class="sico"><u-icon name="layers" /></span>内存
-        <span class="small muted" style="font-weight: 400">点击格子看详情</span>
+        <span class="sico"><u-icon name="layers" /></span>{{ t('内存') }}
+        <span class="small muted" style="font-weight: 400">{{ t('点击格子看详情') }}</span>
         <u-icon class="arr" name="chev" />
       </button>
       <div class="sec-b">

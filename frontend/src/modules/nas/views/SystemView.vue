@@ -77,14 +77,14 @@ const memText = computed(() => {
 const memPercent = computed(() => realtime.snapshot?.mem_percent ?? 41);
 const diskText = computed(() => {
   const io = realtime.snapshot?.disk_io;
-  if (!io) return '读 86 · 写 42 MB/s';
-  return `读 ${throughputText(io.read_kbps ?? 0)} · 写 ${throughputText(io.write_kbps ?? 0)}`;
+  if (!io) return `${t('读')} 86 · ${t('写')} 42 MB/s`;
+  return `${t('读')} ${throughputText(io.read_kbps ?? 0)} · ${t('写')} ${throughputText(io.write_kbps ?? 0)}`;
 });
 
 /** CPU 卡头：实时使用率替代写死的 23% */
 const cpuText = computed(() => {
   const v = realtime.snapshot?.cpu_percent;
-  return v == null ? '— % · 60s 窗口' : `${Math.round(v * 10) / 10}% · 60s 窗口`;
+  return v == null ? t('— % · 60s 窗口') : `${Math.round(v * 10) / 10}% · ${t('60s 窗口')}`;
 });
 const cpuMeterPct = computed(() => {
   const v = realtime.snapshot?.cpu_percent;
@@ -128,8 +128,8 @@ const dramW = computed(() => {
 <template>
   <section>
     <u-page-header
-      title="系统资源"
-      sub="CPU · 内存 · 网络 · 磁盘 IO · GPU"
+      :title="t('系统资源')"
+      :sub="t('CPU · 内存 · 网络 · 磁盘 IO · GPU')"
       :tag="headerTag"
       :updated="lastUpdated"
     >
@@ -144,7 +144,7 @@ const dramW = computed(() => {
       <div class="wg t6">
         <div class="wg-h">
           <u-icon name="cpu" />
-          <h3>CPU 使用率</h3>
+          <h3>{{ t('CPU 使用率') }}</h3>
           <span class="x num">{{ cpuText }}</span>
         </div>
         <div class="wg-b">
@@ -164,7 +164,7 @@ const dramW = computed(() => {
       <div class="wg t6">
         <div class="wg-h">
           <u-icon name="server" />
-          <h3>内存</h3>
+          <h3>{{ t('内存') }}</h3>
           <span class="x num">{{ memText }}</span>
         </div>
         <div class="wg-b">
@@ -184,8 +184,8 @@ const dramW = computed(() => {
       <div class="wg t6">
         <div class="wg-h">
           <u-icon name="net" />
-          <h3>网络</h3>
-          <span class="x">全网聚合</span>
+          <h3>{{ t('网络') }}</h3>
+          <span class="x">{{ t('全网聚合') }}</span>
         </div>
         <div class="wg-b">
           <u-line-chart
@@ -200,7 +200,7 @@ const dramW = computed(() => {
       <div class="wg t6">
         <div class="wg-h">
           <u-icon name="drive" />
-          <h3>磁盘 IO</h3>
+          <h3>{{ t('磁盘 IO') }}</h3>
           <span class="x num">{{ diskText }}</span>
         </div>
         <div class="wg-b">
@@ -217,7 +217,7 @@ const dramW = computed(() => {
     <div class="grid" style="margin-bottom: 0">
       <div class="wg t4 tile-wg">
         <div class="wg-b">
-          <div class="cap"><u-icon name="pulse" />GPU 使用率</div>
+          <div class="cap"><u-icon name="pulse" />{{ t('GPU 使用率') }}</div>
           <div class="big num">{{ gpuPercent }}<small>%</small></div>
           <u-spark :data="gpuSparkData" :color="chartColors.gpu" />
         </div>
@@ -226,7 +226,7 @@ const dramW = computed(() => {
       <div class="wg t8">
         <div class="wg-h">
           <u-icon name="power" />
-          <h3>RAPL 功耗</h3>
+          <h3>{{ t('RAPL 功耗') }}</h3>
           <span class="x">Running Average Power Limit</span>
         </div>
         <div class="wg-b">
@@ -239,7 +239,7 @@ const dramW = computed(() => {
               <span class="muted small">DRAM</span><span class="small num">{{ dramW }} W</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">合计</span>
+              <span class="muted small">{{ t('合计') }}</span>
               <span class="small num" style="font-weight: 700; color: var(--acc)"
                 >{{ powerW }} W</span
               >

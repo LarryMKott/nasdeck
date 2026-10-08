@@ -19,7 +19,7 @@ function goBack() {
 
 const { data: d, live } = useViewData(fetchAbout, mockAbout);
 const headerTag = computed(() =>
-  live.value ? { type: 'ok', text: '后端已连接' } : { type: 'acc', text: '演示数据' }
+  live.value ? { type: 'ok', text: t('后端已连接') } : { type: 'acc', text: t('演示数据') }
 );
 </script>
 
@@ -54,7 +54,7 @@ const headerTag = computed(() =>
       <div class="wg t6">
         <div class="wg-h">
           <u-icon name="refresh" />
-          <h3>检查更新</h3>
+          <h3>{{ t('检查更新') }}</h3>
         </div>
         <div class="wg-b">
           <div class="kv2">
@@ -63,13 +63,15 @@ const headerTag = computed(() =>
               ><span class="small num">{{ d.version }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">最新版本</span>
-              <span class="small st"><span class="dot" />{{ d.version }}（已是最新）</span>
+              <span class="muted small">{{ t('最新版本') }}</span>
+              <span class="small st"
+                ><span class="dot" />{{ d.version }}{{ t('（已是最新）') }}</span
+              >
             </div>
           </div>
           <div class="chips" style="margin-top: 12px">
-            <button class="btn sm pri">检查更新</button>
-            <button class="btn sm">更新日志</button>
+            <button class="btn sm pri">{{ t('检查更新') }}</button>
+            <button class="btn sm">{{ t('更新日志') }}</button>
           </div>
         </div>
       </div>
@@ -77,7 +79,7 @@ const headerTag = computed(() =>
       <div class="wg t12">
         <div class="wg-h">
           <u-icon name="info" />
-          <h3>构建信息</h3>
+          <h3>{{ t('构建信息') }}</h3>
         </div>
         <div class="wg-b">
           <div class="kv2" style="grid-template-columns: repeat(4, 1fr)">

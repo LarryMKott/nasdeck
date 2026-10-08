@@ -22,7 +22,7 @@ const now = ref(new Date());
 const showExit = ref(false);
 const paused = ref(false);
 
-const SCREENS = ['总览', '硬盘', '温度', '事件'];
+const SCREENS = ['总览', '硬盘', '温度', '事件']; // 渲染处经 t() 包裹
 const HEALTH_COLOR = {
   passed: '#3fb68b',
   warning: '#eca43c',
@@ -108,13 +108,13 @@ onBeforeUnmount(() => {
               >
             </div>
             <div class="k-card">
-              <span class="k-label">内存</span>
+              <span class="k-label">{{ t('内存') }}</span>
               <span class="k-big num"
                 >{{ rt.mem_percent != null ? rt.mem_percent : '—' }}<i>%</i></span
               >
             </div>
             <div class="k-card">
-              <span class="k-label">网速 ↓</span>
+              <span class="k-label">{{ t('网速 ↓') }}</span>
               <span class="k-big num"
                 >{{
                   rt.net
@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
               >
             </div>
             <div class="k-card">
-              <span class="k-label">网速 ↑</span>
+              <span class="k-label">{{ t('网速 ↑') }}</span>
               <span class="k-big num"
                 >{{
                   rt.net
@@ -139,9 +139,9 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="k-foot">
-            <span>负载 {{ (rt.load || []).join(' / ') || '—' }}</span>
-            <span>进程 {{ rt.process_count ?? '—' }}</span>
-            <span>运行 {{ Math.floor((rt.uptime_s || 0) / 86400) }} 天</span>
+            <span>{{ t('负载') }} {{ (rt.load || []).join(' / ') || '—' }}</span>
+            <span>{{ t('进程') }} {{ rt.process_count ?? '—' }}</span>
+            <span>{{ t('运行') }} {{ Math.floor((rt.uptime_s || 0) / 86400) }} {{ t('天') }}</span>
           </div>
         </section>
 
@@ -163,7 +163,7 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
-          <div v-else class="k-empty">磁盘清单不可用</div>
+          <div v-else class="k-empty">{{ t('磁盘清单不可用') }}</div>
         </section>
 
         <!-- 屏 3：温度 -->
@@ -187,7 +187,7 @@ onBeforeUnmount(() => {
               <span class="k-tag num">{{ t.celsius != null ? `${t.celsius} °C` : '—' }}</span>
             </div>
           </div>
-          <div v-else class="k-empty">温度传感器不可用</div>
+          <div v-else class="k-empty">{{ t('温度传感器不可用') }}</div>
         </section>
 
         <!-- 屏 4：事件 -->
@@ -203,7 +203,7 @@ onBeforeUnmount(() => {
               <span class="k-sub">{{ e.message }}</span>
             </div>
           </div>
-          <div v-else class="k-empty">暂无事件（—）</div>
+          <div v-else class="k-empty">{{ t('暂无事件（—）') }}</div>
         </section>
       </transition>
     </main>
@@ -215,14 +215,14 @@ onBeforeUnmount(() => {
           :key="name"
           class="k-dot-i"
           :class="{ on: screenIdx === i }"
-          :title="name"
+          :title="t(name)"
         />
       </div>
       <button class="k-exit" :class="{ show: showExit }" @click="router.push('/nasdeck/dash')">
-        退出大屏（Esc）
+        {{ t('退出大屏（Esc）') }}
       </button>
       <span class="k-hint" :class="{ show: showExit }">{{
-        paused ? '已暂停' : `${intervalSec}s / 屏`
+        paused ? t('已暂停') : `${intervalSec}s / ${t('屏')}`
       }}</span>
     </footer>
   </div>

@@ -15,10 +15,13 @@ const headerTag = computed(() => {
   if (live.value) {
     return {
       type: 'ok',
-      text: `${runningCount.value} 个运行中 · ${d.value.containers.length - runningCount.value} 已退出`,
+      text: t('{a} 个运行中 · {b} 已退出', {
+        a: runningCount.value,
+        b: d.value.containers.length - runningCount.value,
+      }),
     };
   }
-  return { type: 'acc', text: '演示数据（本机无 Docker 或后端不可达）' };
+  return { type: 'acc', text: t('演示数据（本机无 Docker 或后端不可达）') };
 });
 </script>
 
@@ -26,7 +29,7 @@ const headerTag = computed(() => {
   <section>
     <u-page-header
       title="Docker"
-      sub="容器运行状态 · 资源占用"
+      :sub="t('容器运行状态 · 资源占用')"
       :tag="headerTag"
       :updated="lastUpdated"
     />
@@ -36,13 +39,13 @@ const headerTag = computed(() => {
         <table class="u">
           <thead>
             <tr>
-              <th>容器</th>
-              <th>状态</th>
-              <th class="r">内存</th>
+              <th>{{ t('容器') }}</th>
+              <th>{{ t('状态') }}</th>
+              <th class="r">{{ t('内存') }}</th>
               <th class="r">CPU</th>
-              <th class="r">网速</th>
-              <th class="r">端口映射</th>
-              <th class="r">运行时长</th>
+              <th class="r">{{ t('网速') }}</th>
+              <th class="r">{{ t('端口映射') }}</th>
+              <th class="r">{{ t('运行时长') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -53,7 +56,7 @@ const headerTag = computed(() => {
               </td>
               <td>
                 <span class="st" :class="{ bad: !c.running }"
-                  ><span class="dot" />{{ c.running ? '运行中' : '已退出' }}</span
+                  ><span class="dot" />{{ c.running ? t('运行中') : t('已退出') }}</span
                 >
               </td>
               <td class="r num" :class="{ muted: !c.running }">{{ c.mem ?? '—' }}</td>
@@ -66,7 +69,7 @@ const headerTag = computed(() => {
         </table>
       </div>
       <div class="wg-b small muted" style="border-top: 1px solid var(--bd)">
-        移动端：表格横向滚动（卡片化列入迭代评估）
+        {{ t('移动端：表格横向滚动（卡片化列入迭代评估）') }}
       </div>
     </div>
   </section>

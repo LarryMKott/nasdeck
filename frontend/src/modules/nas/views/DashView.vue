@@ -232,7 +232,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 
       <div class="wg tile-wg t3">
         <div class="wg-b">
-          <div class="cap"><u-icon name="server" />内存</div>
+          <div class="cap"><u-icon name="server" />{{ t('内存') }}</div>
           <div class="big num">{{ d.mem.percent }}<small>%</small></div>
           <div class="meter" style="margin-top: 9px">
             <i class="c-info" :style="{ width: `${d.mem.percent}%` }" />
