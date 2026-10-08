@@ -152,30 +152,6 @@ bindMq(mqDrawer, onMqChange);
 // 路由切换即收起抽屉（抽屉内点击跳转后不停留在遮罩下）
 watch(() => route.path, closeDrawer);
 
-/** 页签搜索：过滤页签，回车跳首个命中 */
-const searchText = ref('');
-const filteredGroups = computed(() =>
-  navGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter(
-        (item) =>
-          !searchText.value || item.title.toLowerCase().includes(searchText.value.toLowerCase())
-      ),
-    }))
-    .filter((group) => group.items.length)
-);
-
-function onSearchKeydown(e) {
-  if (e.key !== 'Enter') return;
-  const first = filteredGroups.value[0]?.items[0];
-  if (first) {
-    router.push(first.path);
-    closeDrawer();
-  }
-  searchText.value = '';
-}
-
 /** 通知下拉 */
 const bellOpen = ref(false);
 const bellBtnRef = ref(null);
@@ -278,7 +254,7 @@ const themeMeta = computed(() => {
       </div>
 
       <nav class="tabs">
-        <div v-for="(group, gi) in filteredGroups" :key="gi" class="tgroup">
+        <div v-for="(group, gi) in navGroups" :key="gi" class="tgroup">
           <button
             v-for="item in group.items"
             :key="item.path"
@@ -297,16 +273,6 @@ const themeMeta = computed(() => {
       </nav>
 
       <div class="hd-x">
-        <div class="search">
-          <u-icon name="search" />
-          <input
-            v-model="searchText"
-            type="text"
-            placeholder="搜索页签"
-            @keydown="onSearchKeydown"
-          />
-        </div>
-
         <span class="nd-bell-host">
           <button class="iconbtn" title="通知" @click.stop="toggleBell">
             <u-icon name="bell" />
@@ -387,13 +353,8 @@ const themeMeta = computed(() => {
         </button>
       </div>
 
-      <div class="search ndrawer-search">
-        <u-icon name="search" />
-        <input v-model="searchText" type="text" placeholder="搜索页签" @keydown="onSearchKeydown" />
-      </div>
-
       <nav class="ndrawer-nav">
-        <div v-for="(group, gi) in filteredGroups" :key="gi" class="ndrawer-g">
+        <div v-for="(group, gi) in navGroups" :key="gi" class="ndrawer-g">
           <button
             v-for="item in group.items"
             :key="item.path"
