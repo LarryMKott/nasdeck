@@ -3,6 +3,7 @@
  * 与「控制与自动化」页共用 UChannelManager/URuleEditor 组件（逻辑单源零复制）；
  * 非管理员只读提示（权限铁律：设置类操作仅管理员）。 */
 import { computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
 import { fetchAlertSettings } from '../services/automation';
@@ -15,6 +16,13 @@ defineOptions({ name: 'NasSettings' });
 
 const identity = useIdentityStore();
 identity.ensure();
+
+// 头像入口页不在导航页签内：微应用 iframe 里没有浏览器后退，须给显式退出路径
+const router = useRouter();
+function goBack() {
+  if (window.history.state?.back) router.back();
+  else router.push('/nasdeck/dash');
+}
 
 const {
   data: d,
@@ -32,7 +40,11 @@ const headerTag = computed(() => {
 
 <template>
   <section>
-    <u-page-header title="设置" sub="告警阈值 · 推送渠道" :tag="headerTag" :updated="lastUpdated" />
+    <u-page-header title="设置" sub="告警阈值 · 推送渠道" :tag="headerTag" :updated="lastUpdated">
+      <template #right>
+        <button class="btn sm" @click="goBack">返回</button>
+      </template>
+    </u-page-header>
 
     <div class="wg" style="margin-bottom: 0">
       <div class="wg-b" style="padding-bottom: 15px">

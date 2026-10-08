@@ -1,6 +1,7 @@
 <script setup>
 /** 关于：品牌信息 + 检查更新 + 构建信息（后端 /system/info + 演示回退） */
 import { computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { about as mockAbout } from '../mock';
 import { useViewData } from '../composables/useViewData';
 import { fetchAbout } from '../services/system';
@@ -8,6 +9,13 @@ import UPageHeader from '../components/UPageHeader.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasAbout' });
+
+// 头像入口页不在导航页签内：微应用 iframe 里没有浏览器后退，须给显式退出路径
+const router = useRouter();
+function goBack() {
+  if (window.history.state?.back) router.back();
+  else router.push('/nasdeck/dash');
+}
 
 const { data: d, live } = useViewData(fetchAbout, mockAbout);
 const headerTag = computed(() =>
@@ -17,7 +25,11 @@ const headerTag = computed(() =>
 
 <template>
   <section>
-    <u-page-header title="关于 nasdeck" sub="版本 · 更新 · 构建信息" :tag="headerTag" />
+    <u-page-header title="关于 nasdeck" sub="版本 · 更新 · 构建信息" :tag="headerTag">
+      <template #right>
+        <button class="btn sm" @click="goBack">返回</button>
+      </template>
+    </u-page-header>
 
     <div class="grid" style="margin-bottom: 0">
       <div class="wg t6">

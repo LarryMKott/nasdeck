@@ -78,12 +78,18 @@ const { data: activeAlerts } = useViewData(fetchActiveAlerts, mockAlerts);
 
 const cachedViews = computed(() => permissionStore.cachedViews);
 
-/** 页签纯图标模式（localStorage 持久化） */
-const iconsMode = ref(localStorage.getItem(NAV_ICONS_KEY) === '1');
+/** 页签样式偏好：'icons' | 'text' 为显式选择（任意宽度生效——中档宽度文本页签
+ * 靠 .tabs 横向滚动容纳，不再被强制改图标导致「切换无效果」）；
+ * 空 = 自动（≥1760 文本 / 1210–1759 强制图标）。兼容旧值：'1'→icons，'0'/缺省→自动 */
+const storedStyle = localStorage.getItem(NAV_ICONS_KEY);
+const explicitStyle = ref(
+  storedStyle === 'icons' || storedStyle === '1' ? 'icons' : storedStyle === 'text' ? 'text' : ''
+);
 
 function toggleIconsMode() {
-  iconsMode.value = !iconsMode.value;
-  localStorage.setItem(NAV_ICONS_KEY, iconsMode.value ? '1' : '0');
+  // 写入当前生效态的相反显式值：自动被强制成图标时点一下立即见到文本页签
+  explicitStyle.value = effectiveIcons.value ? 'text' : 'icons';
+  localStorage.setItem(NAV_ICONS_KEY, explicitStyle.value);
 }
 
 /**
@@ -96,8 +102,11 @@ const mqDrawer = window.matchMedia('(max-width: 1209px)');
 const wideEnough = ref(mqTextTabs.matches);
 const isNarrow = ref(mqDrawer.matches);
 
-/** 实际图标模式：用户偏好，或中档宽度下文本页签放不下时强制 */
-const effectiveIcons = computed(() => iconsMode.value || !wideEnough.value);
+/** 实际图标模式：显式选择优先，未选择时按宽度自动（中档放不下文本强制图标） */
+const effectiveIcons = computed(() => {
+  if (explicitStyle.value) return explicitStyle.value === 'icons';
+  return !wideEnough.value;
+});
 
 /** 抽屉菜单（<1100px 时经左上角按钮呼出） */
 const drawerOpen = ref(false);
@@ -243,12 +252,11 @@ const themeMeta = computed(() => {
 
     <div class="nav">
       <button
-        v-if="wideEnough || isNarrow"
         class="iconbtn"
         :title="
           isNarrow
             ? '打开导航菜单'
-            : iconsMode
+            : effectiveIcons
               ? '页签：纯图标（点击切换完整样式）'
               : '页签：完整样式（点击切换纯图标）'
         "
