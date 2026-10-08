@@ -13,22 +13,24 @@ export const useAppStore = defineStore('app', {
     device: 'desktop',
     /** Element Plus 组件尺寸：large | default | small */
     size: 'default',
-    /** UNRAID 界面主题：dark（默认）| light | system | cyber（赛博朋克）| terminal（终端绿 CRT） */
+    /** UNRAID 界面主题：dark（默认）| light | system | fnos（跟随飞牛桌面）| cyber（赛博朋克）| terminal（终端绿 CRT） */
     theme: 'dark',
     /** 系统是否偏好暗色（prefers-color-scheme，theme 为 system 时据此解析） */
     systemPrefersDark: false,
     /** fnOS 桌面主题（micro_app SDK 桥）：'dark' | 'light' | null（非宿主环境）。
-     * 桌面换肤不触发 prefers-color-scheme（真机实测），嵌入桌面时以此为准 */
+     * 桌面换肤不触发 prefers-color-scheme（真机实测），theme 为 fnos 时以此为准 */
     hostTheme: null,
   }),
 
   getters: {
-    /** 实际生效的主题：system 按宿主/系统偏好解析，其余（含花活皮肤）原样返回。
-     * 嵌入飞牛桌面时桌面主题优先（用户切换的就是它），独立页签回退浏览器媒体查询 */
+    /** 实际生效的主题：system 按浏览器/操作系统偏好，fnos 按飞牛桌面亮暗（未接入
+     * 宿主时回退系统偏好，避免无信号源乱跳）；其余（含花活皮肤）原样返回 */
     resolvedTheme() {
-      if (this.theme !== 'system') return this.theme;
-      if (this.hostTheme) return this.hostTheme;
-      return this.systemPrefersDark ? 'dark' : 'light';
+      if (this.theme === 'system') return this.systemPrefersDark ? 'dark' : 'light';
+      if (this.theme === 'fnos') {
+        return this.hostTheme ?? (this.systemPrefersDark ? 'dark' : 'light');
+      }
+      return this.theme;
     },
   },
 
@@ -38,9 +40,9 @@ export const useAppStore = defineStore('app', {
       this.sidebarCollapsed = !this.sidebarCollapsed;
     },
 
-    /** 切换 UNRAID 界面主题：dark → light → system → cyber → terminal 循环 */
+    /** 切换 UNRAID 界面主题：dark → light → system → fnos → cyber → terminal 循环 */
     toggleTheme() {
-      const order = ['dark', 'light', 'system', 'cyber', 'terminal'];
+      const order = ['dark', 'light', 'system', 'fnos', 'cyber', 'terminal'];
       this.theme = order[(order.indexOf(this.theme) + 1) % order.length];
     },
 

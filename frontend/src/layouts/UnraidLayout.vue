@@ -211,17 +211,20 @@ function jump(path) {
   router.push(path);
 }
 
-/** 主题按钮：图标反映当前模式，提示语说明点击后的去向（dark → light → system 循环）。
- * system 档带出实际解析结果（宿主桌面主题优先于浏览器偏好）——用户报「跟随系统
- * 不生效」时一眼可辨：按钮解析与飞牛桌面不符是应用问题；与应用一致但与期望不符
- * 则是浏览器/系统层设置（如浏览器外观覆盖了 OS 深浅色） */
+/** 主题按钮：图标反映当前模式，提示语说明点击后的去向（dark → light → system → fnos → cyber → terminal 循环）。
+ * system=浏览器/操作系统深浅色，fnos=飞牛桌面亮暗（桌面内数秒联动）。带出解析结果：
+ * 与期望不符时可一眼定位信号源——fnos 档未接入桌面宿主（独立页签打开）时注明回退口径 */
 const themeMeta = computed(() => {
+  const resolved = appStore.resolvedTheme === 'light' ? '浅' : '深';
   const meta = {
     dark: { icon: 'moon', title: '当前黑主题，点击切换白主题' },
-    light: { icon: 'sun', title: '当前白主题，点击跟随系统' },
-    system: {
-      icon: 'monitor',
-      title: `当前跟随系统（解析为${appStore.resolvedTheme === 'light' ? '浅' : '深'}色），点击切换赛博朋克`,
+    light: { icon: 'sun', title: '当前白主题，点击切换跟随系统' },
+    system: { icon: 'monitor', title: `当前跟随系统（解析为${resolved}色），点击切换跟随飞牛` },
+    fnos: {
+      icon: 'cloud',
+      title: appStore.hostTheme
+        ? `当前跟随飞牛（桌面为${appStore.hostTheme === 'light' ? '浅' : '深'}色），点击切换赛博朋克`
+        : `当前跟随飞牛（未接入桌面宿主，暂按系统偏好解析为${resolved}色），点击切换赛博朋克`,
     },
     cyber: { icon: 'pulse', title: '当前赛博朋克，点击切换终端绿' },
     terminal: { icon: 'server', title: '当前终端绿 CRT，点击切换黑主题' },
