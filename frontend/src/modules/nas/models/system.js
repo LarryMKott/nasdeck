@@ -110,3 +110,19 @@
  */
 
 export {};
+
+/** 星图远端聚合（花活二期 L）
+ * @typedef {object} NetworkRemote
+ * @property {string} ip
+ * @property {boolean} lan
+ * @property {number} count
+ */
+
+/** 网络星图数据面（花活二期 L）
+ * @typedef {object} NetworkMap
+ * @property {number} listening
+ * @property {number} established
+ * @property {number} lan
+ * @property {number} wan
+ * @property {NetworkRemote[]} remotes 最多 24 条按连接数降序
+ */

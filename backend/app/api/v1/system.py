@@ -18,6 +18,7 @@ from app.schemas.system import (
     ConfigExportIn,
     ContainerTrendResponse,
     DockerResponse,
+    NetworkMap,
     PortAliasIn,
     PortAliasOut,
     PortEntry,
@@ -175,6 +176,16 @@ async def docker_container_control(name: str, action: str) -> dict:
         dict: {name, action, ok: True}。
     """
     return await docker_service.container_control(name, action)
+
+
+@router.get("/network/map", response_model=NetworkMap)
+async def network_map() -> dict:
+    """网络星图数据面（花活二期 L）：LISTEN/ESTABLISHED 聚合 + 远端内网外网归类。
+
+    Returns:
+        dict: 见 schemas.system.NetworkMap。
+    """
+    return port_service.network_map()
 
 
 @router.get("/ports", response_model=list[PortEntry])

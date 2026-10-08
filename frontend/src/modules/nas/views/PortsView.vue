@@ -8,6 +8,7 @@ import { useIdentityStore } from '../stores/identity';
 import { fetchPorts } from '../services/system';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
+import UNetMap from '../components/UNetMap.vue';
 
 defineOptions({ name: 'NasPorts' });
 
@@ -55,6 +56,18 @@ const filtered = computed(() =>
       :sub="t('监听端口 · 进程 · 可达性')"
       :updated="lastUpdated"
     />
+
+    <!-- 网络星图（花活二期 L）：监听/连接聚合 + 每网口双向粒子河，真实口径 -->
+    <div class="wg" style="margin-bottom: 14px">
+      <div class="wg-h">
+        <u-icon name="net" />
+        <h3>{{ t('网络星图') }}</h3>
+        <span class="x">{{ t('恒星 = NAS · 亮斑 = 监听端口 · 粒子 = 真实连接与吞吐') }}</span>
+      </div>
+      <div class="wg-b">
+        <u-net-map />
+      </div>
+    </div>
 
     <div class="wg" style="margin-bottom: 0">
       <div

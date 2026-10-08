@@ -766,6 +766,19 @@ export const chassis = {
   ],
 };
 
+/** 网络星图演示聚合（花活二期 L；UNetMap 后端不可达时回退） */
+export const networkMap = {
+  listening: 12,
+  established: 9,
+  lan: 7,
+  wan: 2,
+  remotes: [
+    { ip: '192.168.31.12', lan: true, count: 3 },
+    { ip: '192.168.31.240', lan: true, count: 2 },
+    { ip: '223.5.5.5', lan: false, count: 1 },
+  ],
+};
+
 /** 容器 24h 趋势演示序列（花活二期 M；后端不可达时 fetchContainerTrend 回退） */
 export function dockerTrendDemo(name, hours = 24) {
   const n = Math.min(hours * 60, 400);

@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.services.system import container_points, docker
+from app.services.system import container_points, docker, ports
+from types import SimpleNamespace
 from app.services.system.container_points import ContainerPoint
 
 
@@ -131,3 +132,30 @@ async def test_control_validation_rejects(db):
         await docker.container_control("plex", "rm")  # action 白名单外
     with pytest.raises(InvalidParamsError):
         await docker.container_control("bad name;rm -rf", "start")  # 注入形态
+
+
+def test_is_lan_classification():
+    assert ports._is_lan("192.168.31.5") is True
+    assert ports._is_lan("10.0.0.1") is True
+    assert ports._is_lan("127.0.0.1") is True
+    assert ports._is_lan("fe80::1") is True
+    assert ports._is_lan("8.8.8.8") is False
+    assert ports._is_lan("not-an-ip") is False
+
+
+def test_network_map_aggregation(monkeypatch):
+    import psutil
+
+    from app.services.system import ports
+
+    conns = [
+        SimpleNamespace(status=psutil.CONN_LISTEN, raddr=None, laddr=SimpleNamespace(ip="0.0.0.0", port=9800)),
+        SimpleNamespace(status=psutil.CONN_ESTABLISHED, raddr=SimpleNamespace(ip="192.168.31.240", port=5522), laddr=None),
+        SimpleNamespace(status=psutil.CONN_ESTABLISHED, raddr=SimpleNamespace(ip="192.168.31.240", port=5523), laddr=None),
+        SimpleNamespace(status=psutil.CONN_ESTABLISHED, raddr=SimpleNamespace(ip="1.2.3.4", port=443), laddr=None),
+    ]
+    monkeypatch.setattr(ports.psutil, "net_connections", lambda kind="inet": conns)
+    r = ports.network_map()
+    assert r["listening"] == 1 and r["established"] == 3
+    assert r["lan"] == 2 and r["wan"] == 1
+    assert r["remotes"][0] == {"ip": "192.168.31.240", "lan": True, "count": 2}

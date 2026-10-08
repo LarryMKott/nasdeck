@@ -168,3 +168,19 @@ class ReportScheduleIn(BaseModel):
 
 class ReportScheduleOut(ReportScheduleIn):
     last_run: str | None = None  # ISO 日期；未推送过为 null
+
+
+class NetworkRemote(BaseModel):
+    """星图远端聚合条目（花活二期 L；只聚合 IP 与计数，不出网不引 GeoIP）。"""
+    ip: str
+    lan: bool
+    count: int
+
+
+class NetworkMap(BaseModel):
+    """网络星图数据面（花活二期 L）：一次连接表扫描的聚合视图。"""
+    listening: int
+    established: int
+    lan: int
+    wan: int
+    remotes: list[NetworkRemote] = []

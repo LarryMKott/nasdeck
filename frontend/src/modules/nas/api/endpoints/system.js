@@ -32,6 +32,12 @@ export function getDocker() {
   return apiData('/api/v1/system/docker/containers');
 }
 
+/** 网络星图数据面（花活二期 L）：LISTEN/ESTABLISHED 聚合 + 远端内网外网归类
+ * @returns {Promise<import('../../models/system').NetworkMap>} */
+export function getNetworkMap() {
+  return apiData('/api/v1/system/network/map');
+}
+
 /** 单容器资源趋势（1m 桶，花活二期 M）
  * @param {string} name 容器名
  * @param {number} hours 回看小时数 1-168
