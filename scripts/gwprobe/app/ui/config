@@ -1,0 +1,15 @@
+{
+    ".url": {
+        "com.test.gatewayprobe.main": {
+            "title": "Gateway Probe",
+            "desc": "统一网关存活探针（试验包，验证完即卸载）",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "",
+            "gatewayPrefix": "/app/com.test.gatewayprobe",
+            "gatewaySocket": "gwprobe.sock",
+            "url": "/app/com.test.gatewayprobe",
+            "allUsers": true
+        }
+    }
+}

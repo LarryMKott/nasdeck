@@ -1,0 +1,18 @@
+#!/bin/bash
+# 安装后回调：注册网关存活监控 cron（幂等）。
+#
+# 真机实测（fnOS 1.2.0701）：回调在 /vol2/appcenter-downloads/...-tpk 暂存目录执行，
+# TRIM_PKGVAR 之外的 TRIM_APPDEST 不注入，且暂存目录升级后即清——故 cron 一律指向
+# /var/apps 稳定前门路径，并用 `bash` 显式调用（不依赖回调阶段 chmod 是否已同步到目标）。
+# watch.sh 自身运行时自定位路径（见 app/watch.sh v3 注释），无需在此烘焙。
+LOG="${TRIM_TEMP_LOGFILE}"
+_APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd 2>/dev/null)"
+
+chmod +x "$_APP_DIR/cmd/"* "$_APP_DIR/app.py" 2>/dev/null
+# 目标位置已存在时尽力同步可执行位（回调可能在目标落位前执行，失败忽略）
+chmod +x /var/apps/com.test.gatewayprobe/target/watch.sh 2>/dev/null
+
+(crontab -l 2>/dev/null | grep -v "gwprobe-watch"; \
+  echo "*/10 * * * * bash /var/apps/com.test.gatewayprobe/target/watch.sh # gwprobe-watch") | crontab - 2>>"$LOG" \
+  && echo "[gwprobe] 监控 cron 已注册（每10分钟）" >> "$LOG"
+exit 0

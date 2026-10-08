@@ -112,3 +112,33 @@ export PYTHONPATH="${SERVER_DIR}/site-packages"
 - 实时推送（WebSocket）经 CGI 反代不可用，前端自动降级为 2s 轮询（设计内行为）。
 - `platform=x86`：随包 storcli64 为 x86_64 ELF；ARM 机器缺少阵列卡功能（其余正常降级）。
 - 健康报告 HTML 写在应用 target 目录（升级会清），历史数据本体在 @appdata 不受影响。
+
+## 真机形态事实（fnOS 1.2.0701，2026-10-08/09 gwprobe 试验实测）
+
+试验包 `scripts/gwprobe/`（应用 `com.test.gatewayprobe`，独立于生产包，验证完卸载）。
+以下事实影响所有 FPK 包与「访问模型」选型：
+
+- **生命周期回调在下载暂存目录执行**（`/vol2/appcenter-downloads/...-tpk`，升级后即清）：
+  `TRIM_APPDEST` 不注入、`TRIM_PKGVAR` 正常。回调里禁止用脚本自身位置反推目标路径写
+  长期存活文件，一律走 `/var/apps/{appname}` 稳定前门。生产包 `install_callback` 的
+  `ui/port`、`ui/proxy_token` 镜像因此落不进 target/ui/——**功能无损**：index.cgi 有
+  var 权威副本回退链，且 fnOS 维护 `/var/apps/{app}/var → @appdata` 符号链接；镜像由
+  cmd/main start 自愈（2026-10-09 起）。安装向导「自定义端口」真机验证仍是待办。
+- **appcenter-cli 无升级命令**：install-fpk 对已装应用一律拒绝（同版本跳过、新版本也拒），
+  升级 = uninstall + install；uninstall 不清 @appdata。
+- fnpack 设备端校验 `config/resource` 必需（缺则装机失败 code 10111），最小合法内容
+  `{"data-share":{"shares":[]}}`。
+- **网关鉴权先于路由**：未登录 curl 对存在/不存在的网关入口一律 `200 "invalid token"`，
+  HTTP 层无判别力；入口存活性只能看存储层——`/var/apps_ui/{app}` 符号链接（安装时
+  创建，指向 target/ui）+ config 的 `gatewaySocket` 字段（系统不改写 ui/config 内容）。
+  网关路由由 `trim_http_cgi`（Go）服务读取。
+
+## 网关模式复核试验（进行中，结论待 48h watch.log）
+
+「安装时让用户选访问模型（index.cgi / 统一网关）」的前置验证：2026-08 的
+「飞牛周期性清空第三方 gateway 入口」缺陷在当前版本是否仍复现。探针 root cron
+每 10 分钟采样落 `/vol2/@appdata/com.test.gatewayprobe/watch.log`，判据：
+`ALIVE` 全链路健康 / `ENTRY_CLEARED` 入口被清（缺陷复现）/ `SVC_DOWN`、`SOCK_DEAD`
+非入口问题。2026-10-08 23:02 部署起持续 ALIVE（截至 10-09 上午无复现）。
+结论出来后更新「访问模型」决策行；若缺陷已消失，网关模式的价值是 WS 实时推送
+（省掉 2s 轮询降级），届时再做安装/配置向导的模型切换（判据走存储层，不带登录态即可监控）。

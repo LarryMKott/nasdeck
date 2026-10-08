@@ -82,6 +82,20 @@ start_app() {
     # fnOS 默认不加载，须由应用自启恢复风扇可见性。
     modprobe nct6775 2>/dev/null || true
     modprobe it87 2>/dev/null || true
+    # ui 镜像自愈：install_callback 在下载暂存目录执行（真机 fnOS 1.2.0701 实测，
+    # 无 TRIM_APPDEST），写不进 target/ui/，index.cgi 只能走 var 权威副本回退。此处
+    # 以 var 为源刷新 ui/port、ui/proxy_token 镜像——不依赖回调时机，安装/升级/改端口
+    # 后 start 均自愈，恢复「CGI 读同目录镜像最可靠」的设计意图（index.cgi 仍保留
+    # var 回退链，双保险）。镜像 644：CGI 可能以非 root 拉起。
+    UI_DIR="${TRIM_APPDEST}/ui"
+    if [ -d "$UI_DIR" ]; then
+        for f in port proxy_token; do
+            if [ -s "${TRIM_PKGVAR}/$f" ]; then
+                cp -f "${TRIM_PKGVAR}/$f" "$UI_DIR/$f" 2>/dev/null
+                chmod 644 "$UI_DIR/$f" 2>/dev/null
+            fi
+        done
+    fi
     # 兜底：WOL 依赖 ethtool。安装阶段 NAS 无外网时可能缺，启动时幂等补一次
     # （已存在则 command -v 直接命中，不产生开销）。
     if ! command -v ethtool >/dev/null 2>&1; then
