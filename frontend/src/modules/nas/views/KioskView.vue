@@ -1,14 +1,28 @@
 <script setup>
 /** 大屏轮播模式（花活 A）：全屏监控墙——时钟 + 四屏轮播（总览/硬盘/温度/事件）。
  * 独立路由不套 UnraidLayout（无顶栏）；自带深色配色（无 .nd 主题变量）。
- * Esc / 点击呼出退出按钮；轮播间隔 ?sec= 可调（5-60，默认 10）。数据 5s 轮询。 */
+ * Esc / 点击呼出退出按钮；轮播间隔 ?sec= 可调（5-60，默认 10）。数据 5s 轮询。
+ * 星舰 HUD（花活二期 P）：底部荧光波形带（scopeCore 内核，rAF 平滑滚动，页面隐藏
+ * 自动停）+ 径向擦除转场 + firing 告警全屏红光呼吸 + 按宿主主题切换 accent。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { useAppStore } from '@/stores/modules/app';
 import { fetchKiosk } from '../services/monitor';
+import { drawGlowChannel } from '../utils/scopeCore';
 
 defineOptions({ name: 'NasKiosk' });
 
 const router = useRouter();
+const appStore = useAppStore();
+
+/** 主题 accent 自动适配（花活二期 P）：大屏保持深色底，仅换强调色 */
+const ACCENTS = {
+  dark: '#f15a2c',
+  cyber: '#2ee6c8',
+  terminal: '#41d98d',
+  light: '#f15a2c',
+};
+const accent = computed(() => ACCENTS[appStore.resolvedTheme] || ACCENTS.dark);
 
 /** 轮播间隔（秒）：?sec= 钳制 5-60 */
 const intervalSec = computed(() => {
@@ -39,6 +53,71 @@ let hideExitTimer = null;
 async function poll() {
   const r = await fetchKiosk();
   d.value = r.data;
+  // 波形带点缓冲：每次轮询推进一格（CPU% + 全网口收发合计 KB/s）
+  const rt = r.data.realtime;
+  if (rt) {
+    const net = Object.values(rt.net || {}).reduce(
+      (s, v) => s + (v.rx_kbps || 0) + (v.tx_kbps || 0),
+      0
+    );
+    bandPoints.value.push({ t: Date.now(), v: { cpu: rt.cpu_percent ?? null, net } });
+    const cutoff = Date.now() - BAND_WINDOW_MS - 10000;
+    while (bandPoints.value.length && bandPoints.value[0].t < cutoff) bandPoints.value.shift();
+  }
+  watchAlertFiring();
+}
+
+// ---- 星舰 HUD：底部荧光波形带（scopeCore 内核 + rAF 平滑滚动，隐藏页签自动停） ----
+const BAND_WINDOW_MS = 5 * 60 * 1000;
+const bandPoints = ref([]);
+const bandCanvas = ref(null);
+let bandRaf = 0;
+
+function drawBand() {
+  bandRaf = requestAnimationFrame(drawBand);
+  const canvas = bandCanvas.value;
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (!w || !h) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const tNow = Date.now();
+  const t0 = tNow - BAND_WINDOW_MS;
+  const data = bandPoints.value;
+  if (!data.length) return;
+  drawGlowChannel(ctx, data, 'net', '#3fb68b', {
+    w,
+    h,
+    t0,
+    tNow,
+    padTop: 8,
+    lineWidth: 1.3,
+    glow: 4,
+  });
+  drawGlowChannel(ctx, data, 'cpu', accent.value, { w, h, t0, tNow, padTop: 8 });
+}
+
+// ---- firing 告警红光：事件屏已有数据，firing 出现/消失驱动全屏边缘呼吸 ----
+const alertFiring = ref(false);
+let lastFiringKey = '';
+
+function watchAlertFiring() {
+  const events = d.value.events || [];
+  const key = events
+    .filter((e) => e.status === 'firing')
+    .map((e) => e.id)
+    .join(',');
+  if (key !== lastFiringKey) {
+    lastFiringKey = key;
+    alertFiring.value = !!key;
+  }
 }
 
 function rotate() {
@@ -75,12 +154,15 @@ onMounted(() => {
   clockTimer = setInterval(() => (now.value = new Date()), 1000);
   window.addEventListener('keydown', onKeydown);
   document.documentElement.style.background = '#05060a';
+  drawBand();
 });
 
 onBeforeUnmount(() => {
   clearInterval(pollTimer);
   clearInterval(rotateTimer);
   clearInterval(clockTimer);
+  cancelAnimationFrame(bandRaf);
+  bandRaf = 0;
   window.removeEventListener('keydown', onKeydown);
   document.documentElement.style.background = '';
 });
@@ -88,10 +170,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="kiosk" @mousemove="wakeUi" @click="wakeUi">
+    <!-- firing 告警全屏红光呼吸（花活二期 P） -->
+    <div v-if="alertFiring" class="k-alert-glow" />
     <header class="k-head">
-      <div class="k-clock num">{{ clockText }}</div>
+      <div class="k-clock num" :style="{ color: accent }">{{ clockText }}</div>
       <div class="k-brand">
-        <span class="k-logo">nasdeck</span>
+        <span class="k-logo" :style="{ color: accent }">nasdeck</span>
         <span class="k-date">{{ dateText }}</span>
       </div>
     </header>
@@ -208,6 +292,13 @@ onBeforeUnmount(() => {
       </transition>
     </main>
 
+    <!-- 荧光波形带（花活二期 P）：CPU + 全网口吞吐，5 分钟窗，rAF 平滑滚动 -->
+    <div class="k-band-wrap">
+      <canvas ref="bandCanvas" class="k-band" />
+      <span class="k-band-tag num" :style="{ color: accent }">CPU</span>
+      <span class="k-band-tag net num">NET</span>
+    </div>
+
     <footer class="k-footbar">
       <div class="k-dots">
         <span
@@ -215,6 +306,7 @@ onBeforeUnmount(() => {
           :key="name"
           class="k-dot-i"
           :class="{ on: screenIdx === i }"
+          :style="screenIdx === i ? { background: accent } : {}"
           :title="t(name)"
         />
       </div>
@@ -282,8 +374,79 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
-.k-screen {
+/* 4K 适配：背景保持全幅出血，内容三段限宽居中——卡片不至拉成超宽扁条；
+   ≥2560 视口（4K 150%/2K 100%）按大屏语义放大字号，远距离可读 */
+.k-head,
+.k-screen,
+.k-footbar {
   width: 100%;
+  max-width: 2560px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+@media (width >= 2560px) {
+  .kiosk {
+    padding: 40px 56px 28px;
+  }
+
+  .k-clock {
+    font-size: 88px;
+  }
+
+  .k-grid {
+    gap: 28px;
+  }
+
+  .k-card {
+    gap: 12px;
+    padding: 36px 40px;
+  }
+
+  .k-label {
+    font-size: 19px;
+  }
+
+  .k-big {
+    font-size: 80px;
+  }
+
+  .k-big i {
+    font-size: 26px;
+  }
+
+  .k-foot {
+    gap: 44px;
+    margin-top: 40px;
+    font-size: 19px;
+  }
+
+  .k-rows {
+    gap: 18px;
+  }
+
+  .k-row {
+    gap: 22px;
+    padding: 18px 26px;
+  }
+
+  .k-name {
+    min-width: 260px;
+    font-size: 23px;
+  }
+
+  .k-sub,
+  .k-tag {
+    font-size: 19px;
+  }
+
+  .k-bar {
+    height: 12px;
+  }
+
+  .k-empty {
+    font-size: 20px;
+  }
 }
 
 .k-grid {
@@ -396,6 +559,58 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+/* 星舰 HUD（花活二期 P）：firing 告警红光呼吸（全屏边缘） */
+.k-alert-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: inset 0 0 120px rgb(229 72 77 / 55%);
+  animation: k-alert-breath 2.4s ease-in-out infinite;
+}
+
+@keyframes k-alert-breath {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 荧光波形带：轮播下方通栏，固定深色底（kiosk 不用 .nd 令牌） */
+.k-band-wrap {
+  position: relative;
+  height: 64px;
+  margin-top: 8px;
+  overflow: hidden;
+  background: rgb(13 15 20 / 65%);
+  border: 1px solid #1c1e26;
+  border-radius: 10px;
+}
+
+.k-band {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.k-band-tag {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  opacity: 0.85;
+
+  &.net {
+    right: 48px;
+    color: #3fb68b;
+  }
+}
+
 .k-footbar {
   display: flex;
   gap: 20px;
@@ -451,20 +666,47 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
+/* 径向擦除转场（花活二期 P）：clip-path 圆形展开/收拢；reduced-motion 回退纯淡入淡出 */
 .kfade-enter-active,
 .kfade-leave-active {
   transition:
-    opacity 500ms ease,
-    transform 500ms ease;
+    clip-path 600ms ease,
+    opacity 400ms ease;
 }
 
 .kfade-enter-from {
-  opacity: 0;
-  transform: translateY(14px);
+  clip-path: circle(0% at 50% 50%);
+  opacity: 0.4;
+}
+
+.kfade-enter-to {
+  clip-path: circle(75% at 50% 50%);
 }
 
 .kfade-leave-to {
-  opacity: 0;
-  transform: translateY(-10px);
+  clip-path: circle(0% at 50% 50%);
+  opacity: 0.2;
+}
+
+.kfade-leave-from {
+  clip-path: circle(75% at 50% 50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kfade-enter-active,
+  .kfade-leave-active {
+    clip-path: none;
+    transition: opacity 300ms ease;
+  }
+
+  .kfade-enter-from,
+  .kfade-leave-to {
+    clip-path: none;
+  }
+
+  .k-alert-glow {
+    opacity: 0.7;
+    animation: none;
+  }
 }
 </style>
