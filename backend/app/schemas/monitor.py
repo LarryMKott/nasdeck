@@ -53,6 +53,23 @@ class DiskIoDevice(BaseModel):
     util_pct: float
 
 
+class TopProcess(BaseModel):
+    """进程榜条目（仅名称 + pid + 占用，端口页同款隐私口径，不含路径/参数）。"""
+    pid: int
+    name: str
+    # CPU 榜：平滑后 CPU% ；内存榜：null
+    percent: float | None = None
+    # 内存榜：驻存 MB 与占物理内存百分比；CPU 榜：null
+    rss_mb: float | None = None
+    mem_percent: float | None = None
+
+
+class TopProcs(BaseModel):
+    """进程风暴榜（花活二期 K，medium_5s 两轮均值去抖）。"""
+    cpu: list[TopProcess] = []
+    mem: list[TopProcess] = []
+
+
 class RealtimeSnapshot(BaseModel):
     """实时快照（秒级 WS/轮询数据源，契约 §6.1）。"""
     """实时快照（秒级 WS/轮询数据源）。"""
@@ -82,6 +99,8 @@ class RealtimeSnapshot(BaseModel):
     disk_io: dict[str, float]
     # 每盘 IO 速率（/proc/diskstats 差分；非 Linux / 无数据时 null）
     disk_io_devices: dict[str, DiskIoDevice] | None = None
+    # 进程风暴榜（medium_5s 采样；首轮采样前 null）
+    top_procs: TopProcs | None = None
     process_count: int
     uptime_s: int
 

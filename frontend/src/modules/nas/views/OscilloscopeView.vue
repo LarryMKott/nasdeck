@@ -236,6 +236,12 @@ function onLeave() {
 }
 
 const connText = computed(() => (realtime.connected ? t('实时推送') : t('轮询降级')));
+
+/** 角落榜首读数（花活二期 K）：当前 CPU 榜首进程；null = 尚无采样不占位 */
+const topProcText = computed(() => {
+  const p = realtime.snapshot?.top_procs?.cpu?.[0];
+  return p ? { name: p.name, pct: p.percent ?? '—' } : null;
+});
 </script>
 
 <template>
@@ -287,6 +293,10 @@ const connText = computed(() => (realtime.connected ? t('实时推送') : t('轮
             <span v-for="v in cursorVals.vals" :key="v.label" :style="{ color: v.color }">
               {{ v.label }} {{ v.text }}
             </span>
+          </div>
+          <div v-if="topProcText" class="scope-top num">
+            {{ t('CPU 榜首') }} <b>{{ topProcText.name }}</b
+            ><span class="pct">{{ topProcText.pct }}%</span>
           </div>
           <div v-else-if="!points.length" class="scope-empty small muted">
             {{ t('等待实时数据流入（—）：WS 推送或轮询降级接入后开始绘制') }}
@@ -345,6 +355,29 @@ const connText = computed(() => (realtime.connected ? t('实时推送') : t('轮
 
   .t {
     color: var(--tx2);
+  }
+}
+
+// 右上角榜首进程读数（花活二期 K），与左上角游标读数对称
+.scope-top {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--tx2);
+  pointer-events: none;
+  background: rgb(0 0 0 / 55%);
+  border-radius: 6px;
+
+  b {
+    margin-left: 4px;
+    color: var(--warn);
+  }
+
+  .pct {
+    margin-left: 6px;
+    color: var(--tx0);
   }
 }
 

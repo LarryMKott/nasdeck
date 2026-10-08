@@ -156,6 +156,15 @@ const gpuSeries = computed(() => [
   },
 ]);
 const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
+
+/** 进程风暴榜（花活二期 K）：快照直取，null = 尚无采样（合法真值显"—"） */
+const topProcs = computed(() => realtime.snapshot?.top_procs ?? null);
+/** CPU 榜条宽归一：按榜内最大值缩放（占用普遍 <100%，按 100% 缩会全短条） */
+const cpuBarPct = (p) => {
+  const top = topProcs.value?.cpu?.[0]?.percent ?? 0;
+  return top > 0 ? Math.max(3, Math.min(100, ((p.percent ?? 0) / top) * 100)) : 0;
+};
+const memBarPct = (p) => Math.max(3, Math.min(100, p.mem_percent ?? 0));
 </script>
 
 <template>
@@ -437,6 +446,54 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
       </div>
     </div>
 
+    <!-- 进程风暴榜（花活二期 K）：CPU/内存 Top 8 双榜，排名变化 FLIP 换位 -->
+    <div class="wg">
+      <div class="wg-h">
+        <u-icon name="cpu" />
+        <h3>{{ t('进程风暴榜') }}</h3>
+        <span class="x">{{
+          topProcs ? t('5s 采样 · 两轮均值去抖 · 仅名称与占用') : t('等待采样（—）')
+        }}</span>
+      </div>
+      <div class="wg-b storm">
+        <template v-if="topProcs">
+          <div class="board">
+            <div class="btitle">{{ t('CPU Top 8') }}</div>
+            <TransitionGroup name="storm" tag="div" class="rows">
+              <div
+                v-for="p in topProcs.cpu"
+                :key="p.pid"
+                class="prow"
+                :class="{ top1: p === topProcs.cpu[0] }"
+              >
+                <span class="pname" :title="`pid ${p.pid}`">{{ p.name }}</span>
+                <span class="pbar"><i :style="{ width: `${cpuBarPct(p)}%` }" /></span>
+                <span class="pval num">{{ p.percent ?? '—' }}%</span>
+              </div>
+            </TransitionGroup>
+          </div>
+          <div class="board">
+            <div class="btitle">{{ t('内存 Top 8') }}</div>
+            <TransitionGroup name="storm" tag="div" class="rows">
+              <div
+                v-for="p in topProcs.mem"
+                :key="p.pid"
+                class="prow"
+                :class="{ top1: p === topProcs.mem[0] }"
+              >
+                <span class="pname" :title="`pid ${p.pid}`">{{ p.name }}</span>
+                <span class="pbar mem"><i :style="{ width: `${memBarPct(p)}%` }" /></span>
+                <span class="pval num">{{ p.rss_mb ?? '—' }} M</span>
+              </div>
+            </TransitionGroup>
+          </div>
+        </template>
+        <div v-else class="small muted" style="padding: 14px 0; text-align: center">
+          {{ t('暂无进程采样（—）：实时通道接入后自动出现') }}
+        </div>
+      </div>
+    </div>
+
     <!-- 风扇转速 / Docker -->
     <div class="grid">
       <div class="wg t6">
@@ -683,5 +740,109 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
   line-height: 1.1;
   color: var(--tx2);
   text-align: center;
+}
+
+/* 进程风暴榜（花活二期 K）：双榜 + TransitionGroup FLIP 换位动画 */
+.storm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 26px;
+}
+
+.board {
+  flex: 1 1 300px;
+  min-width: 280px;
+}
+
+.btitle {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tx2);
+}
+
+.rows {
+  position: relative;
+}
+
+.prow {
+  display: grid;
+  grid-template-columns: 128px 1fr 56px;
+  gap: 8px;
+  align-items: center;
+  padding: 2.5px 0;
+  font-size: 12px;
+
+  &.top1 .pname {
+    font-weight: 600;
+    color: var(--warn);
+  }
+
+  &.top1 .pbar i {
+    background: var(--warn);
+  }
+}
+
+.pname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pbar {
+  height: 8px;
+  overflow: hidden;
+  background: var(--sf3);
+  border-radius: 4px;
+
+  i {
+    display: block;
+    height: 100%;
+    background: var(--acc);
+    border-radius: 4px;
+    transition: width 0.6s var(--ease);
+  }
+
+  &.mem i {
+    background: var(--purp);
+  }
+}
+
+.pval {
+  color: var(--tx2);
+  text-align: right;
+}
+
+/* FLIP：排名换位平移 + 进出淡入 */
+.storm-move {
+  transition: transform 0.45s var(--ease);
+}
+
+.storm-enter-active {
+  transition:
+    opacity 0.3s,
+    transform 0.45s var(--ease);
+}
+
+.storm-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.storm-leave-active {
+  position: absolute;
+  transition: opacity 0.25s;
+}
+
+.storm-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .storm-move,
+  .storm-enter-active,
+  .pbar i {
+    transition: none;
+  }
 }
 </style>

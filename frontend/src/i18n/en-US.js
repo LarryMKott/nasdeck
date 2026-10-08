@@ -360,4 +360,14 @@ export default {
   '暂无盘位数据（—）': 'No disk bay data (—)',
   '暂无趋势数据（—）': 'No trend data yet (—)',
   '近 30 天重映射扇区 · 1h 桶': 'Reallocated sectors · last 30 days, 1h buckets',
+
+  // ---- 花活二期 K：进程风暴榜 ----
+  进程风暴榜: 'Process storm board',
+  '5s 采样 · 两轮均值去抖 · 仅名称与占用': '5s sampling · 2-round smoothed · names & usage only',
+  '等待采样（—）': 'Waiting for samples (—)',
+  'CPU Top 8': 'CPU Top 8',
+  '内存 Top 8': 'Memory Top 8',
+  '暂无进程采样（—）：实时通道接入后自动出现':
+    'No process samples yet (—): appears once the realtime channel connects',
+  'CPU 榜首': 'Top CPU',
 };

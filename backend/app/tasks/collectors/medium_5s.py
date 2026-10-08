@@ -14,6 +14,7 @@ from app.services.alert.engine import evaluate_tick, schedule_drain
 from app.services.control import fan_manager
 from app.services.monitor import gpu as gpu_service
 from app.services.monitor import temperature
+from app.services.monitor import top_procs
 from app.services.monitor.cache import realtime_cache
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ async def medium_tick() -> None:
 
         # GPU 实时分量（服务内 5s 采样缓存；fast_tick 落库 gpu 列与 realtime 快照读取该缓存）
         realtime_cache.set("gpu", await gpu_service.collect(), ttl=10)
+        # 进程风暴榜（花活二期 K）：差分 + 两轮均值去抖，fast_tick 并入 realtime 快照
+        realtime_cache.set("top_procs", top_procs.sample(), ttl=15)
         realtime_cache.set("fan_outputs", outputs, ttl=10)
         if events:
             realtime_cache.set("latest_alert_events", events, ttl=10)

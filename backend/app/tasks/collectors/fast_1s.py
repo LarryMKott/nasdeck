@@ -24,6 +24,7 @@ async def fast_tick() -> None:
         snap = await system_resources.snapshot()
         # GPU / 温度分量由 medium_5s 采样维护缓存，本 tick 只并入与落库，不重复采集
         snap["gpu"] = realtime_cache.get("gpu")
+        snap["top_procs"] = realtime_cache.get("top_procs")  # 进程风暴榜（花活二期 K）
         temps = realtime_cache.get("temperatures")
         realtime_cache.set("realtime", snap, ttl=5)  # WS 实时源，每秒更新
         # 温度内嵌进插入行（读缓存，滞后 ≤15s 对 1m/10m 聚合无感）：
