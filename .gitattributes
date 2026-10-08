@@ -15,3 +15,6 @@ fpk/manifest text eol=lf
 *.jpg binary
 *.svg text eol=lf
 storcli64 binary
+
+# 网关探针试验包（cmd 脚本无 .sh 后缀，manifest/privilege/wizard 同属装机件）
+scripts/gwprobe/** text eol=lf
