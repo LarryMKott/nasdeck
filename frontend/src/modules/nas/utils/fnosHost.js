@@ -1,15 +1,22 @@
 'use strict';
 
 /**
- * fnOS 宿主主题桥（花活外·主题跟随）：飞牛桌面亮/暗模式 → 应用「跟随系统」档。
+ * fnOS 宿主主题桥（主题跟随）：飞牛桌面亮/暗模式 → 应用「跟随系统」档。
  *
  * 为什么需要：prefers-color-scheme 跟的是浏览器/操作系统，飞牛桌面自身换肤不触发
  * 该媒体查询（真机实测）——嵌入桌面（micro_app iframe）时必须走 @trimjs/web-app
  * SDK：getPlatformConfig() 读初值 + $on('os/theme') 监听变化。
  * 独立浏览器页签（isStandaloneWeb）无宿主环境，返回 false 由调用方回退媒体查询。
+ *
+ * 真机实测（fnOS 1.2.0701）：初值正确，但桌面换肤不派发 os/theme postMessage——
+ * 故以 10s 轮询 getPlatformConfig 兜底实时性（一次 postMessage 往返，开销可忽略）；
+ * 事件在新系统上若正常派发，则轮询成为冗余保险，语义不变。
  */
 
 const TRIM_THEME = { dark: 'dark', light: 'light' };
+const POLL_MS = 10000;
+
+let sdk = null;
 
 /**
  * 尝试接通 fnOS 宿主主题信号
@@ -19,16 +26,25 @@ const TRIM_THEME = { dark: 'dark', light: 'light' };
 export async function initFnosThemeBridge(onTheme) {
   try {
     const { TrimApp } = await import('@trimjs/web-app');
-    const sdk = new TrimApp();
+    sdk = new TrimApp();
     // 非微应用宿主（独立浏览器 / 移动内嵌）不提供 os/theme 事件
     if (sdk.isWeb !== true || sdk.isStandaloneWeb === true) return false;
-    const cfg = await sdk.getPlatformConfig();
-    const initial = TRIM_THEME[cfg?.theme];
-    if (initial) onTheme(initial);
-    await sdk.$on('os/theme', (theme) => {
-      const next = TRIM_THEME[theme];
+    const pull = async () => {
+      const cfg = await sdk.getPlatformConfig();
+      const next = TRIM_THEME[cfg?.theme];
       if (next) onTheme(next);
-    });
+    };
+    await pull();
+    // 事件监听优先（官方口径）；1.2.0701 实测不派发，轮询兜底保实时
+    try {
+      await sdk.$on('os/theme', (theme) => {
+        const next = TRIM_THEME[theme];
+        if (next) onTheme(next);
+      });
+    } catch {
+      /* 事件不可用不影响轮询 */
+    }
+    setInterval(() => pull().catch(() => {}), POLL_MS);
     return true;
   } catch {
     // SDK 缺失 / 桥未建立 / Scope 未声明：静默回退 prefers-color-scheme

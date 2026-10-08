@@ -212,15 +212,16 @@ function jump(path) {
 }
 
 /** 主题按钮：图标反映当前模式，提示语说明点击后的去向（dark → light → system 循环）。
- * system 档带出实际解析结果——用户报「跟随系统不生效」时，一眼可辨是 app 解析问题
- * 还是浏览器未跟随操作系统（按钮显示浅色而系统是深色 → 浏览器外观设置覆盖了 OS） */
+ * system 档带出实际解析结果（宿主桌面主题优先于浏览器偏好）——用户报「跟随系统
+ * 不生效」时一眼可辨：按钮解析与飞牛桌面不符是应用问题；与应用一致但与期望不符
+ * 则是浏览器/系统层设置（如浏览器外观覆盖了 OS 深浅色） */
 const themeMeta = computed(() => {
   const meta = {
     dark: { icon: 'moon', title: '当前黑主题，点击切换白主题' },
     light: { icon: 'sun', title: '当前白主题，点击跟随系统' },
     system: {
       icon: 'monitor',
-      title: `当前跟随系统（解析为${appStore.systemPrefersDark ? '深' : '浅'}色），点击切换赛博朋克`,
+      title: `当前跟随系统（解析为${appStore.resolvedTheme === 'light' ? '浅' : '深'}色），点击切换赛博朋克`,
     },
     cyber: { icon: 'pulse', title: '当前赛博朋克，点击切换终端绿' },
     terminal: { icon: 'server', title: '当前终端绿 CRT，点击切换黑主题' },
