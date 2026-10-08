@@ -13,7 +13,7 @@
  * @param {Array<{key: string, label: string, zone?: string, chip?: string, celsius: number, grade?: string}>} sensors
  * @returns {{cpu: object|null, nvme: object[], board: object|null, other: object[]}}
  */
-export function mapSensors(sensors = []) {
+export function mapSensors(sensors = [], remap = {}) {
   const text = (s) => `${s.key ?? ''} ${s.label ?? ''} ${s.chip ?? ''}`.toLowerCase();
   const nameHit = (s, ...words) => words.some((w) => text(s).includes(w));
   const out = { cpu: null, nvme: [], board: null, other: [] };
@@ -31,6 +31,20 @@ export function mapSensors(sensors = []) {
     } else if (zone !== 'disk') {
       out.other.push(s);
     }
+  }
+  // R3 持久化重映射覆盖：{ sensorKey: 'cpu'|'nvme'|'board'|'free' }——用户修正自动映射
+  for (const [key, role] of Object.entries(remap || {})) {
+    if (!['cpu', 'nvme', 'board', 'free'].includes(role)) continue;
+    const s = sensors.find((x) => x.key === key);
+    if (!s) continue;
+    if (out.cpu === s) out.cpu = null;
+    out.nvme = out.nvme.filter((x) => x !== s);
+    if (out.board === s) out.board = null;
+    out.other = out.other.filter((x) => x !== s);
+    if (role === 'cpu') out.cpu = s;
+    else if (role === 'nvme') out.nvme.push(s);
+    else if (role === 'board') out.board = s;
+    else out.other.push(s);
   }
   return out;
 }
@@ -54,7 +68,7 @@ export function tempGrade(celsius) {
  * @param {object} inv inventory：{sensors, fans, disks, board, gpuAvailable}
  * @returns {{kind: 'tower', size: {w,d,h}, boxes: object[]}}
  */
-export function towerTemplate(inv) {
+export function towerTemplate(inv, remap = {}) {
   // 投影语义：+x 屏幕右下、+y 屏幕左下、+z 上——(0,0) 远角朝上，开放角 (W, D) 朝观察者。
   // 机壳两墙贴远侧平面（x=0 / y=0），永不会被画家序（x+y 升序）画到部件之前。
   const W = 15;
@@ -71,7 +85,7 @@ export function towerTemplate(inv) {
   add({ id: 'case-wall-l', kind: 'case', x: 0, y: 0, z: 0, w: 0.5, d: D, h: H, label: '' });
   add({ id: 'case-wall-r', kind: 'case', x: 0, y: 0, z: 0, w: W, d: 0.5, h: H, label: '' });
 
-  const m = mapSensors(inv.sensors);
+  const m = mapSensors(inv.sensors, remap);
 
   // 主板基板：远半区（贴 y=0 右墙）
   add({ id: 'mobo', kind: 'mobo', x: 5, y: 0.6, z: 0.5, w: 6.8, d: 8.6, h: 0.4 });
@@ -241,7 +255,7 @@ export function towerTemplate(inv) {
   return { kind: 'tower', size: { w: W, d: D, h: H }, boxes };
 }
 
-export function virtualTemplate(inv) {
+export function virtualTemplate(inv, remap = {}) {
   const W = 16;
   const D = 13;
   const H = 4.5; // 场景内无高件：压低包围盒避免 viewBox 竖向留白
@@ -250,7 +264,7 @@ export function virtualTemplate(inv) {
 
   add({ id: 'slab', kind: 'mobo', x: 0, y: 0, z: 0, w: W, d: D, h: 0.4, label: '' });
 
-  const m = mapSensors(inv.sensors);
+  const m = mapSensors(inv.sensors, remap);
   const cpu = m.cpu;
   add({
     id: 'cpu',
@@ -335,7 +349,7 @@ export function virtualTemplate(inv) {
 }
 
 /** 机架式模板（1U/2U/4U）：前置横排盘位（8/12 盘多列）、风扇横列、后置长条电源。 */
-export function rackTemplate(inv) {
+export function rackTemplate(inv, remap = {}) {
   const W = 22;
   const D = 11;
   const H = 6;
@@ -346,7 +360,7 @@ export function rackTemplate(inv) {
   add({ id: 'case-wall-l', kind: 'case', x: 0, y: 0, z: 0, w: 0.4, d: D, h: H });
   add({ id: 'case-wall-r', kind: 'case', x: 0, y: 0, z: 0, w: W, d: 0.4, h: H });
 
-  const m = mapSensors(inv.sensors);
+  const m = mapSensors(inv.sensors, remap);
   const cpu = m.cpu;
   add({ id: 'mobo', kind: 'mobo', x: 7.4, y: 0.5, z: 0.4, w: 9, d: 9.6, h: 0.35 });
   add({
@@ -470,7 +484,7 @@ export function rackTemplate(inv) {
 }
 
 /** 紧凑型模板（NUC / ITX / 蜗牛星际）：单列盘位、低矮散热块、无 GPU 位、电源外置块。 */
-export function compactTemplate(inv) {
+export function compactTemplate(inv, remap = {}) {
   const W = 9;
   const D = 10;
   const H = 6.5;
@@ -481,7 +495,7 @@ export function compactTemplate(inv) {
   add({ id: 'case-wall-l', kind: 'case', x: 0, y: 0, z: 0, w: 0.4, d: D, h: H });
   add({ id: 'case-wall-r', kind: 'case', x: 0, y: 0, z: 0, w: W, d: 0.4, h: H });
 
-  const m = mapSensors(inv.sensors);
+  const m = mapSensors(inv.sensors, remap);
   const cpu = m.cpu;
   add({ id: 'mobo', kind: 'mobo', x: 0.6, y: 0.5, z: 0.4, w: 6.4, d: 8.8, h: 0.35 });
   add({

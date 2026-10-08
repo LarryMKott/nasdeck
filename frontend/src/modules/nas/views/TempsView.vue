@@ -49,7 +49,24 @@ identity.ensure();
 
 // R3：模板/机位/分解——机器级配置存 system_settings（所有访问者与 Kiosk 共享），
 // 仅管理员可写（PUT 被后端非 GET 强校验拒绝时静默，本地态仍生效到刷新为止）
-const chassis3d = reactive({ template: 'auto', preset: 'iso', explode: false });
+const chassis3d = reactive({ template: 'auto', preset: 'iso', explode: false, remap: {} });
+const remapOpen = ref(false);
+/** 自动映射的角色推断（面板展示用；实际映射在 templates.mapSensors） */
+function autoRole(s) {
+  const zone = s.zone ?? '';
+  if (zone === 'cpu') return 'cpu';
+  if (zone === 'nvme') return 'nvme';
+  if (zone === 'board') return 'board';
+  return 'free';
+}
+function remapRole(s) {
+  return chassis3d.remap?.[s.key] || autoRole(s);
+}
+function setRemap(key, role) {
+  if (role === 'auto') delete chassis3d.remap[key];
+  else chassis3d.remap[key] = role;
+  saveChassis3d();
+}
 const chassisEditable = ref(false);
 onMounted(async () => {
   try {
@@ -61,6 +78,7 @@ onMounted(async () => {
         : 'auto';
       chassis3d.preset = ['iso', 'high', 'side'].includes(v.preset) ? v.preset : 'iso';
       chassis3d.explode = !!v.explode;
+      chassis3d.remap = typeof v.remap === 'object' && v.remap ? v.remap : {};
     }
     chassisEditable.value = true;
   } catch {
@@ -208,6 +226,30 @@ onDeactivated(stopTimer);
           >
             <span class="tr" />{{ t('分解视图') }}
           </label>
+          <button class="btn sm" @click="remapOpen = !remapOpen">
+            {{ t('传感器映射') }}
+          </button>
+        </div>
+        <div v-if="remapOpen" class="remap-panel">
+          <div class="small muted" style="margin-bottom: 8px">
+            {{ t('自动映射错了就在这里改：把传感器指到正确的部件上，修正会持久化') }}
+          </div>
+          <div v-for="s in d.sensors ?? []" :key="s.key" class="remap-row">
+            <span
+              class="small"
+              style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+            >
+              {{ s.label || s.key }}
+              <span class="muted num">{{ s.celsius }} °C</span>
+            </span>
+            <select :value="remapRole(s)" @change="setRemap(s.key, $event.target.value)">
+              <option value="auto">{{ t('自动') }}</option>
+              <option value="cpu">{{ t('CPU 块') }}</option>
+              <option value="nvme">{{ t('M.2 区') }}</option>
+              <option value="board">{{ t('环境光') }}</option>
+              <option value="free">{{ t('游离方块') }}</option>
+            </select>
+          </div>
         </div>
       </div>
       <u-chassis3-d
@@ -292,6 +334,21 @@ onDeactivated(stopTimer);
   flex-wrap: wrap;
   gap: 14px;
   align-items: center;
+}
+
+.remap-panel {
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px dashed var(--bd);
+
+  .remap-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 420px;
+    padding: 3px 0;
+  }
 }
 
 .seg {

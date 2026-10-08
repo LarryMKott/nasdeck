@@ -148,6 +148,27 @@ async def build_digest(db: AsyncSession, now: datetime | None = None) -> str:
         lines.append("· SMART 重映射扇区 7 天增长：" + "、".join(f"{d['device']} +{d['delta']:g}" for d in growing))
     else:
         lines.append("· SMART：各盘重映射扇区 7 天无增长")
+    # 硬盘预言（花活二期 J）：全盘评分概览，最低分前三单列
+    from app.services.storage import smart_oracle
+    from app.services.storage import volumes as volume_service
+
+    try:
+        disks = await volume_service.list_disks()
+    except Exception:  # noqa: BLE001 盘清单不可达：评分段降级缺省
+        disks = []
+    oracle_map = await smart_oracle.forecast_all(
+        db, [smart_history.smart_key(d.get("device") or "") for d in disks]
+    )
+    scored = sorted(
+        ((dev, o["score"]) for dev, o in oracle_map.items() if o.get("score") is not None),
+        key=lambda kv: kv[1],
+    )
+    if scored:
+        worst = "、".join(f"{dev} {s}分" for dev, s in scored[:3])
+        watch_n = sum(1 for _d, sc in scored if sc < 85)
+        lines.append(f"· 硬盘预言 {len(scored)} 盘已评分（{watch_n} 盘需关注），最低：{worst}")
+    else:
+        lines.append("· 硬盘预言：暂无评分（盘接入积累 1h 桶后给出）")
     return "\n".join(lines)
 
 

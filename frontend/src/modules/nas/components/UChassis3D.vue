@@ -35,6 +35,7 @@ const props = defineProps({
   hotAt: { type: Number, default: 75 },
   // R3：强制模板（auto=DMI 自适配）+ 机位预设 + 分解视图
   template: { type: String, default: 'auto' }, // auto/tower/rack/compact/virtual
+  remap: { type: Object, default: null }, // { sensorKey: 'cpu'|'nvme'|'board'|'free' } R3 持久化重映射
   preset: { type: String, default: 'iso' }, // iso/high/side
   explode: { type: Boolean, default: false },
 });
@@ -55,7 +56,8 @@ const layout = computed(() =>
       nics: props.nics,
       gpuAvailable: props.gpuAvailable,
     },
-    props.template
+    props.template,
+    props.remap ?? {}
   )
 );
 

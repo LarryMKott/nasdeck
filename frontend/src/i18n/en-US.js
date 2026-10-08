@@ -410,6 +410,15 @@ export default {
   '生成分享 PNG': 'Share PNG',
   点击任意处跳过动画: 'Click anywhere to skip animation',
 
+  // ---- 花活 R 遗留收口：传感器重映射 ----
+  传感器映射: 'Sensor mapping',
+  '自动映射错了就在这里改：把传感器指到正确的部件上，修正会持久化':
+    'Fix wrong auto-mapping here: pin each sensor to the right part; changes persist',
+  'CPU 块': 'CPU block',
+  'M.2 区': 'M.2 area',
+  环境光: 'Ambient',
+  游离方块: 'Free cube',
+
   // ---- 花活三期 R3：立体机箱交互 ----
   机型模板: 'Chassis template',
   '自动（DMI 自适配）': 'Auto (DMI detect)',

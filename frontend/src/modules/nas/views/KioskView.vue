@@ -246,6 +246,22 @@ onBeforeUnmount(() => {
               <span class="k-tag" :style="{ color: HEALTH_COLOR[disk.health] }">
                 {{ HEALTH_TEXT[disk.health] || disk.health }}
               </span>
+              <!-- 健康分（花活二期 J 收口）：oracle 评分随 /storage/disks 下发 -->
+              <span
+                v-if="disk.oracle?.score != null"
+                class="k-tag num"
+                :style="{
+                  color:
+                    disk.oracle.score >= 85
+                      ? '#3fb68b'
+                      : disk.oracle.score >= 60
+                        ? '#eca43c'
+                        : '#e5484d',
+                }"
+                :title="t('健康分')"
+              >
+                {{ disk.oracle.score }}
+              </span>
             </div>
           </div>
           <div v-else class="k-empty">{{ t('磁盘清单不可用') }}</div>

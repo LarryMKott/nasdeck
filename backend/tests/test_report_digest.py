@@ -59,6 +59,7 @@ async def test_digest_composition(db):
     assert "近 7 天告警事件 1 次" in text
     assert "63.5 °C" in text
     assert "SMART" in text  # smart_history 空表 → 无增长分支
+    assert "硬盘预言：暂无评分" in text  # 无盘/无采样 → 降级缺省分支
 
 
 def test_due_window_and_dedup():
@@ -104,3 +105,23 @@ async def test_report_schedule_api_roundtrip(client):
 async def test_send_report_now_api(client):
     data = ok(await client.post("/api/v1/system/report/send", json={}))
     assert "NAS 周报" in data["digest"]
+
+
+async def test_digest_includes_oracle_scores(db, monkeypatch):
+    """硬盘预言评分段：有评分列最低分前三与需关注数（花活二期 J 收口）。"""
+    from app.services.storage import smart_oracle
+    from app.services.storage import volumes as volume_service
+
+    async def _fake_disks():
+        return [{"device": "sda"}, {"device": "sdb"}, {"device": "sdc"}]
+
+    monkeypatch.setattr(volume_service, "list_disks", _fake_disks)
+    # 直注入预言缓存（remember_reports 产出的最新值给评分用）
+    smart_oracle.remember_reports([
+        {"device": "sda", "temp_c": 35.0, "power_on_hours": 10000},
+        {"device": "sdb", "temp_c": 36.0, "power_on_hours": 20000},
+        {"device": "sdc", "temp_c": 37.0, "power_on_hours": 30000},
+    ])
+    text = await digest.build_digest(db, now=datetime(2026, 1, 5, 9, 0, tzinfo=UTC))
+    assert "硬盘预言 3 盘已评分" in text
+    assert "最低：sdc" in text  # 通电最久磨损维度最低
