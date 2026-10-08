@@ -90,7 +90,7 @@ function genStatusCard() {
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
-  text: live.value ? '正常' : '演示数据',
+  text: live.value ? t('正常') : t('演示数据'),
 }));
 const autoRefresh = ref(true);
 
@@ -126,7 +126,7 @@ const freqLabel = (i) => {
   return f ? (Math.round(f / 10) / 100).toFixed(1) : '—';
 };
 const coreTip = (i, v) => {
-  const parts = [`线程 ${i + 1}`];
+  const parts = [t('线程 {n}', { n: i + 1 })];
   if (v != null) parts.push(`${Math.round(v)}%`);
   const f = coreFreqMhz(i);
   if (f) parts.push(`${(Math.round(f / 10) / 100).toFixed(2)} GHz`);
@@ -150,7 +150,7 @@ const gpuHistory = ref([]);
 const gpuLabels = computed(() => gpuHistory.value.map((p) => p.label));
 const gpuSeries = computed(() => [
   {
-    name: 'GPU 使用率',
+    name: t('GPU 使用率'),
     color: chartColors.value.gpu,
     data: gpuHistory.value.map((p) => p.percent),
   },
@@ -161,22 +161,22 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 <template>
   <section>
     <u-page-header
-      title="总览"
-      sub="系统 · 阵列 · 风扇 · 服务"
+      :title="t('总览')"
+      :sub="t('系统 · 阵列 · 风扇 · 服务')"
       :tag="headerTag"
       :updated="lastUpdated"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
-          <span class="tr" />自动
+          <span class="tr" />{{ t('自动') }}
         </label>
         <button
           class="btn sm"
-          title="生成状态分享图（PNG）"
+          :title="t('生成状态分享图（PNG）')"
           :disabled="cardBusy"
           @click="genStatusCard"
         >
-          <u-icon name="dl" />状态卡
+          <u-icon name="dl" />{{ t('状态卡') }}
         </button>
         <u-time-machine ref="timeMachine" />
       </template>
@@ -191,11 +191,15 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
             style="display: flex; align-items: center; justify-content: space-between"
           >
             <span style="display: inline-flex; gap: 6px; align-items: center">
-              <u-icon name="cpu" />CPU 使用率
+              <u-icon name="cpu" />{{ t('CPU 使用率') }}
             </span>
             <span class="cpuswitch">
-              <span :class="{ on: cpuMode === 'usage' }" @click="cpuMode = 'usage'">使用率</span>
-              <span :class="{ on: cpuMode === 'freq' }" @click="cpuMode = 'freq'">频率</span>
+              <span :class="{ on: cpuMode === 'usage' }" @click="cpuMode = 'usage'">
+                {{ t('使用率') }}
+              </span>
+              <span :class="{ on: cpuMode === 'freq' }" @click="cpuMode = 'freq'">
+                {{ t('频率') }}
+              </span>
             </span>
           </div>
           <div class="big num">{{ d.cpu.percent }}<small>%</small></div>
@@ -235,27 +239,27 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           </div>
           <div class="kv2" style="margin-top: 8px">
             <div class="kvrow kvline">
-              <span class="muted small">总大小</span>
+              <span class="muted small">{{ t('总大小') }}</span>
               <span class="small num">{{ d.mem.totalText }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">已使用</span>
+              <span class="muted small">{{ t('已使用') }}</span>
               <span class="small num">{{ d.mem.usedText }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">可用</span>
+              <span class="muted small">{{ t('可用') }}</span>
               <span class="small num">{{ d.mem.availText }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">缓冲</span>
+              <span class="muted small">{{ t('缓冲') }}</span>
               <span class="small num">{{ d.mem.buffersText }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">缓存</span>
+              <span class="muted small">{{ t('缓存') }}</span>
               <span class="small num">{{ d.mem.cachedText }}</span>
             </div>
             <div class="kvrow">
-              <span class="muted small">系统保留</span>
+              <span class="muted small">{{ t('系统保留') }}</span>
               <span class="small num">{{ d.mem.reservedText }}</span>
             </div>
           </div>
@@ -264,7 +268,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 
       <div class="wg tile-wg t3">
         <div class="wg-b">
-          <div class="cap"><u-icon name="net" />网络吞吐</div>
+          <div class="cap"><u-icon name="net" />{{ t('网络吞吐') }}</div>
           <div class="big num">
             {{ d.net.rxValue ?? d.net.rxText }}<small>{{ d.net.rxUnit ?? 'MB/s ↓' }}</small>
           </div>
@@ -277,7 +281,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 
       <div class="wg tile-wg t3">
         <div class="wg-b">
-          <div class="cap"><u-icon name="drive" />磁盘 IO</div>
+          <div class="cap"><u-icon name="drive" />{{ t('磁盘 IO') }}</div>
           <div class="big num">
             {{ d.diskIo.readValue ?? d.diskIo.readText
             }}<small>{{ d.diskIo.readUnit ?? 'MB/s 读' }}</small>
@@ -294,7 +298,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
     <div class="grid">
       <div class="wg tile-wg t3">
         <div class="wg-b">
-          <div class="cap"><u-icon name="array" />阵列</div>
+          <div class="cap"><u-icon name="array" />{{ t('阵列') }}</div>
           <div class="big num">{{ d.array.total.split(' ')[0] }}<small>TB</small></div>
           <div class="meter" style="margin-top: 9px">
             <i class="c-ok" :style="{ width: `${d.array.usedPercent}%` }" />
@@ -314,18 +318,18 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
             style="width: 100%; margin-top: 9px"
             @click="$router.push('/nasdeck/storage')"
           >
-            管理阵列<u-icon name="chev" />
+            {{ t('管理阵列') }}<u-icon name="chev" />
           </button>
         </div>
       </div>
 
       <div class="wg tile-wg t3">
         <div class="wg-b">
-          <div class="cap"><u-icon name="pulse" />GPU 使用率</div>
+          <div class="cap"><u-icon name="pulse" />{{ t('GPU 使用率') }}</div>
           <div class="big num">{{ d.gpu.percent }}<small>%</small></div>
           <u-spark :data="gpuSparkData" :color="chartColors.gpu" />
           <div class="mtxt">
-            <span>核显 · 温度 {{ d.gpu.tempC ?? '—' }} °C</span>
+            <span>{{ t('核显 · 温度') }} {{ d.gpu.tempC ?? '—' }} °C</span>
             <span class="num">{{ d.gpu.vramText }}</span>
           </div>
         </div>
@@ -333,7 +337,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 
       <div class="wg tile-wg t3">
         <div class="wg-b">
-          <div class="cap"><u-icon name="power" />整机功耗</div>
+          <div class="cap"><u-icon name="power" />{{ t('整机功耗') }}</div>
           <div class="big num">{{ d.power.watts }}<small>W</small></div>
           <div class="meter" style="margin-top: 9px">
             <i :style="{ width: `${powerMeterPct}%` }" />
@@ -351,20 +355,20 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 
       <div class="wg tile-wg t3">
         <div class="wg-b">
-          <div class="cap"><u-icon name="clock" />系统</div>
+          <div class="cap"><u-icon name="clock" />{{ t('系统') }}</div>
           <div class="big num">
             {{ d.system.uptimeDays ?? '—' }}<small>{{ d.system.uptimeRest ?? '天' }}</small>
           </div>
           <div class="kvrow kvline">
-            <span class="muted small">系统</span>
+            <span class="muted small">{{ t('系统') }}</span>
             <span class="small num">{{ d.system.osVersion }}</span>
           </div>
           <div class="kvrow kvline">
-            <span class="muted small">负载 1/5/15m</span>
+            <span class="muted small">{{ t('负载 1/5/15m') }}</span>
             <span class="small num">{{ d.system.loadText }}</span>
           </div>
           <div class="kvrow">
-            <span class="muted small">进程数</span>
+            <span class="muted small">{{ t('进程数') }}</span>
             <span class="small num">{{ d.system.processCount }}</span>
           </div>
         </div>
@@ -375,9 +379,9 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
     <div class="wg">
       <div class="wg-h">
         <u-icon name="pulse" />
-        <h3>GPU 监控 · {{ d.gpuDetail.name }}</h3>
+        <h3>{{ t('GPU 监控 · {n}', { n: d.gpuDetail.name }) }}</h3>
         <span class="x"
-          ><span class="tag ok"><span class="dot" />核显 · 正常</span></span
+          ><span class="tag ok"><span class="dot" />{{ t('核显 · 正常') }}</span></span
         >
       </div>
       <div class="wg-b" style="display: flex; flex-wrap: wrap; gap: 22px">
@@ -393,27 +397,27 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           </div>
           <div style="margin-top: 10px">
             <div class="kvrow kvline">
-              <span class="muted small">显存（共享）</span
+              <span class="muted small">{{ t('显存（共享）') }}</span
               ><span class="small num">{{ d.gpuDetail.vramText }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">引擎占用</span
+              <span class="muted small">{{ t('引擎占用') }}</span
               ><span class="small num">{{ d.gpuDetail.engineText }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">GPU 频率</span
+              <span class="muted small">{{ t('GPU 频率') }}</span
               ><span class="small num">{{ d.gpuDetail.freqText }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">温度</span
+              <span class="muted small">{{ t('温度') }}</span
               ><span class="small num t-ok">{{ d.gpuDetail.tempC }} °C</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">功耗</span
+              <span class="muted small">{{ t('功耗') }}</span
               ><span class="small num">{{ d.gpuDetail.watts }} W</span>
             </div>
             <div class="kvrow">
-              <span class="muted small">驱动 / 转码</span
+              <span class="muted small">{{ t('驱动 / 转码') }}</span
               ><span class="small">{{ d.gpuDetail.driverText }}</span>
             </div>
           </div>
@@ -427,7 +431,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
             :y-tick-fmt="(v) => `${v}%`"
           />
           <div class="legend">
-            <span><i :style="{ background: chartColors.gpu }" />GPU 使用率</span>
+            <span><i :style="{ background: chartColors.gpu }" />{{ t('GPU 使用率') }}</span>
           </div>
         </div>
       </div>
@@ -438,11 +442,13 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
       <div class="wg t6">
         <div class="wg-h">
           <u-icon name="fan" />
-          <h3>风扇转速</h3>
+          <h3>{{ t('风扇转速') }}</h3>
           <span class="x"
             ><span class="tag" :class="d.fans.length ? 'acc' : 'mute'"
               ><span class="dot" />{{
-                d.fans.length ? `接管中 · ${d.fans.length}/${d.fans.length} 运转` : '未配置'
+                d.fans.length
+                  ? t('接管中 · {a}/{b} 运转', { a: d.fans.length, b: d.fans.length })
+                  : t('未配置')
               }}</span
             ></span
           >
@@ -461,20 +467,20 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
               </div>
               <div class="meter thin"><i :style="{ width: `${fan.dutyPercent}%` }" /></div>
               <div class="fd">
-                <span>占空比 {{ fan.dutyPercent }}%</span>
+                <span>{{ t('占空比 {d}%', { d: fan.dutyPercent }) }}</span>
                 <span>{{ fan.tempC }} °C</span>
               </div>
             </div>
           </div>
           <div v-else class="small muted" style="padding: 18px 0; text-align: center">
-            风扇未配置 · 到「风扇」页添加风区并接管后此处显示实时转速
+            {{ t('风扇未配置 · 到「风扇」页添加风区并接管后此处显示实时转速') }}
           </div>
           <button
             class="btn sm"
             style="width: 100%; margin-top: 11px"
             @click="$router.push('/nasdeck/fan')"
           >
-            风扇控制与曲线编辑<u-icon name="chev" />
+            {{ t('风扇控制与曲线编辑') }}<u-icon name="chev" />
           </button>
         </div>
       </div>
@@ -493,19 +499,19 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
               <div class="kvrow kvline">
                 <span :class="{ muted: c.exited }">{{ c.name }}</span>
                 <span v-if="!c.exited" class="num small">{{ c.statText }}</span>
-                <span v-else class="st bad small"><span class="dot" />已退出</span>
+                <span v-else class="st bad small"><span class="dot" />{{ t('已退出') }}</span>
               </div>
             </template>
           </div>
           <div v-else class="small muted" style="padding: 8px 0 2px">
-            {{ d.dockerText ?? '未检测到 Docker 容器' }}
+            {{ d.dockerText ?? t('未检测到 Docker 容器') }}
           </div>
           <button
             class="btn sm"
             style="width: 100%; margin-top: 11px"
             @click="$router.push('/nasdeck/docker')"
           >
-            查看容器
+            {{ t('查看容器') }}
           </button>
         </div>
       </div>
@@ -516,9 +522,11 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
       <div class="wg t8">
         <div class="wg-h">
           <u-icon name="drive" />
-          <h3>硬盘温度</h3>
+          <h3>{{ t('硬盘温度') }}</h3>
           <span class="x">{{
-            d.diskTemps.length ? `${d.diskTemps.length} 盘 · 按阈值着色` : '无温度数据源'
+            d.diskTemps.length
+              ? t('{n} 盘 · 按阈值着色', { n: d.diskTemps.length })
+              : t('无温度数据源')
           }}</span>
         </div>
         <div class="wg-b">
@@ -529,17 +537,17 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
             </div>
           </div>
           <div v-else class="small muted" style="padding: 18px 0; text-align: center">
-            未检测到硬盘温度传感器 · 传感器接入后此处显示各盘温度
+            {{ t('未检测到硬盘温度传感器 · 传感器接入后此处显示各盘温度') }}
           </div>
           <div class="legend">
-            <span><i style="background: var(--sf3)" />&lt; 40 正常</span>
+            <span><i style="background: var(--sf3)" />&lt; 40 {{ t('正常') }}</span>
             <span
               ><i style="background: var(--warnbg); border: 1px solid var(--warn)" />40 – 50
-              偏高</span
+              {{ t('偏高') }}</span
             >
             <span
               ><i style="background: var(--badbg); border: 1px solid var(--bad)" />&gt; 50
-              过热</span
+              {{ t('过热') }}</span
             >
           </div>
         </div>
@@ -548,7 +556,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
       <div class="wg t4">
         <div class="wg-h">
           <u-icon name="cloud" />
-          <h3>存储卷概览</h3>
+          <h3>{{ t('存储卷概览') }}</h3>
           <span class="x"
             ><span class="st"><span class="dot" />{{ d.storageSummary ?? '—' }}</span></span
           >
@@ -596,7 +604,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
             style="width: 100%; margin-top: 11px"
             @click="$router.push('/nasdeck/storage')"
           >
-            查看存储卷
+            {{ t('查看存储卷') }}
           </button>
         </div>
       </div>
@@ -606,9 +614,9 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
     <div class="wg">
       <div class="wg-h">
         <u-icon name="shield" />
-        <h3>活动告警</h3>
+        <h3>{{ t('活动告警') }}</h3>
         <span class="x"
-          ><span class="tag warn"><span class="dot" />{{ alerts.length }} 条</span></span
+          ><span class="tag warn"><span class="dot" />{{ alerts.length }} {{ t('条') }}</span></span
         >
       </div>
       <div class="wg-b">
@@ -624,7 +632,7 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           <button class="btn sm" @click="$router.push(a.jump.path)">{{ a.jump.action }}</button>
         </div>
         <div v-if="!alerts.length" class="small muted" style="padding: 6px 0">
-          {{ live ? '当前无活动告警' : '后端不可达，显示演示告警' }}
+          {{ live ? t('当前无活动告警') : t('后端不可达，显示演示告警') }}
         </div>
       </div>
     </div>

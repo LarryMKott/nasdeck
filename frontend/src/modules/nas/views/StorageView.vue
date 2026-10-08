@@ -37,29 +37,29 @@ const topoHasNodes = computed(
 const topoRoot = computed(() => {
   const c = topo.value.controller;
   if (!c && topo.value.arrays.length) {
-    return { icon: 'server', color: 'var(--acc)', label: '软阵列', sub: '内核 md (mdadm)' };
+    return { icon: 'server', color: 'var(--acc)', label: t('软阵列'), sub: t('内核 md (mdadm)') };
   }
   if (!c) {
     return {
       icon: 'drive',
       color: 'var(--info)',
-      label: '直连盘',
-      sub: `${topo.value.standalone.length} 块 · 无阵列`,
+      label: t('直连盘'),
+      sub: t('{n} 块 · 无阵列', { n: topo.value.standalone.length }),
     };
   }
   if (c.mode === 'soft') {
-    return { icon: 'server', color: 'var(--acc)', label: '软阵列', sub: '内核 md (mdadm)' };
+    return { icon: 'server', color: 'var(--acc)', label: t('软阵列'), sub: t('内核 md (mdadm)') };
   }
   return {
     icon: 'server',
     color: 'var(--acc)',
-    label: c.model || (c.mode === 'hba' ? 'HBA 直通' : '阵列卡'),
-    sub: c.mode === 'hba' ? 'HBA 直通' : 'MegaRAID',
+    label: c.model || (c.mode === 'hba' ? t('HBA 直通') : t('阵列卡')),
+    sub: c.mode === 'hba' ? t('HBA 直通') : 'MegaRAID',
   };
 });
 
 function arrSub(arr) {
-  return [arr.levelText, arr.sizeText, arr.state, !arr.healthy ? '降级' : null]
+  return [arr.levelText, arr.sizeText, arr.state, !arr.healthy ? t('降级') : null]
     .filter(Boolean)
     .join(' · ');
 }
@@ -95,9 +95,12 @@ function stopArray() {
 <template>
   <section>
     <u-page-header
-      title="存储卷"
-      sub="阵列设备 · 卷"
-      :tag="{ type: arrayRunning ? 'ok' : 'warn', text: arrayRunning ? '运行中' : '无阵列' }"
+      :title="t('存储卷')"
+      :sub="t('阵列设备 · 卷')"
+      :tag="{
+        type: arrayRunning ? 'ok' : 'warn',
+        text: arrayRunning ? t('运行中') : t('无阵列'),
+      }"
       :updated="lastUpdated"
     />
 
@@ -106,28 +109,30 @@ function stopArray() {
       <div class="wg-b opcard" style="padding: 15px 16px">
         <span class="odot" :class="{ off: !arrayRunning }" />
         <div class="ot">
-          <b>{{ arrayRunning ? '阵列运行中' : '阵列已停止' }}</b>
+          <b>{{ arrayRunning ? t('阵列运行中') : t('阵列已停止') }}</b>
           <small class="num"
             >{{ s.array.name }} · {{ s.array.level }} · {{ s.array.totalText }} ·
             {{ s.array.membersText }} · {{ s.array.activityText }}</small
           >
         </div>
         <div class="oa">
-          <button class="btn"><u-icon name="refresh" />校验 Parity</button>
-          <button class="btn go" :disabled="arrayRunning"><u-icon name="play" />启动阵列</button>
+          <button class="btn"><u-icon name="refresh" />{{ t('校验 Parity') }}</button>
+          <button class="btn go" :disabled="arrayRunning">
+            <u-icon name="play" />{{ t('启动阵列') }}
+          </button>
           <u-pop
             v-model="stopConfirmOpen"
-            ok-text="停止阵列"
-            cancel-text="取消"
+            :ok-text="t('停止阵列')"
+            :cancel-text="t('取消')"
             danger
             @confirm="stopArray"
           >
             <template #trigger>
               <button class="btn stop" :disabled="!arrayRunning">
-                <u-icon name="power" />停止阵列
+                <u-icon name="power" />{{ t('停止阵列') }}
               </button>
             </template>
-            确认停止阵列？将卸载所有卷并停止 {{ s.array.name }}。
+            {{ t('确认停止阵列？将卸载所有卷并停止 {n}。', { n: s.array.name }) }}
           </u-pop>
         </div>
       </div>
@@ -137,18 +142,18 @@ function stopArray() {
     <div v-if="s.arrayController" class="wg">
       <div class="wg-h">
         <u-icon name="array" />
-        <h3>阵列卡</h3>
+        <h3>{{ t('阵列卡') }}</h3>
         <span class="x">
           <span class="tag" :class="s.arrayController.mode === 'hba' ? 'acc' : 'ok'">
-            <span class="dot" />{{ s.arrayController.mode === 'hba' ? 'HBA 直通' : 'MegaRAID' }}
+            <span class="dot" />{{ s.arrayController.mode === 'hba' ? t('HBA 直通') : 'MegaRAID' }}
           </span>
         </span>
       </div>
       <div class="wg-b">
         <div class="chips" style="cursor: default">
-          <button class="btn sm">型号：{{ s.arrayController.model }}</button>
+          <button class="btn sm">{{ t('型号：{v}', { v: s.arrayController.model }) }}</button>
           <button v-if="s.arrayController.driver" class="btn sm">
-            驱动：{{ s.arrayController.driver }}
+            {{ t('驱动：{v}', { v: s.arrayController.driver }) }}
           </button>
           <button v-if="s.arrayController.cachevault" class="btn sm">
             CacheVault：{{ s.arrayController.cachevault }}
@@ -164,21 +169,23 @@ function stopArray() {
     <div class="wg">
       <div class="wg-h">
         <u-icon name="drive" />
-        <h3>阵列设备</h3>
-        <span class="x">温度阈值：40 °C 偏高 · 50 °C 过热</span>
+        <h3>{{ t('阵列设备') }}</h3>
+        <span class="x">{{
+          t('温度阈值：{a} °C {w} · {b} °C {h}', { a: 40, w: t('偏高'), b: 50, h: t('过热') })
+        }}</span>
       </div>
       <div class="tscroll m-hide">
         <table class="u">
           <thead>
             <tr>
-              <th>设备</th>
-              <th>盘位</th>
-              <th>文件系统</th>
-              <th class="r">温度</th>
-              <th class="r">读取</th>
-              <th class="r">写入</th>
-              <th style="min-width: 190px">容量</th>
-              <th>状态</th>
+              <th>{{ t('设备') }}</th>
+              <th>{{ t('盘位') }}</th>
+              <th>{{ t('文件系统') }}</th>
+              <th class="r">{{ t('温度') }}</th>
+              <th class="r">{{ t('读取') }}</th>
+              <th class="r">{{ t('写入') }}</th>
+              <th style="min-width: 190px">{{ t('容量') }}</th>
+              <th>{{ t('状态') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -244,9 +251,9 @@ function stopArray() {
       <div v-if="s.volume" class="wg t6">
         <div class="wg-h">
           <u-icon name="layers" />
-          <h3>卷 {{ s.volume.name }}</h3>
+          <h3>{{ t('卷 {n}', { n: s.volume.name }) }}</h3>
           <span class="x"
-            ><span class="st"><span class="dot" />已挂载</span></span
+            ><span class="st"><span class="dot" />{{ t('已挂载') }}</span></span
           >
         </div>
         <div class="wg-b">
@@ -260,14 +267,15 @@ function stopArray() {
           <div class="meter"><i class="c-ok" :style="{ width: `${s.volume.percent}%` }" /></div>
           <div class="kv2" style="margin-top: 10px">
             <div class="kvrow kvline">
-              <span class="muted small">文件系统</span><span class="small">{{ s.volume.fs }}</span>
+              <span class="muted small">{{ t('文件系统') }}</span
+              ><span class="small">{{ s.volume.fs }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">挂载点</span
+              <span class="muted small">{{ t('挂载点') }}</span
               ><span class="small num">{{ s.volume.mount }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">写满预测</span>
+              <span class="muted small">{{ t('写满预测') }}</span>
               <span class="small" :class="s.volume.forecast?.warn ? 't-warn' : ''">
                 {{ s.volume.forecast?.text || '—' }}
               </span>
@@ -279,9 +287,9 @@ function stopArray() {
       <div v-if="s.dataVolume" class="wg t6">
         <div class="wg-h">
           <u-icon name="cloud" />
-          <h3>数据卷 {{ s.dataVolume.name }}</h3>
+          <h3>{{ t('数据卷 {n}', { n: s.dataVolume.name }) }}</h3>
           <span class="x"
-            ><span class="st"><span class="dot" />实时</span></span
+            ><span class="st"><span class="dot" />{{ t('实时') }}</span></span
           >
         </div>
         <div class="wg-b">
@@ -297,15 +305,15 @@ function stopArray() {
           </div>
           <div class="kv2" style="margin-top: 10px">
             <div class="kvrow kvline">
-              <span class="muted small">文件系统</span
+              <span class="muted small">{{ t('文件系统') }}</span
               ><span class="small">{{ s.dataVolume.fs }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">挂载点</span
+              <span class="muted small">{{ t('挂载点') }}</span
               ><span class="small num">{{ s.dataVolume.name }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">写满预测</span>
+              <span class="muted small">{{ t('写满预测') }}</span>
               <span class="small" :class="s.dataVolume.forecast?.warn ? 't-warn' : ''">
                 {{ s.dataVolume.forecast?.text || '—' }}
               </span>
@@ -319,7 +327,7 @@ function stopArray() {
     <div v-if="topoHasNodes" class="wg" style="margin-top: 14px">
       <div class="wg-h">
         <u-icon name="array" />
-        <h3>存储拓扑</h3>
+        <h3>{{ t('存储拓扑') }}</h3>
       </div>
       <div class="wg-b">
         <div class="tree" style="overflow-x: auto">
@@ -343,7 +351,7 @@ function stopArray() {
                 <div class="small num" style="margin-bottom: 4px">
                   {{ arr.sync.text
                   }}<template v-if="arr.sync.finishText">
-                    · 预计剩余 {{ arr.sync.finishText }}</template
+                    · {{ t('预计剩余 {v}', { v: arr.sync.finishText }) }}</template
                   >
                   <template v-if="arr.sync.speedText"> · {{ arr.sync.speedText }}</template>
                 </div>
@@ -357,7 +365,7 @@ function stopArray() {
                     <span class="ddot" :style="{ background: memberDot(m) }" />
                     <span class="tn">{{ m.label }}</span>
                     <span class="sub">{{ memberSub(m) }}</span>
-                    <span v-if="m.hotspare" class="fsbadge">热备</span>
+                    <span v-if="m.hotspare" class="fsbadge">{{ t('热备') }}</span>
                   </div>
                 </li>
                 <li v-if="arr.volume">
