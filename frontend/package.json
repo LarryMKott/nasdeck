@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
+    "@trimjs/web-app": "^0.4.2",
     "element-plus": "^2.9.1",
     "nprogress": "^0.2.0",
     "pinia": "~2.1.7",

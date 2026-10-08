@@ -6,5 +6,8 @@
         "bin": [
             "server/bin/storcli64"
         ]
-    }
+    },
+    "api-scope": [
+        "trim.system.getPlatformConfig"
+    ]
 }
