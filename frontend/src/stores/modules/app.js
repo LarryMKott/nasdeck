@@ -42,9 +42,12 @@ export const useAppStore = defineStore('app', {
     initThemeWatcher() {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
       this.systemPrefersDark = mq.matches;
-      mq.addEventListener('change', (e) => {
+      // 老 webview（iOS Safari <14 等）MediaQueryList 未继承 EventTarget，只有废弃的 addListener
+      const on = (e) => {
         this.systemPrefersDark = e.matches;
-      });
+      };
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', on);
+      else if (typeof mq.addListener === 'function') mq.addListener(on);
     },
 
     /**
