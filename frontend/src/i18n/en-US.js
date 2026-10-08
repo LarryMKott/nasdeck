@@ -394,4 +394,19 @@ export default {
   // ---- 花活二期 O：开机自检动画 ----
   不再播放: "Don't play again",
   点击任意处跳过: 'Click anywhere to skip',
+
+  // ---- 花活二期 N：一键体检 ----
+  一键体检: 'Health checkup',
+  '六维体检：预言/容量/阵列/温度/告警/端口':
+    '6-dim checkup: oracle/capacity/raid/temp/alerts/ports',
+  '正在体检…': 'Checking…',
+  '体检不可用（—）：后端不可达，不显示假分':
+    'Checkup unavailable (—): backend unreachable, no fake score',
+  硬盘预言: 'Disk oracle',
+  容量预测: 'Capacity forecast',
+  阵列状态: 'Array status',
+  '30 天告警': '30-day alerts',
+  端口暴露面: 'Port exposure',
+  '生成分享 PNG': 'Share PNG',
+  点击任意处跳过动画: 'Click anywhere to skip animation',
 };

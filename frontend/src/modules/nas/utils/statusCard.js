@@ -201,3 +201,89 @@ export function downloadStatusCard(dash, extras = {}) {
   });
   return name;
 }
+
+/** 一键体检分享卡（花活二期 N）：六维体检结果 → 1080×640 PNG 下载。
+ * 离屏 canvas 写死深色（canvas 内无 CSS 变量，与状态卡同约定）。
+ * @param {{score: number|null, grade: string|null, items: Array<{key: string, score: number|null, status: string, detail: string}>}} checkup
+ * @returns {string} 文件名 */
+export function downloadCheckupCard(checkup) {
+  const W = 1080;
+  const H = 640;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const C = {
+    bg: '#141519',
+    panel: '#1b1d23',
+    txt: '#e8ecf4',
+    sub: '#8b8d95',
+    ok: '#3fb68b',
+    warn: '#eca43c',
+    bad: '#e5484d',
+    acc: '#f15a2c',
+  };
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = C.txt;
+  ctx.font = '800 30px Inter, "Microsoft YaHei", sans-serif';
+  ctx.fillText('nasdeck 一键体检', 44, 62);
+  ctx.fillStyle = C.sub;
+  ctx.font = '400 15px Inter, sans-serif';
+  ctx.fillText(new Date().toLocaleString('zh-CN', { hour12: false }), 44, 90);
+
+  // 右上总分大数字
+  ctx.textAlign = 'right';
+  ctx.fillStyle = checkup.grade === 'ok' ? C.ok : checkup.grade === 'warn' ? C.warn : C.bad;
+  ctx.font = '800 96px Inter, sans-serif';
+  ctx.fillText(checkup.score != null ? String(checkup.score) : '—', W - 56, 132);
+  ctx.fillStyle = C.sub;
+  ctx.font = '400 16px Inter, sans-serif';
+  ctx.fillText('/ 100', W - 56, 158);
+  ctx.textAlign = 'left';
+
+  // 六维条目行
+  const LABELS = {
+    oracle: '硬盘预言',
+    capacity: '容量预测',
+    raid: '阵列状态',
+    temp: '温度余量',
+    alerts: '30 天告警',
+    ports: '端口暴露面',
+  };
+  const rows = checkup.items || [];
+  const rowH = 76;
+  const top = 200;
+  rows.forEach((it, i) => {
+    const y = top + i * rowH;
+    ctx.fillStyle = C.panel;
+    ctx.fillRect(44, y - 30, W - 88, rowH - 16);
+    const col = it.status === 'ok' ? C.ok : it.status === 'warn' ? C.warn : C.bad;
+    ctx.fillStyle = col;
+    ctx.font = '800 20px Inter, "Microsoft YaHei", sans-serif';
+    ctx.fillText(it.score != null ? String(Math.round(it.score)) : '—', 72, y + 2);
+    ctx.fillStyle = C.txt;
+    ctx.font = '600 19px Inter, "Microsoft YaHei", sans-serif';
+    ctx.fillText(LABELS[it.key] || it.key, 140, y + 2);
+    ctx.fillStyle = C.sub;
+    ctx.font = '400 15px Inter, "Microsoft YaHei", sans-serif';
+    ctx.fillText(it.detail || '', 320, y + 2);
+  });
+
+  ctx.fillStyle = C.sub;
+  ctx.font = '400 14px Inter, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('by nasdeck · fnOS 硬件监控', W - 44, H - 32);
+  ctx.textAlign = 'left';
+
+  const name = `nasdeck-checkup-${new Date().toISOString().slice(0, 10)}.png`;
+  canvas.toBlob((blob) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+  return name;
+}

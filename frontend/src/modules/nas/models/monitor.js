@@ -67,6 +67,21 @@
  * @property {TopProcess[]} mem
  */
 
+/** 体检单项（score null = 缺数据，status 恒 warn）
+ * @typedef {object} CheckupItem
+ * @property {'oracle'|'capacity'|'raid'|'temp'|'alerts'|'ports'} key
+ * @property {number|null} score 0-100
+ * @property {'ok'|'warn'|'bad'} status
+ * @property {string} detail
+ */
+
+/** 一键体检（花活二期 N：六维聚合）
+ * @typedef {object} CheckupResponse
+ * @property {CheckupItem[]} items
+ * @property {number|null} score 加权总分
+ * @property {'ok'|'warn'|'bad'|null} [grade]
+ */
+
 /** 实时快照（WS 1s 推送 / GET /monitor/realtime 2s 轮询降级）
  * @typedef {object} RealtimeSnapshot
  * @property {string} ts

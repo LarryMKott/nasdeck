@@ -105,6 +105,21 @@ class RealtimeSnapshot(BaseModel):
     uptime_s: int
 
 
+class CheckupItem(BaseModel):
+    """体检单项（花活二期 N；score null = 缺数据，status 恒 warn 不造假）。"""
+    key: str  # oracle/capacity/raid/temp/alerts/ports
+    score: float | None = None
+    status: str  # ok/warn/bad
+    detail: str = ""
+
+
+class CheckupResponse(BaseModel):
+    """一键体检（纯聚合：预言/容量/阵列/温度/告警/端口六维加权）。"""
+    items: list[CheckupItem]
+    score: int | None = None
+    grade: str | None = None  # ok/warn/bad
+
+
 class TemperatureItem(BaseModel):
     """温度传感器条目（hwmon 直读 + SMART 盘温合并）。"""
     """温度传感器条目。"""

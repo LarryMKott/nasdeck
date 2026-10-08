@@ -21,12 +21,19 @@ import { fetchActiveAlerts } from '../services/automation';
 import { downloadStatusCard } from '../utils/statusCard';
 import UPageHeader from '../components/UPageHeader.vue';
 import UTimeMachine from '../components/UTimeMachine.vue';
+import UCheckup from '../components/UCheckup.vue';
 import USpark from '../components/USpark.vue';
 import ULineChart from '../components/ULineChart.vue';
 import FanRotor from '../components/FanRotor.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasDash' });
+
+/** 一键体检（花活二期 N）：UCheckup 全屏序列组件经 ref 触发 */
+const checkupRef = ref(null);
+function runCheckup() {
+  checkupRef.value?.run();
+}
 
 // 初始空骨架（磁贴显示「—」而非演示值）；mock 仅由适配层在后端不可达时整页回退
 const { data: d, live, lastUpdated } = useViewData(fetchDashboard, emptyDashboard());
@@ -181,6 +188,13 @@ const memBarPct = (p) => Math.max(3, Math.min(100, p.mem_percent ?? 0));
         </label>
         <button
           class="btn sm"
+          :title="t('六维体检：预言/容量/阵列/温度/告警/端口')"
+          @click="runCheckup"
+        >
+          <u-icon name="shield" />{{ t('一键体检') }}
+        </button>
+        <button
+          class="btn sm"
           :title="t('生成状态分享图（PNG）')"
           :disabled="cardBusy"
           @click="genStatusCard"
@@ -188,6 +202,7 @@ const memBarPct = (p) => Math.max(3, Math.min(100, p.mem_percent ?? 0));
           <u-icon name="dl" />{{ t('状态卡') }}
         </button>
         <u-time-machine ref="timeMachine" />
+        <u-checkup ref="checkupRef" />
       </template>
     </u-page-header>
 

@@ -7,13 +7,27 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
-from app.schemas.monitor import HistoryResponse, RealtimeSnapshot, Summary, TemperatureItem
+from app.schemas.monitor import CheckupResponse, HistoryResponse, RealtimeSnapshot, Summary, TemperatureItem
+from app.services.monitor import checkup as checkup_service
 from app.services.monitor import history as history_service
 from app.services.monitor import system_resources, temperature
 from app.services.monitor.cache import realtime_cache
 from app.services.storage import volumes as volume_service
 
 router = APIRouter(prefix="/monitor", tags=["monitor"], dependencies=[ApiKeyDep, TrimAuthDep])
+
+
+@router.get("/checkup", response_model=CheckupResponse)
+async def checkup(db: AsyncSession = DbDep) -> dict:
+    """一键体检（花活二期 N）：六维聚合只读端点，零新增采集。
+
+    Args:
+        db (AsyncSession): 数据库会话（框架注入）。
+
+    Returns:
+        dict: 见 schemas.monitor.CheckupResponse。
+    """
+    return await checkup_service.run_checkup(db)
 
 
 @router.get("/realtime", response_model=RealtimeSnapshot)
