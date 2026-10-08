@@ -5,9 +5,11 @@ import { temps as mockTemps } from '../mock';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
 import { fetchChassis, fetchTemps } from '../services/monitor';
+import { useRealtimeStore } from '../stores/realtime';
 import UPageHeader from '../components/UPageHeader.vue';
 import USpark from '../components/USpark.vue';
 import UChassis from '../components/UChassis.vue';
+import UChassis3D from '../components/UChassis3D.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasTemps' });
@@ -16,9 +18,19 @@ defineOptions({ name: 'NasTemps' });
 const warmAt = 45;
 const hotAt = 60;
 
-/** 视图模式：速览（磁贴+温度墙）/ 机箱（热力图），记忆上次选择 */
+/** 视图模式：速览（磁贴+温度墙）/ 立体（等距机箱，三期 R1）/ 机箱（2D 热力图），记忆上次选择 */
 const MODE_KEY = 'nd_temps_mode';
-const mode = ref(localStorage.getItem(MODE_KEY) === 'chassis' ? 'chassis' : 'quick');
+const _modeRaw = localStorage.getItem(MODE_KEY);
+const mode = ref(['quick', 'iso', 'chassis'].includes(_modeRaw) ? _modeRaw : 'quick');
+
+// 立体机箱实时分量：每盘 IO / 每网口吞吐 / RAPL 功耗 / GPU 可用（realtime 快照）
+const realtime = useRealtimeStore();
+onMounted(() => realtime.acquire());
+onBeforeUnmount(() => realtime.release());
+const ioMap = computed(() => realtime.snapshot?.disk_io_devices ?? null);
+const netMap = computed(() => realtime.snapshot?.net ?? null);
+const powerSnap = computed(() => realtime.snapshot?.power ?? null);
+const gpuOn = computed(() => !!realtime.snapshot?.gpu?.available);
 function setMode(m) {
   if (mode.value === m) return;
   mode.value = m;
@@ -32,7 +44,7 @@ const {
   live,
   refresh,
   lastUpdated,
-} = useViewData(() => (mode.value === 'chassis' ? fetchChassis() : fetchTemps()), mockTemps);
+} = useViewData(() => (mode.value === 'quick' ? fetchTemps() : fetchChassis()), mockTemps);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
@@ -98,6 +110,9 @@ onDeactivated(stopTimer);
           <button :class="{ on: mode === 'quick' }" @click="setMode('quick')">
             {{ t('速览') }}
           </button>
+          <button :class="{ on: mode === 'iso' }" @click="setMode('iso')">
+            {{ t('立体') }}
+          </button>
           <button :class="{ on: mode === 'chassis' }" @click="setMode('chassis')">
             {{ t('机箱') }}
           </button>
@@ -107,6 +122,25 @@ onDeactivated(stopTimer);
         </label>
       </template>
     </u-page-header>
+
+    <!-- 立体机箱（三期 R1）：inventory × 模板 → layout → 等距 SVG 渲染器 -->
+    <template v-if="mode === 'iso'">
+      <u-chassis3-d
+        :sensors="d.sensors ?? []"
+        :fans="d.fans ?? []"
+        :disks="d.disks ?? []"
+        :board="d.board ?? null"
+        :dimms="d.dimms ?? 2"
+        :nics="d.nics ?? 1"
+        :io="ioMap"
+        :net="netMap"
+        :power="powerSnap"
+        :gpu-available="gpuOn"
+        :warm-at="60"
+        :hot-at="75"
+        @jump="refresh"
+      />
+    </template>
 
     <template v-if="mode === 'chassis'">
       <u-chassis

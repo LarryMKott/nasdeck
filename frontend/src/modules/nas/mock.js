@@ -703,8 +703,17 @@ export const temps = {
   ],
 };
 
-/** 机箱热力图（花活 F）演示回退：与 fetchChassis 输出同形（sensors/fans/disks） */
+/** 机箱热力图（花活 F）演示回退：与 fetchChassis 输出同形（board/dimms/nics/sensors/fans/disks）。
+ * board 取 QEMU——立体机箱（三期 R）演示自动落到 virtual 逻辑视图 */
 export const chassis = {
+  board: {
+    vendor: 'Supermicro',
+    model: 'X11SCH-F',
+    product_name: 'X11SCH-F',
+    cpuName: 'Intel Xeon E-2124',
+  },
+  dimms: 2,
+  nics: 1,
   sensors: [
     { key: 'm:pkg', label: 'CPU Package', zone: 'cpu', celsius: 45, grade: 'normal' },
     { key: 'm:core1', label: 'Core 1', zone: 'cpu', celsius: 44, grade: 'normal' },

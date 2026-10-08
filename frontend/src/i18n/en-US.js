@@ -410,6 +410,12 @@ export default {
   '生成分享 PNG': 'Share PNG',
   点击任意处跳过动画: 'Click anywhere to skip animation',
 
+  // ---- 花活三期 R1：立体机箱 ----
+  立体: '3D',
+  塔式侧透: 'Tower (side panel off)',
+  '逻辑视图（虚拟机）': 'Logical view (virtual machine)',
+  立体机箱: '3D chassis',
+
   // ---- 花活二期 Q：跑分中心 ----
   跑分中心: 'Disk benchmark',
   '只读顺序读基准 · 占空比限速 · 同一时间仅一块盘':
