@@ -4,9 +4,9 @@
  * 每盒体投影出顶/左/右三面（同一色相三种不透明度 = 烘焙光影），面板色按实时温度
  * 分级（60/75），无源部件灰显悬停显"—"；悬停浮出实时读数 tooltip，点击跳对应页。
  * 纯 2D SVG 无 3D transform——老 WebView 无 z 排序兼容雷区（三期方案比选结论 B）。 */
-import { computed, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { boxFaces, boxCenter, depthCompare, sceneViewBox } from '../utils/isochassis/project';
+import { boxFaces, boxCenter, depthCompare, iso, sceneViewBox } from '../utils/isochassis/project';
 import { buildLayout, tempGrade } from '../utils/isochassis/templates';
 
 defineOptions({ name: 'UChassis3D' });
@@ -68,6 +68,15 @@ const drawn = computed(() =>
     } else if (bind.type === 'gpu') {
       celsius = null;
     }
+    // 动态层锚点（R2）：扇叶转轴（fan 左面朝观察者）、盘位活动灯（顶面近缘中点）
+    let blade = null;
+    let led = null;
+    if (b.kind === 'fan') {
+      blade = iso(b.x + b.w / 2, b.y + b.d, b.z + b.h / 2);
+    }
+    if (b.kind === 'bay') {
+      led = iso(b.x + b.w / 2, b.y + b.d, b.z + b.h);
+    }
     return {
       ...b,
       faces: boxFaces(b),
@@ -77,9 +86,116 @@ const drawn = computed(() =>
       iops,
       watts,
       kbps,
+      blade,
+      led,
     };
   })
 );
+
+// ---- R2 动态层：扇叶转速 / 盘位灯 / 网口闪烁的周期（IOPS·kbps 越高越快，0 静止） ----
+function ledStyle(total) {
+  if (!total || total <= 0) return null;
+  return { '--ldur': `${Math.max(0.16, 1.4 - Math.log10(total + 1) * 0.28).toFixed(2)}s` };
+}
+function bladeStyle(rpm) {
+  if (!rpm || rpm <= 0) return { '--fdur': '3s', animationPlayState: 'paused' };
+  return { '--fdur': `${Math.max(0.25, 2.4 - (rpm / 2000) * 2.1).toFixed(2)}s` };
+}
+function netStyle(kbps) {
+  if (!kbps || kbps <= 0) return null;
+  return { '--ndur': `${Math.max(0.3, 1.6 - Math.log10(kbps + 1) * 0.3).toFixed(2)}s` };
+}
+
+// ---- R2 气流粒子：canvas 叠加层与 SVG 共享同一投影（iso + viewBox 映射），
+// 粒子沿 -y 风道自盘笼流向后墙风扇，密度 ∝ 风扇 RPM；页面隐藏即停；reduced-motion 直关
+const airCv = ref(null);
+const AIR_CAP = 80;
+const drops = [];
+let airRaf = 0;
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function airSpawn() {
+  const fans = props.fans ?? [];
+  if (!fans.length || drops.length >= AIR_CAP) return;
+  const cage = layout.value.boxes.filter((b) => b.kind === 'bay');
+  const zone = cage.length
+    ? cage
+    : layout.value.boxes.filter((b) => b.kind === 'net' || b.kind === 'ram');
+  const b = zone[Math.floor(Math.random() * zone.length)];
+  if (!b) return;
+  drops.push({
+    x: b.x + 0.4 + Math.random() * (b.w - 0.8),
+    y: b.y + b.d - 0.4,
+    z: b.z + 0.6 + Math.random() * 1.2,
+    vy: -(0.1 + Math.random() * 0.12),
+    life: 0,
+  });
+}
+
+function worldToPx(pt, cw, ch) {
+  const { minX, minY, vw, vh } = viewBox.value;
+  const scale = Math.min(cw / vw, ch / vh);
+  const ox = (cw - vw * scale) / 2;
+  const oy = (ch - vh * scale) / 2;
+  return { x: ox + (pt.x - minX) * scale, y: oy + (pt.y - minY) * scale };
+}
+
+function airFrame() {
+  airRaf = requestAnimationFrame(airFrame);
+  const cv = airCv.value;
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const cw = cv.clientWidth;
+  const ch = cv.clientHeight;
+  if (!cw || !ch) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) {
+    cv.width = Math.round(cw * dpr);
+    cv.height = Math.round(ch * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cw, ch);
+  const fanRpm = (props.fans ?? []).reduce((a, f) => a + (f.rpm || 0), 0);
+  if (fanRpm <= 0) return; // 无风扇转速 → 无气流（不造假）
+  if (Math.random() < 0.35) airSpawn();
+  ctx.fillStyle = paletteAcc;
+  for (let i = drops.length - 1; i >= 0; i -= 1) {
+    const p = drops[i];
+    p.y += p.vy;
+    p.z += 0.008;
+    p.life += 1;
+    if (p.y < 0.6 || p.life > 240) {
+      drops.splice(i, 1);
+      continue;
+    }
+    const pt = worldToPx(iso(p.x, p.y, p.z), cw, ch);
+    ctx.globalAlpha = Math.max(0.08, 0.4 - p.life / 600);
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function startAir() {
+  if (reduced || airRaf) return;
+  airRaf = requestAnimationFrame(airFrame);
+}
+function stopAir() {
+  cancelAnimationFrame(airRaf);
+  airRaf = 0;
+}
+
+onMounted(() => {
+  const cs = getComputedStyle(document.querySelector('.nd') || document.body);
+  paletteAcc = cs.getPropertyValue('--acc')?.trim() || '#f15a2c';
+  startAir();
+});
+onActivated(startAir);
+onDeactivated(stopAir);
+onBeforeUnmount(stopAir);
+
+/** 悬停 tooltip：标签 + 实时读数（无源显"—"） */
 
 const KIND_JUMP = {
   cpu: '/nasdeck/system',
@@ -96,6 +212,7 @@ function onClick(box) {
 
 /** 悬停 tooltip：标签 + 实时读数（无源显"—"） */
 const hover = ref(null);
+let paletteAcc = '#f15a2c';
 function tipText(box) {
   const parts = [];
   if (box.kind === 'cpu' || box.kind === 'free' || box.kind === 'm2') {
@@ -122,6 +239,7 @@ function tipText(box) {
 
 <template>
   <div class="iso">
+    <canvas ref="airCv" class="air" />
     <svg
       :viewBox="`${viewBox.minX} ${viewBox.minY} ${viewBox.vw} ${viewBox.vh}`"
       role="img"
@@ -131,7 +249,12 @@ function tipText(box) {
         v-for="b in drawn"
         :key="b.id"
         class="box"
-        :class="[b.kind, b.grade, { clickable: !!b.label }]"
+        :class="[
+          b.kind,
+          b.grade,
+          { clickable: !!b.label, blink: b.kind === 'net' && (b.kbps ?? 0) > 0 },
+        ]"
+        :style="b.kind === 'net' ? netStyle(b.kbps) : null"
         @mouseenter="hover = b"
         @mouseleave="hover = null"
         @click="onClick(b)"
@@ -139,6 +262,36 @@ function tipText(box) {
         <polygon :points="b.faces.top" class="f top" />
         <polygon :points="b.faces.left" class="f left" />
         <polygon :points="b.faces.right" class="f right" />
+        <!-- R2：风扇扇叶（左面转轴，转速 → 周期；0 RPM 静止） -->
+        <g
+          v-if="b.kind === 'fan' && b.blade"
+          class="blades"
+          :class="{ still: !(b.bind?.rpm > 0) }"
+          :style="bladeStyle(b.bind?.rpm)"
+        >
+          <circle :cx="b.blade.x" :cy="b.blade.y" r="1.15" class="hub" />
+          <g :transform="`rotate(30 ${b.blade.x} ${b.blade.y})`">
+            <line
+              v-for="a in [0, 60, 120]"
+              :key="a"
+              :x1="b.blade.x"
+              :y1="b.blade.y"
+              :x2="b.blade.x + 1.15 * Math.cos((a * Math.PI) / 180)"
+              :y2="b.blade.y + 1.15 * Math.sin((a * Math.PI) / 180)"
+              class="blade"
+            />
+          </g>
+        </g>
+        <!-- R2：盘位活动灯（顶面近缘中点，IOPS → 闪烁周期；无 IO 恒灭） -->
+        <circle
+          v-if="b.kind === 'bay' && b.led"
+          :cx="b.led.x"
+          :cy="b.led.y"
+          r="0.32"
+          class="led"
+          :class="{ on: (b.iops?.read_iops ?? 0) + (b.iops?.write_iops ?? 0) > 0 }"
+          :style="ledStyle((b.iops?.read_iops ?? 0) + (b.iops?.write_iops ?? 0))"
+        />
         <!-- 顶面读数牌：CPU/盘位温度、电源瓦数（无源显"—"，不造假） -->
         <text
           v-if="b.label && (b.kind === 'cpu' || b.kind === 'psu')"
@@ -181,6 +334,86 @@ function tipText(box) {
     display: block;
     width: 100%;
     height: 460px;
+  }
+
+  .air {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+}
+
+.blades {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: iso-fan var(--fdur, 1.2s) linear infinite;
+
+  &.still {
+    animation-play-state: paused;
+  }
+
+  .hub {
+    fill: var(--sf3);
+    stroke: var(--bd);
+    stroke-width: 0.3;
+  }
+
+  .blade {
+    stroke: var(--tx2);
+    stroke-linecap: round;
+    stroke-width: 1.1;
+  }
+}
+
+.led {
+  opacity: 0.25;
+  fill: var(--sf3);
+
+  &.on {
+    fill: var(--acc);
+    animation: iso-led var(--ldur, 1s) infinite;
+  }
+}
+
+.blink {
+  animation: iso-net var(--ndur, 1.2s) infinite;
+}
+
+@keyframes iso-fan {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes iso-led {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes iso-net {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blades,
+  .led.on,
+  .blink {
+    animation: none;
   }
 }
 
