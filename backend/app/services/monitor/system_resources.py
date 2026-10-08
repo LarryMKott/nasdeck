@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 import psutil
 
 from app.services.hardware.policy import get_policy
+from app.services.monitor import diskstats
 from app.services.monitor.power import rapl_power
 from app.utils.sysfs import read_text
 from app.utils.unit_convert import kbps_to_human
@@ -365,8 +366,8 @@ async def snapshot() -> dict:
     Returns:
         dict: 含 ts / available / cpu_percent / cpu_per_core / cpu_freq_mhz /
             cpu_freq_per_core / cpu_freq_max_mhz / load / mem_* 全家 /
-            swap_percent / net（各真实网口分量）/ disk_io / power / process_count /
-            uptime_s。
+            swap_percent / net（各真实网口分量）/ disk_io / disk_io_devices
+            （每盘 IO，/proc/diskstats 差分）/ power / process_count / uptime_s。
     """
     cpu_percent, per_core = _cpu_percent()
     freq_per_core = _per_core_freq()
@@ -396,6 +397,7 @@ async def snapshot() -> dict:
         "swap_percent": mem["swap_percent"],
         "net": _net_ifaces(),
         "disk_io": _disk_io(),
+        "disk_io_devices": diskstats.snapshot(),
         "power": rapl_power(),
         "process_count": len(psutil.pids()),
         "uptime_s": int(time.time() - psutil.boot_time()),

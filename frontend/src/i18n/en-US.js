@@ -350,4 +350,14 @@ export default {
   '（已是最新）': ' (up to date)',
   更新日志: 'Changelog',
   构建信息: 'Build info',
+
+  // ---- 花活二期 I：2.5D 硬盘舱位墙 ----
+  表格: 'Table',
+  舱位: 'Bays',
+  硬盘舱位: 'Disk bays',
+  '面板色 = 温度（{a} °C 偏高 · {b} °C 过热）· 灯 = 真实 IO · 点击翻面看 SMART 摘要':
+    'Panel = temp ({a} °C warm · {b} °C hot) · LEDs = real IO · click to flip for SMART summary',
+  '暂无盘位数据（—）': 'No disk bay data (—)',
+  '暂无趋势数据（—）': 'No trend data yet (—)',
+  '近 30 天重映射扇区 · 1h 桶': 'Reallocated sectors · last 30 days, 1h buckets',
 };

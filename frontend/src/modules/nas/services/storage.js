@@ -121,6 +121,7 @@ export async function fetchStorage() {
         name: disk.device,
         model: disk.model || disk.device,
         slot: null, // 无真实槽位数据源（storcli PD 不经 lsblk）：显式 '—'，不虚构盘位序号
+        serial: disk.serial ?? null, // 舱位墙（花活二期 I）背面 SN 摘要用
         role: isHot ? '热备' : isMember ? 'RAID 成员' : null,
         alias: disk.alias || null,
         fsText: fsPart ? fsPart.fstype.toUpperCase() : null,

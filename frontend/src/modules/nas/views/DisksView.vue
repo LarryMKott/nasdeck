@@ -7,6 +7,7 @@ import { useIdentityStore } from '../stores/identity';
 import { fetchDisks, fetchDiskTrend } from '../services/storage';
 import UPageHeader from '../components/UPageHeader.vue';
 import UDropdown from '../components/UDropdown.vue';
+import UDiskBays from '../components/UDiskBays.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasDisks' });
@@ -14,6 +15,15 @@ defineOptions({ name: 'NasDisks' });
 // 权限铁律：设置类操作仅管理员；非管理员不渲染自检入口（写操作 POST /self-tests）
 const identity = useIdentityStore();
 identity.ensure();
+
+// 清单区视图：表格 / 舱位墙（花活二期 I），记忆上次选择
+const MODE_KEY = 'nd_disks_mode';
+const viewMode = ref(localStorage.getItem(MODE_KEY) === 'bays' ? 'bays' : 'table');
+function setViewMode(m) {
+  if (viewMode.value === m) return;
+  viewMode.value = m;
+  localStorage.setItem(MODE_KEY, m);
+}
 
 // 初始值用空骨架（mock 只在 live:false 整页演示时由适配层回退），避免首帧闪现假自检
 const {
@@ -50,6 +60,21 @@ const headerTag = computed(() => {
     text: warned ? t('{n} 块警告', { n: warned }) : t('全部正常'),
   };
 });
+
+/** 舱位墙数据适配（UDiskBays 形状）：IO 由组件订阅快照，mock 盘无 device 时灯灭显"—" */
+const bays = computed(() =>
+  (d.value.list ?? []).map((disk) => ({
+    device: disk.device || null,
+    slot: disk.slot,
+    model: disk.model,
+    tempC: disk.tempC,
+    capacityText: disk.capacity,
+    healthText: disk.health,
+    serial: disk.serial ?? null,
+    hoursText: disk.hours ?? null,
+    role: null,
+  }))
+);
 
 // ---- SMART 健康趋势（smart_15m 每 15 分钟落 1h/1d 桶；近 30 天用 1h 桶） ----
 const TREND_METRICS = [
@@ -124,10 +149,38 @@ const trendDelta = computed(() => {
       :sub="t('健康状态 · 自检')"
       :tag="headerTag"
       :updated="lastUpdated"
-    />
+    >
+      <template #right>
+        <div class="seg">
+          <button :class="{ on: viewMode === 'table' }" @click="setViewMode('table')">
+            {{ t('表格') }}
+          </button>
+          <button :class="{ on: viewMode === 'bays' }" @click="setViewMode('bays')">
+            {{ t('舱位') }}
+          </button>
+        </div>
+      </template>
+    </u-page-header>
+
+    <!-- 清单区：表格 / 舱位墙（花活二期 I）两态切换 -->
+    <div v-if="viewMode === 'bays'" class="wg">
+      <div class="wg-h">
+        <u-icon name="drive" />
+        <h3>{{ t('硬盘舱位') }}</h3>
+        <span class="x">{{
+          t('面板色 = 温度（{a} °C 偏高 · {b} °C 过热）· 灯 = 真实 IO · 点击翻面看 SMART 摘要', {
+            a: 60,
+            b: 75,
+          })
+        }}</span>
+      </div>
+      <div class="wg-b">
+        <u-disk-bays :disks="bays" />
+      </div>
+    </div>
 
     <!-- 桌面表格 -->
-    <div class="wg m-hide">
+    <div v-else class="wg m-hide">
       <div class="tscroll">
         <table class="u">
           <thead>
@@ -188,7 +241,7 @@ const trendDelta = computed(() => {
     </div>
 
     <!-- 移动端卡片 -->
-    <div class="m-cards">
+    <div v-if="viewMode === 'table'" class="m-cards">
       <div v-for="disk in d.list" :key="disk.slot" class="wg" style="margin-bottom: 10px">
         <div class="wg-b">
           <div style="display: flex; justify-content: space-between; margin-bottom: 7px">
@@ -302,3 +355,31 @@ const trendDelta = computed(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.seg {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--bd2);
+  border-radius: 6px;
+
+  button {
+    height: 28px;
+    padding: 0 12px;
+    font-size: 13px;
+    color: var(--tx2);
+    background: transparent;
+    border: none;
+    transition: all var(--t) var(--ease);
+
+    &.on {
+      color: #fff;
+      background: var(--acc);
+    }
+
+    &:hover:not(.on) {
+      color: var(--acc);
+    }
+  }
+}
+</style>

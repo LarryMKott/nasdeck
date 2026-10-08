@@ -44,6 +44,15 @@ class PowerRealtime(BaseModel):
     dram_w: float | None = None
 
 
+class DiskIoDevice(BaseModel):
+    """单盘实时 IO 速率条目（/proc/diskstats 差分；RAID 虚拟盘等拿不到的盘缺席，前端显"—"）。"""
+    read_iops: float
+    write_iops: float
+    read_kbps: float
+    write_kbps: float
+    util_pct: float
+
+
 class RealtimeSnapshot(BaseModel):
     """实时快照（秒级 WS/轮询数据源，契约 §6.1）。"""
     """实时快照（秒级 WS/轮询数据源）。"""
@@ -71,6 +80,8 @@ class RealtimeSnapshot(BaseModel):
     power: PowerRealtime | None = None
     net: dict[str, NetIface]
     disk_io: dict[str, float]
+    # 每盘 IO 速率（/proc/diskstats 差分；非 Linux / 无数据时 null）
+    disk_io_devices: dict[str, DiskIoDevice] | None = None
     process_count: int
     uptime_s: int
 
