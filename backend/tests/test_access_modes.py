@@ -51,22 +51,34 @@ async def test_gateway_prefix_absent_passthrough(monkeypatch):
 
 
 def test_public_path_placeholder_rewrite(tmp_path, monkeypatch):
-    """index.html 占位符按 NASDECK_PUBLIC_PATH 一次性替换落盘，重复挂载幂等。"""
+    """占位符按 NASDECK_PUBLIC_PATH 一次性替换落盘（index.html + JS 动态 import + CSS）。"""
     dist = tmp_path / "dist"
-    dist.mkdir()
-    original = '<script src="/__ND_PREFIX__/assets/a.js"></script><link href="/__ND_PREFIX__/x.css">'
-    (dist / "index.html").write_text(original, encoding="utf-8")
+    (dist / "assets" / "js").mkdir(parents=True)
+    (dist / "assets" / "css").mkdir(parents=True)
+    original_html = '<script src="/__ND_PREFIX__/assets/a.js"></script><link href="/__ND_PREFIX__/x.css">'
+    (dist / "index.html").write_text(original_html, encoding="utf-8")
+    # vite 把 base 烤进 JS 的懒加载 import 路径——只改 index.html 会让懒加载 chunk 全 404
+    (dist / "assets" / "js" / "views.js").write_text(
+        'const v="/__ND_PREFIX__/assets/js/NotFoundView-n2AIIAV0.js"', encoding="utf-8"
+    )
+    (dist / "assets" / "css" / "x.css").write_text(
+        'body{background:url("/__ND_PREFIX__/assets/img/bg.png")}', encoding="utf-8"
+    )
     monkeypatch.setattr(settings, "public_path", "/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi")
 
     mount_spa(FastAPI(), str(dist))
-    text = (dist / "index.html").read_text(encoding="utf-8")
-    assert text == (
-        '<script src="/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi/assets/a.js">'
-        '</script><link href="/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi/x.css">'
+    expect = "/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi"
+    assert f'src="{expect}/assets/a.js"' in (dist / "index.html").read_text(encoding="utf-8")
+    assert f'const v="{expect}/assets/js/NotFoundView-n2AIIAV0.js"' in (
+        dist / "assets" / "js" / "views.js"
+    ).read_text(encoding="utf-8")
+    assert f'url("{expect}/assets/img/bg.png")' in (dist / "assets" / "css" / "x.css").read_text(
+        encoding="utf-8"
     )
     # 幂等：占位符已消失，重复挂载不再改动（升级重启场景）
     mount_spa(FastAPI(), str(dist))
-    assert (dist / "index.html").read_text(encoding="utf-8") == text
+    assert "__ND_PREFIX__" not in (dist / "index.html").read_text(encoding="utf-8")
+    assert "__ND_PREFIX__" not in (dist / "assets" / "js" / "views.js").read_text(encoding="utf-8")
 
 
 def test_public_path_empty_leaves_dist_untouched(tmp_path, monkeypatch):

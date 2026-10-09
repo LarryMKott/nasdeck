@@ -63,28 +63,35 @@ def mount_spa(app: FastAPI, static_dir: str) -> None:
 
 
 def _rewrite_public_path(static_dir: str) -> None:
-    """把 dist/index.html 的资源基址占位符按 NASDECK_PUBLIC_PATH 一次性替换落盘。
+    """把 dist 内所有含占位符的文本资产按 NASDECK_PUBLIC_PATH 一次性替换落盘。
 
-    CGI 形态 = 完整 cgi 反代前缀（/cgi/ThirdParty/{appname}/index.cgi），网关形态 =
-    网关前缀（/app/{appname}），由 cmd/main 按访问模型导出；空值（开发/自托管直连）
-    或占位符不存在（非 FPK 构建）时不做任何改动。重复启动幂等：替换后占位符消失。
+    **必须覆盖 js/css 而非只 index.html**：vite 把 base 烤进 JS 包体（懒加载视图的
+    动态 import 路径与 CSS 的 url()），只改 index.html 会让懒加载 chunk 全部 404
+    （0.2.18 真机实测：首屏正常、路由切换白屏）。重复启动幂等：替换后占位符消失。
     """
     from app.core.config import settings
 
     if not settings.public_path:
         return
-    index = Path(static_dir) / "index.html"
-    try:
-        text = index.read_text(encoding="utf-8")
-    except OSError:
-        logging.getLogger(__name__).warning("index.html 不可读，资源基址占位符未替换")
-        return
-    if _PUBLIC_PATH_PLACEHOLDER not in text:
-        return
-    index.write_text(
-        text.replace(_PUBLIC_PATH_PLACEHOLDER, settings.public_path.rstrip("/")),
-        encoding="utf-8",
-    )
-    logging.getLogger(__name__).info(
-        "前端资源基址占位符已替换为 %s（访问模型形态基址）", settings.public_path
-    )
+    replaced = 0
+    root = Path(static_dir)
+    for path in root.rglob("*"):
+        if path.suffix not in (".html", ".js", ".css"):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue  # 二进制/不可解码文件跳过
+        if _PUBLIC_PATH_PLACEHOLDER not in text:
+            continue
+        path.write_text(
+            text.replace(_PUBLIC_PATH_PLACEHOLDER, settings.public_path.rstrip("/")),
+            encoding="utf-8",
+        )
+        replaced += 1
+    if replaced:
+        logging.getLogger(__name__).info(
+            "前端资源基址占位符已替换 %d 个文件（NASDECK_PUBLIC_PATH=%s）",
+            replaced,
+            settings.public_path,
+        )
