@@ -79,12 +79,39 @@ async def lifespan(app: FastAPI):
     await ingest.stop()
 
 
+class _GatewayPrefixStrip:
+    """统一网关形态前缀剥离（纯 ASGI，http/websocket 均处理）。
+
+    /app/{appname} → /、/app/{appname}/x → /x；不以 prefix 开头的路径原样透传
+    （兼容网关侧已剥前缀的转发行为）。仅改写 scope["path"]，raw_path/查询串不动。
+    """
+
+    def __init__(self, app, prefix: str):
+        self.app = app
+        self.prefix = prefix.rstrip("/")
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope.get("path", "")
+            if path == self.prefix:
+                scope["path"] = "/"
+            elif path.startswith(self.prefix + "/"):
+                scope["path"] = path[len(self.prefix):]
+        await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     setup_logging()  # 须先于任何业务日志：按 resolved_log_level 装配根 logger
     get_policy()  # 启动时决策硬件采集策略（单例结论全进程复用，决策依据进日志）
     app = FastAPI(title="nasdeck", version=settings.app_version, lifespan=lifespan)
     app.middleware("http")(envelope_middleware)
     register_exception_handlers(app)
+    # 统一网关形态：剥离转发前缀后再进路由。官方文档示例网关不剥前缀（应用收到
+    # /app/{appname}/x 全路径），剥离后路由/静态挂载与 CGI、直连形态完全一致；
+    # 若实测网关已剥前缀（路径不以 prefix 开头），本中间件原样透传，两种行为均正确。
+    # add_middleware 后注册者在外层：剥离须先于信封中间件看到请求
+    if settings.gateway_prefix:
+        app.add_middleware(_GatewayPrefixStrip, prefix=settings.gateway_prefix)
     # 存活探针：根路径、无鉴权（契约 §3.0；同样走信封，data 为 {"status":"healthy"}）
     app.get("/health", include_in_schema=False)(lambda: {"status": "healthy"})
     app.include_router(api_router, prefix="/api/v1")
@@ -111,5 +138,13 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host=settings.host, port=settings.port, log_level="info")
+    # 统一网关形态（NASDECK_UDS 非空）监听 Unix Socket，TCP host/port 不生效；
+    # CGI/直连形态 uds=None 走 TCP，行为与历史版本一致
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        uds=settings.uds or None,
+        log_level="info",
+    )
 

@@ -4,7 +4,27 @@
         "items": [
             {
                 "type": "tips",
-                "helpText": "<p>调整面板运行参数，保存后服务自动重启生效。值填 <b>0</b> 或选「保持不变」表示沿用当前设置；当前生效值可查看应用数据目录（@appdata）下的 <b>port</b> 与 <b>runtime.env</b> 文件。</p>"
+                "helpText": "<p>调整面板运行参数，保存后服务自动重启生效。值填 <b>0</b> 或选「保持不变」表示沿用当前设置；当前生效值可查看应用数据目录（@appdata）下的 <b>port</b>、<b>access_mode</b> 与 <b>runtime.env</b> 文件。</p>"
+            },
+            {
+                "type": "radio",
+                "field": "wizard_access_mode",
+                "label": "访问模型（切换入口方式，重启后生效）",
+                "initValue": "keep",
+                "options": [
+                    {
+                        "label": "保持不变",
+                        "value": "keep"
+                    },
+                    {
+                        "label": "CGI 反代（推荐：兼容性最好，WebSocket 不可用，秒级数据以 2 秒轮询呈现）",
+                        "value": "cgi"
+                    },
+                    {
+                        "label": "统一网关（WebSocket 实时推送；需较新 fnOS 支持网关入口）",
+                        "value": "gateway"
+                    }
+                ]
             },
             {
                 "type": "text",

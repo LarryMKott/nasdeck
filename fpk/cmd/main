@@ -26,6 +26,23 @@ case "$NASDECK_PORT" in
 esac
 export NASDECK_PORT
 export NASDECK_HOST=127.0.0.1
+# 访问模型（安装/配置向导选择，权威落盘 ${TRIM_PKGVAR}/access_mode；缺省 cgi）。
+# cgi = index.cgi 本机反代（TCP 回环 + proxy_token 信任链）；gateway = 统一网关
+# （uvicorn 监听 ${TRIM_APPDEST}/app.sock，trim_http_cgi 校验登录态后转发，
+# WebSocket 可用）。选择在每次 start 时应用为 ui/config 生效入口（见 start_app）。
+NASDECK_ACCESS_MODE="$(head -n 1 "${TRIM_PKGVAR}/access_mode" 2>/dev/null | tr -d '[:space:]')"
+case "$NASDECK_ACCESS_MODE" in
+    gateway) ;;
+    *) NASDECK_ACCESS_MODE=cgi ;;
+esac
+# 前端资源基址占位符替换值（statics 挂载时按此重写 dist/index.html）
+if [ "$NASDECK_ACCESS_MODE" = "gateway" ]; then
+    export NASDECK_UDS="${TRIM_APPDEST}/app.sock"
+    export NASDECK_GATEWAY_PREFIX="/app/com.dashboard.nasdeck"
+    export NASDECK_PUBLIC_PATH="/app/com.dashboard.nasdeck"
+else
+    export NASDECK_PUBLIC_PATH="/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi"
+fi
 # 运行参数：配置向导（config_callback）落盘于 ${TRIM_PKGVAR}/runtime.env，
 # 值均经白名单/数字校验后写入。
 # 日志级别仅在用户显式配置过时导出：缺省由后端 Settings.resolved_log_level 按版本
@@ -43,9 +60,10 @@ export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"
 export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist"
 # 分级鉴权：读=飞牛登录用户（index.cgi 转发 X-Trim-Userid），写=管理员（X-Trim-Isadmin）
 export NASDECK_TRIM_AUTH=true
-# 代理共享密钥：install_callback 生成落 var/proxy_token（升级保留）；缺失时后端
-# 跳过代理校验（旧包升级窗口/生成失败的降级路径，见 config.proxy_token 注释）
-if [ -s "${TRIM_PKGVAR}/proxy_token" ]; then
+# 代理共享密钥：install_callback 生成落 var/proxy_token（升级保留）；仅 CGI 反代
+# 形态注入（网关形态无 index.cgi，信任边界为 app.sock 文件权限，不导出即不校验）；
+# 缺失时后端跳过代理校验（旧包升级窗口/生成失败的降级路径，见 config.proxy_token 注释）
+if [ "$NASDECK_ACCESS_MODE" = "cgi" ] && [ -s "${TRIM_PKGVAR}/proxy_token" ]; then
     NASDECK_PROXY_TOKEN="$(head -n 1 "${TRIM_PKGVAR}/proxy_token" | tr -d '[:space:]')"
     [ -n "$NASDECK_PROXY_TOKEN" ] && export NASDECK_PROXY_TOKEN
 fi
@@ -96,21 +114,39 @@ start_app() {
             fi
         done
     fi
+    # 访问模型入口自愈：把所选形态（var/access_mode）的 ui/config 变体应用为生效
+    # 入口。升级整体替换包文件后 ui/config 回到包内缺省（cgi），下次 start 自动恢复
+    # 所选形态；形态切换（配置向导改 access_mode + 重启）同样经此生效。
+    if [ -d "$UI_DIR" ] && [ -f "${UI_DIR}/config.${NASDECK_ACCESS_MODE}" ]; then
+        if ! cmp -s "${UI_DIR}/config.${NASDECK_ACCESS_MODE}" "${UI_DIR}/config"; then
+            cp -f "${UI_DIR}/config.${NASDECK_ACCESS_MODE}" "${UI_DIR}/config" 2>/dev/null
+            log_msg "ui/config 已切换为 ${NASDECK_ACCESS_MODE} 形态入口"
+        fi
+    fi
     # 兜底：WOL 依赖 ethtool。安装阶段 NAS 无外网时可能缺，启动时幂等补一次
     # （已存在则 command -v 直接命中，不产生开销）。
     if ! command -v ethtool >/dev/null 2>&1; then
         (apt-get install -y -qq ethtool || apk add ethtool || yum install -y ethtool) >> "$LOG_FILE" 2>&1 || true
     fi
-    log_msg "Starting nasdeck (uvicorn ${NASDECK_HOST}:${NASDECK_PORT})..."
+    if [ "$NASDECK_ACCESS_MODE" = "gateway" ]; then
+        log_msg "Starting nasdeck (uvicorn uds=${NASDECK_UDS}, 网关形态)..."
+    else
+        log_msg "Starting nasdeck (uvicorn ${NASDECK_HOST}:${NASDECK_PORT})..."
+    fi
     cd "$SERVER_DIR" || {
         echo "缺少应用目录 $SERVER_DIR，安装可能不完整" > "${TRIM_TEMP_LOGFILE}"
         exit 1
     }
     "$PYTHON" main.py >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
-    # 就绪等待：/health 通了最好；最终以进程存活为准（避免慢盘误判启动失败）
+    # 就绪等待：/health 通了最好；最终以进程存活为准（避免慢盘误判启动失败）。
+    # 网关形态经 Unix Socket 探测，CGI/直连形态走 TCP 回环。
     for _ in $(seq 1 30); do
-        curl -sf -o /dev/null "http://127.0.0.1:${NASDECK_PORT}/health" 2>/dev/null && break
+        if [ "$NASDECK_ACCESS_MODE" = "gateway" ]; then
+            curl -sf --unix-socket "${NASDECK_UDS}" -o /dev/null "http://localhost/health" 2>/dev/null && break
+        else
+            curl -sf -o /dev/null "http://127.0.0.1:${NASDECK_PORT}/health" 2>/dev/null && break
+        fi
         kill -0 "$(head -n 1 "$PID_FILE" | tr -d '[:space:]')" 2>/dev/null || break
         sleep 0.5
     done

@@ -76,6 +76,23 @@ if [ -s "${TRIM_PKGVAR}/proxy_token" ]; then
     chmod 644 "$_APP_DIR/ui/proxy_token" 2>/dev/null
 fi
 
+# 0.4 访问模型落盘（安装向导 wizard_access_mode，缺省 cgi）：cmd/main start 按此
+#     分支监听形态（TCP 回环 / Unix Socket）并应用对应 ui/config 入口变体。
+#     白名单校验，非法值回退 cgi。
+access_mode="${wizard_access_mode:-cgi}"
+case "$access_mode" in
+    gateway|cgi)
+        printf '%s\n' "$access_mode" > "${TRIM_PKGVAR}/access_mode"
+        chmod 644 "${TRIM_PKGVAR}/access_mode" 2>/dev/null
+        echo "[nasdeck] 访问模型: ${access_mode}" >> "$LOG"
+        ;;
+    *)
+        printf 'cgi\n' > "${TRIM_PKGVAR}/access_mode"
+        chmod 644 "${TRIM_PKGVAR}/access_mode" 2>/dev/null
+        echo "[nasdeck] 访问模型: 非法值回退 cgi（收到：${access_mode}）" >> "$LOG"
+        ;;
+esac
+
 # 1. 系统工具检测（缺啥装啥）
 need_install=()
 command -v smartctl >/dev/null 2>&1 || need_install+=("smartmontools")

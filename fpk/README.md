@@ -41,8 +41,10 @@ fpk/                        # 打包源（本目录）
 └── app/                    # 应用内容（安装后与系统层合并到应用根目录）
     ├── app.py              # 健康检 shim：飞牛经 /app/app.py 软链探活（真机实测，勿删）
     ├── ui/
-│   ├── config          # 桌面入口（iframe → /cgi/ThirdParty/.../index.cgi/，所有用户可见）
-│   ├── index.cgi       # CGI 反代 → 本机回环端口（默认 9800，读同目录 ui/port 镜像）
+│   ├── config          # 桌面入口（生效副本，缺省 = config.cgi；cmd/main 按访问模型自愈切换）
+│   ├── config.cgi      # CGI 反代形态入口变体（iframe → /cgi/ThirdParty/.../index.cgi/）
+│   ├── config.gateway  # 统一网关形态入口变体（gatewayPrefix=/app/{appname} + gatewaySocket）
+│   ├── index.cgi       # CGI 反代 → 本机回环端口（默认 9800，读同目录 ui/port 镜像；网关形态不使用但随包保留）
 │   └── images/icon_{64,256}.png
     └── server/             # 构建脚本生成
         ├── main.py + app/          # FastAPI 后端
@@ -58,7 +60,7 @@ build/fpk/nasdeck-fnpack-*.fpk  # 最终交付物
 
 | 主题 | 决策 | 原因 |
 |---|---|---|
-| 访问模型 | **CGI 反代**（iframe → index.cgi → 本机回环端口），不用统一网关 | 飞牛会周期性清空第三方 `entry.gateway_socket` 导致网关 404（2026-08 真机实测，看门狗方案已废弃） |
+| 访问模型 | **安装/配置向导可选 CGI 反代（缺省）或统一网关**；CGI = iframe → index.cgi → 本机回环端口（WebSocket 不可用，前端 2s 轮询），网关 = uvicorn 监听 `${TRIM_APPDEST}/app.sock`（WebSocket 实时推送）。权威选择落 `${TRIM_PKGVAR}/access_mode`，**cmd/main start 时应用**：按形态导出 `NASDECK_UDS/GATEWAY_PREFIX/PUBLIC_PATH`、把 `ui/config.{cgi,gateway}` 变体应用为生效入口（升级打回后自愈） | 网关 2026-08 真机教训（入口被清）在现行 ui/config 声明方式下未复现（gwprobe 48h 观察见下），故恢复为可选项、CGI 仍缺省；前缀剥离中间件对「网关剥/不剥前缀」两种转发行为均正确；网关形态鉴权信任边界 = app.sock 文件权限（`require_trim_auth` 按 NASDECK_UDS 跳过 proxy_token） |
 | 端口 | 回环端口**默认 9800，安装向导可自定义、应用「配置」可随时修改**（`wizard_port` → 校验+占用预检 → 落盘 `${TRIM_PKGVAR}/port`，镜像 `ui/port`）；manifest 按 CGI 规范省略 `service_port`、`checkport=false` | cmd/main 与 index.cgi 从同一落盘文件读端口（非法值回退 9800）；仅绑 127.0.0.1，不向局域网暴露管理面板 |
 | 运行参数 | 日志级别 / 原始数据保留时长经**配置向导**落盘 `${TRIM_PKGVAR}/runtime.env`，cmd/main 启动时 source | `NASDECK_LOG_LEVEL` 仅在用户显式选过时落盘导出，缺省由后端按版本通道判定：**dev- 前缀包 DEBUG**（真机排查采集链路）、正式包 INFO；`NASDECK_RAW_KEEP_MINUTES`（默认 120）；后端 pydantic-settings 前缀映射零改动 |
 | 鉴权 | `NASDECK_TRIM_AUTH=true`：读=飞牛登录（X-Trim-Userid），写=管理员（X-Trim-Isadmin） | index.cgi 转发的可信身份头在后端强制校验（`require_trim_auth`）；桌面入口 `allUsers=true` 全员可见（普通用户只读，前端屏蔽设置按钮）；`/health` 探针除外 |
@@ -77,8 +79,13 @@ export NASDECK_HOST=127.0.0.1   # 回环反代
 . "${TRIM_PKGVAR}/runtime.env"  # 配置向导落盘：LOG_LEVEL（显式配置才有）/ RAW_KEEP_MINUTES（缺省 120）
 export NASDECK_DB_URL="sqlite+aiosqlite:///${TRIM_PKGVAR}/nasdeck.db"  # 四斜杠=绝对路径，三斜杠是相对路径
 export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"
-export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist" # 后端托管 SPA
-export NASDECK_TRIM_AUTH=true                      # 分级鉴权：读=登录用户，写=管理员
+export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist" # 后端托管 SPA（挂载时按 PUBLIC_PATH 替换 index.html 资源基址占位符）
+export NASDECK_TRIM_AUTH=true                      # 分级鉴权：读=飞牛登录用户，写=管理员
+export NASDECK_PUBLIC_PATH="/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi"  # CGI 形态；网关形态=/app/com.dashboard.nasdeck
+# 以下仅网关形态导出（CGI 形态缺省）：
+# export NASDECK_UDS="${TRIM_APPDEST}/app.sock"                # uvicorn 监听 Unix Socket（TCP 不生效）
+# export NASDECK_GATEWAY_PREFIX="/app/com.dashboard.nasdeck"   # 前缀剥离中间件
+# 网关形态不导出 NASDECK_PROXY_TOKEN（无 index.cgi，信任边界=app.sock 文件权限）
 export PYTHONPATH="${SERVER_DIR}/site-packages"
 ```
 

@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     app_version: str = _version_from_pyproject()
     # FPK 打包形态：指向前端 dist 目录时由本服务托管 SPA；开发形态留空不挂载
     static_dir: str = ""
+    # 统一网关形态（NASDECK_UDS）：非空时 uvicorn 监听该 Unix Socket（由飞牛
+    # trim_http_cgi 按 ui/config 的 gatewaySocket 声明转发），TCP host/port 不生效。
+    # cmd/main 按安装/配置向导的访问模型（var/access_mode）分支导出
+    uds: str = ""
+    # 网关形态转发前缀（NASDECK_GATEWAY_PREFIX，如 /app/com.dashboard.nasdeck）：
+    # 官方文档示例网关不剥前缀转发（应用收到全路径）；非空时挂前缀剥离中间件，
+    # 若实测网关已剥前缀（路径不以该前缀开头），中间件原样透传，两种行为均正确
+    gateway_prefix: str = ""
+    # 前端资源基址（NASDECK_PUBLIC_PATH）：FPK 构建的 index.html 以 /__ND_PREFIX__
+    # 为占位符，statics 挂载时按本值一次性替换——CGI 形态 = 完整 cgi 反代前缀，
+    # 网关形态 = gateway_prefix，cmd/main 按访问模型导出；空 = 产物即最终形态（开发）
+    public_path: str = ""
 
     @property
     def resolved_log_level(self) -> str:

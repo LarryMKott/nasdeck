@@ -1,0 +1,18 @@
+{
+    ".url": {
+        "com.dashboard.nasdeck.main": {
+            "title": "NAS硬件监控",
+            "desc": "飞牛OS 硬件监控面板",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "",
+            "gatewayPrefix": "/app/com.dashboard.nasdeck",
+            "gatewaySocket": "app.sock",
+            "url": "/app/com.dashboard.nasdeck",
+            "allUsers": true,
+            "control": {
+                "accessPerm": "readonly"
+            }
+        }
+    }
+}
