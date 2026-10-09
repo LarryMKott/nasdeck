@@ -1095,7 +1095,7 @@ export const manual = {
 
 /** 关于页 */
 export const about = {
-  version: 'dev-0.0.6',
+  version: 'dev-0.2.17',
   desc: '飞牛 fnOS 硬件监控面板 · UNRAID 风格',
   slogan: '把要 SSH 才能看的硬件状态，装进一块面板',
   build: [
