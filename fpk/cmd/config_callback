@@ -1,10 +1,9 @@
 #!/bin/bash
 # 配置后回调：应用「配置」流程提交的运行参数落盘并重启生效。
 # 向导字段（wizard/config）：wizard_port（0=维持）、wizard_log_level（keep=维持）、
-# wizard_raw_keep（0=维持）、wizard_access_mode（keep=维持）。权威存储：
+# wizard_raw_keep（0=维持）。权威存储：
 #   ${TRIM_PKGVAR}/port          → cmd/main / index.cgi 读的监听端口
 #   ${TRIM_PKGVAR}/runtime.env   → NASDECK_LOG_LEVEL / NASDECK_RAW_KEEP_MINUTES（cmd/main source）
-#   ${TRIM_PKGVAR}/access_mode   → 访问模型 cgi|gateway（cmd/main 按此分支监听与入口）
 # 全部键值经白名单/数字校验后写入，无注入面。
 : "${TRIM_PKGVAR:=/usr/local/apps/@appdata/com.dashboard.nasdeck}"
 
@@ -81,24 +80,6 @@ if [ "$new_keep" != "0" ]; then
     cur_keep="$new_keep"
     changed=yes
 fi
-
-# ---- 访问模型：keep = 维持；白名单 cgi|gateway；变更即重启（入口/监听形态生效）----
-case "${wizard_access_mode:-keep}" in
-    keep) : ;;
-    cgi|gateway)
-        cur_mode="$(head -n 1 "${TRIM_PKGVAR}/access_mode" 2>/dev/null | tr -d '[:space:]')"
-        case "$cur_mode" in gateway) ;; *) cur_mode=cgi ;; esac
-        if [ "$wizard_access_mode" != "$cur_mode" ]; then
-            printf '%s\n' "$wizard_access_mode" > "${TRIM_PKGVAR}/access_mode"
-            chmod 644 "${TRIM_PKGVAR}/access_mode" 2>/dev/null
-            changed=yes
-        fi
-        ;;
-    *)
-        echo "访问模型非法（收到：${wizard_access_mode}）" > "${TRIM_TEMP_LOGFILE}"
-        exit 1
-        ;;
-esac
 
 # ---- 整文件重写 runtime.env（值均已校验；未显式配置的级别不写键，维持通道缺省）----
 {

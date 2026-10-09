@@ -343,9 +343,6 @@ def assemble(staging: Path, version: str) -> None:
     (staging / "app" / "ui").mkdir(parents=True)
     shutil.copyfile(FNP_DIR / "app" / "app.py", staging / "app" / "app.py")
     shutil.copyfile(FNP_DIR / "app" / "ui" / "config", staging / "app" / "ui" / "config")
-    # 访问模型入口变体：cmd/main start 按 var/access_mode 应用（cgi=缺省形态副本）
-    for variant in ("config.cgi", "config.gateway"):
-        shutil.copyfile(FNP_DIR / "app" / "ui" / variant, staging / "app" / "ui" / variant)
     shutil.copyfile(FNP_DIR / "app" / "ui" / "index.cgi", staging / "app" / "ui" / "index.cgi")
     # 系统层
     shutil.copytree(FNP_DIR / "cmd", staging / "cmd")
@@ -411,8 +408,6 @@ def validate(staging: Path) -> None:
         for size in ("64", "256"):
             need((staging / "app" / "ui" / "images" / f"icon_{size}.png").is_file(), f"缺少入口图标 icon_{size}.png")
         need((staging / "app" / "ui" / "index.cgi").is_file(), "缺少 cgi 反代入口 index.cgi")
-        for variant in ("config.cgi", "config.gateway"):
-            need((staging / "app" / "ui" / variant).is_file(), f"缺少访问模型入口变体 ui/{variant}")
     except Exception as exc:  # noqa: BLE001
         errors.append(f"app/ui/config 解析失败：{exc}")
 
