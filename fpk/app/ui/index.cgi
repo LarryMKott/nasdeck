@@ -42,7 +42,25 @@ if [ -n "$target_query" ]; then
     target_url="$target_url?$target_query"
 fi
 
+# 访问模型分派：gateway 形态经 app.sock（--unix-socket）转发——桌面入口的 URL
+# 注册可能滞后于形态切换（fnOS 不一定热更新 ui/config），入口双形态可达保证旧
+# 图标 URL 永不失效；socket 不在（服务未起/形态文件缺失）自动回退 TCP 路径。
+gw_sock=""
+access_mode="$(cat /var/apps/com.dashboard.nasdeck/var/access_mode 2>/dev/null)"
+if [ "$access_mode" = "gateway" ]; then
+    gw_sock="/var/apps/com.dashboard.nasdeck/target/app.sock"
+fi
+if [ -n "$gw_sock" ] && [ -S "$gw_sock" ]; then
+    target_url="http://localhost$target_path"
+    if [ -n "$target_query" ]; then
+        target_url="$target_url?$target_query"
+    fi
+fi
+
 curl_args=(-s --include -X "$REQUEST_METHOD")
+if [ -n "$gw_sock" ] && [ -S "$gw_sock" ]; then
+    curl_args+=(--unix-socket "$gw_sock")
+fi
 # 代理共享密钥（install_callback 生成，镜像到本目录）：后端凭它确认身份头只能由
 # 本脚本注入——网关是否剥离客户端自带 X-Trim-* 头无法保证，密钥不经过网关
 proxy_token_file="$(dirname "$0")/proxy_token"
