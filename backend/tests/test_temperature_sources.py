@@ -65,7 +65,10 @@ def test_smart_disk_temps_parse_and_skip_failed(monkeypatch):
     monkeypatch.setattr(temperature, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(temperature, "glob", SimpleNamespace(glob=fake_glob))
     monkeypatch.setattr(temperature.shutil, "which", lambda x: "/usr/sbin/smartctl")
-    temperature._disk_cache.update(ts=0.0, items=[], health={}, temps={})
+    # 过期戳种子（CI 新 runner 的 monotonic 可能小于 TTL，0.0 会被判「缓存新鲜」跳过扫描）
+    temperature._disk_cache.update(
+        ts=temperature.time.monotonic() - 1e6, items=[], health={}, temps={}
+    )
     items = asyncio.run(temperature._smart_disk_temps())
     # NVMe 温度条目不上屏（hwmon 直读已覆盖 zone=nvme），只保留 SATA 盘条目
     assert [i["label"] for i in items] == ["sda"]
@@ -90,7 +93,10 @@ def test_smart_disk_temps_cached(monkeypatch):
     monkeypatch.setattr(temperature, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(temperature, "glob", SimpleNamespace(glob=fake_glob))
     monkeypatch.setattr(temperature.shutil, "which", lambda x: "/usr/sbin/smartctl")
-    temperature._disk_cache.update(ts=0.0, items=[], health={}, temps={})
+    # 过期戳种子（CI 新 runner 的 monotonic 可能小于 TTL，0.0 会被判「缓存新鲜」跳过扫描）
+    temperature._disk_cache.update(
+        ts=temperature.time.monotonic() - 1e6, items=[], health={}, temps={}
+    )
     asyncio.run(temperature._smart_disk_temps())
     asyncio.run(temperature._smart_disk_temps())
     assert len(calls) == 1  # 60s 缓存内只探测一次
