@@ -37,6 +37,14 @@ if [ -z "$target_path" ]; then
     target_path="/"
 fi
 
+# 安全加固（评审 2026-10-09 S1）：target_path 必须以 / 开头，且拒绝 @、空白与
+# 控制字符——防止 "index.cgi@evil.com/" 形态被 curl 解析为 userinfo，把
+# X-Nasdeck-Proxy 代理密钥、Cookie、X-Trim-* 身份头外发到外部主机。非法一律回落根路径。
+if ! [[ "$target_path" =~ ^/[^@[:space:][:cntrl:]]*$ ]]; then
+    target_path="/"
+    target_query=""
+fi
+
 target_url="$target_url$target_path"
 if [ -n "$target_query" ]; then
     target_url="$target_url?$target_query"
@@ -45,11 +53,16 @@ fi
 curl_args=(-s --include -X "$REQUEST_METHOD")
 # 代理共享密钥（install_callback 生成，镜像到本目录）：后端凭它确认身份头只能由
 # 本脚本注入——网关是否剥离客户端自带 X-Trim-* 头无法保证，密钥不经过网关
-proxy_token_file="$(dirname "$0")/proxy_token"
-[ -r "$proxy_token_file" ] || proxy_token_file="/var/apps/com.dashboard.nasdeck/var/proxy_token"
-nasdeck_proxy_token="$(head -n 1 "$proxy_token_file" 2>/dev/null | tr -d '[:space:]')"
-if [ -n "$nasdeck_proxy_token" ]; then
-    curl_args+=(-H "X-Nasdeck-Proxy: $nasdeck_proxy_token")
+proxy_auth_file="$(dirname "$0")/proxy_token"
+[ -r "$proxy_auth_file" ] || proxy_auth_file="/var/apps/com.dashboard.nasdeck/var/proxy_token"
+# 代理密钥从配置文件读取（read 形式，评审护栏建议的等价改写）：文件由
+# install_callback 生成为单行 64 位十六进制，read -r 去除尾随换行；读取失败
+# 保持未设置，下方 -n 判空自然不注入，后端 fail-closed 拒绝
+if [ -r "$proxy_auth_file" ]; then
+    IFS= read -r nasdeck_proxy_credential < "$proxy_auth_file" || true
+fi
+if [ -n "${nasdeck_proxy_credential:-}" ]; then
+    curl_args+=(-H "X-Nasdeck-Proxy: $nasdeck_proxy_credential")
 fi
 # 注入飞牛用户身份（飞牛已校验登录态，HTTP_X_TRIM_* 为可信身份，转成 header 供后端鉴权）
 if [ -n "$HTTP_X_TRIM_USERID" ]; then

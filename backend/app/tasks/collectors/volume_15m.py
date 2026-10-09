@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -25,7 +26,8 @@ async def volume_15m_tick() -> None:
     """
     global _last_day
     try:
-        volumes = volume_service.list_volumes()
+        # statfs 对失联网络挂载点可无限期阻塞，出循环执行（评审 A3）
+        volumes = await asyncio.to_thread(volume_service.list_volumes)
         async with session_factory() as db:
             n = await capacity.record_snapshots(db, volumes)
             today = datetime.now(UTC).strftime("%Y-%m-%d")

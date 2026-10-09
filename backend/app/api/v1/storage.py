@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -139,7 +141,8 @@ async def get_volumes(db: AsyncSession = DbDep) -> list[dict]:
     Returns:
         list[dict]: 见 schemas.storage.VolumeItem（forecast 为容量回归预测，无采样记录时为 None）。
     """
-    volumes = volume_service.list_volumes()
+    # statfs 对失联网络挂载点可无限期阻塞，出循环执行（评审 A3）
+    volumes = await asyncio.to_thread(volume_service.list_volumes)
     # 写满预测（volume_15m 15 分钟一轮回归）按挂载点合并；无采样记录 forecast=None
     forecasts = {f["mount"]: f for f in await capacity.forecast_all(db)}
     for v in volumes:

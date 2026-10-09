@@ -22,7 +22,7 @@ import time
 from app.core.exceptions import ExternalToolError
 from app.services.hardware.policy import get_policy
 from app.utils import sysfs
-from app.utils.async_cmd import run_cmd, run_cmd_sync
+from app.utils.async_cmd import run_cmd
 
 # vendor key（决策层）→ sysfs vendor id
 VENDOR_IDS = {"amd": "0x1002", "nvidia": "0x10de", "intel": "0x8086"}
@@ -284,8 +284,10 @@ class _IntelTopReader:
         self._next_try = 0.0
         self._lock = threading.Lock()
 
-    def ensure(self, card_name: str) -> None:
+    async def ensure(self, card_name: str) -> None:
         """确保 intel_gpu_top 长驻子进程在跑（惰性启动，失败进入 60s 冷却防频繁 fork）。
+
+        型号解析（lspci）为异步执行（评审 A4），最坏 10s 的等待不落在事件循环上。
 
         Args:
             card_name (str): drm 卡名（card0 等），仅首次解析型号名失败时作回退。
@@ -297,7 +299,7 @@ class _IntelTopReader:
             return
         self._next_try = now + self._RETRY_S
         if not self._name:
-            self._name = self._resolve_name(card_name)
+            self._name = await self._resolve_name(card_name)
         try:
             self._proc = subprocess.Popen(  # noqa: S603 固定参数无外部输入
                 ["intel_gpu_top", "-J", "-s", "1000"],
@@ -325,7 +327,7 @@ class _IntelTopReader:
                 self._latest = (time.monotonic(), pct, obj)
 
     @staticmethod
-    def _resolve_name(fallback: str) -> str:
+    async def _resolve_name(fallback: str) -> str:
         """lspci 找 Intel VGA/Display 控制器型号（决策层已在位才到这）。
 
         Args:
@@ -335,7 +337,7 @@ class _IntelTopReader:
             str: 显卡型号名；拿不到名字不影响采集，回退 fallback。
         """
         try:
-            _rc, out, _err = run_cmd_sync("lspci", "-nn", "-d", "8086:", timeout=10)
+            _rc, out, _err = await run_cmd("lspci", "-nn", "-d", "8086:", timeout=10)
         except Exception:  # noqa: BLE001 名字拿不到不影响采集
             return fallback
         for line in out.splitlines():
@@ -442,7 +444,7 @@ async def collect() -> dict:
                     break
             elif card["kind"] == "intel":
                 reader = _intel_reader()
-                reader.ensure(card["name"])
+                await reader.ensure(card["name"])
                 busy = reader.busy()
                 if busy is not None:
                     # 核显温度（i915 hwmon，真机 1.2.0701 有 temp1_input）；无则 None

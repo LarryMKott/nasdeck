@@ -26,7 +26,8 @@ async def medium_tick() -> None:
     风扇调速输出与告警评估共用一个事务（一次 commit 一次 fsync，真机跳秒
     修复的另一环），时段静音计划缓存刷新带 30s TTL 限流读库；事务提交后
     通知交后台 task 发送，慢渠道不再占住 SQLite 写锁与 5s 调度。
-    任何异常只记 warning，不中断调度。
+    温度采集单独包裹：采集失败不再拖垮本轮风扇调速与告警评估（评审 2026-10-09 R1，
+    apply_tick 内部另有 failsafe 语义），任何异常只记 warning，不中断调度。
     """
     try:
         items = await temperature.temperatures()
@@ -38,6 +39,10 @@ async def medium_tick() -> None:
                 ",".join(sorted({t["chip"] for t in items})),
                 temperature.max_celsius(items) or 0.0,
             )
+    except Exception as exc:  # noqa: BLE001 温度采集失败不拖垮本轮调速/告警（评审 R1）
+        logger.warning("温度采集失败（磁盘温度本轮缺失，风扇侧按失联 failsafe 处理）: %s", exc)
+        items = []
+    try:
         # 风扇调速输出 + 告警评估同事务，一次 commit 一次 fsync（真机跳秒修复的另一环）
         await fan_manager.refresh_schedule_cache()  # 时段静音计划缓存（30s TTL 限流读库）
         async with session_factory() as db:

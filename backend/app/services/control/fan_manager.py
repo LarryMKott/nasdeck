@@ -14,12 +14,14 @@ failsafe 约定：本模块是原生 FCS 被接管后唯一的风扇管理方，
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.db.session import session_factory
+from app.models.alert import AlertEvent
 from app.models.control import FanCurve, FanZone
 from app.services.control import curve_engine, hwmon_driver
 from app.services.monitor.temperature import temperatures
@@ -29,6 +31,11 @@ logger = logging.getLogger(__name__)
 FAILSAFE_AFTER_TICKS = 3  # 传感器连续失联达到该 tick 数（约 15s）后强制全速
 CRITICAL_TEMP_C = 85.0  # 临界温度：无视曲线/迟滞/斜率，无条件全速
 _sensor_fail_streak: dict[int, int] = {}
+
+# PWM 写失败连击（评审 2026-10-09 R2）：连续失败达到阈值产生一次性告警事件，
+# 写成功即清零；持续失败只在到达阈值那拍告警一次，避免 5s 一条刷屏
+_WRITE_FAIL_ALERT_AFTER_TICKS = 3
+_write_fail_streak: dict[int, int] = {}
 
 # 告警动作全速覆盖（IF-THEN 剧本引擎 fan_full）：窗口期内 _drive_zone 无条件 100%，
 # 到期自动回落曲线接管——不落库，重启即失效（安全默认）
@@ -301,6 +308,7 @@ async def update_zone(db: AsyncSession, zone_id: int, patch: dict) -> dict:
     if patch.get("mode") == "auto" or patch.get("enabled") is False:
         hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel)
         _sensor_fail_streak.pop(zone.id, None)
+        _write_fail_streak.pop(zone.id, None)
     await db.flush()
     return {"id": zone.id, **changed}
 
@@ -322,6 +330,7 @@ async def delete_zone(db: AsyncSession, zone_id: int) -> None:
     if zone.mode != "auto":
         hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel)
     _sensor_fail_streak.pop(zone.id, None)
+    _write_fail_streak.pop(zone.id, None)
     await db.delete(zone)
     await db.flush()
 
@@ -346,6 +355,7 @@ async def release_curve(db: AsyncSession, curve_id: int) -> list[int]:
         zone.mode = "auto"
         zone.curve_id = None
         _sensor_fail_streak.pop(zone.id, None)
+        _write_fail_streak.pop(zone.id, None)
         released.append(zone.id)
     if released:
         await db.flush()
@@ -365,11 +375,38 @@ async def restore_all_zones() -> None:
             hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel)
 
 
+def _record_write_result(zone_id: int, name: str, ok: bool) -> str | None:
+    """记录 PWM 写结果并维护连续失败计数（评审 2026-10-09 R2）。
+
+    Args:
+        zone_id (int): 控区 id。
+        name (str): 控区名（告警文案用）。
+        ok (bool): 本次 write_pwm 是否成功。
+
+    Returns:
+        str | None: 恰好达到告警阈值时返回一次性告警文案；其余返回 None。
+            写成功清零计数；持续失败不重复告警。
+    """
+    if ok:
+        _write_fail_streak.pop(zone_id, None)
+        return None
+    streak = _write_fail_streak.get(zone_id, 0) + 1
+    _write_fail_streak[zone_id] = streak
+    if streak == _WRITE_FAIL_ALERT_AFTER_TICKS:
+        return (
+            f"控区「{name}」PWM 连续 {streak} 轮写入失败（约 {streak * 5}s），"
+            "请检查 hwmon 权限/芯片状态"
+        )[:200]
+    return None
+
+
 async def apply_tick(db: AsyncSession) -> list[dict]:
     """执行一轮 5s 调速输出（WS fans 事件数据源）。
 
     enabled 且非 auto 的控区按曲线/定速写 pwm；单控区异常被捕获并记入该控区
-    的 error 字段，不拖垮整轮调速与告警评估。
+    的 error 字段，不拖垮整轮调速与告警评估。温度源整体失败不炸整轮——按
+    “全部传感器失联” failsafe 语义处理（评审 2026-10-09 R1）；PWM 连续写失败
+    达阈值时落一次性告警事件（评审 R2，同事务提交，commit 归调用方）。
 
     Args:
         db (AsyncSession): 请求作用域数据库会话。
@@ -380,14 +417,41 @@ async def apply_tick(db: AsyncSession) -> list[dict]:
     """
     result = await db.execute(select(FanZone).where(FanZone.enabled.is_(True), FanZone.mode != "auto"))
     zones = result.scalars().all()
-    temps = {t["key"]: t["celsius"] for t in await temperatures()}
+    try:
+        temps = {t["key"]: t["celsius"] for t in await temperatures()}
+        temps_failed = False
+    except Exception:  # noqa: BLE001 温度源整体故障 ≡ 全部传感器失联：短拍保持、持续全速
+        logger.warning("温度采集整体失败，本轮全部控区按传感器失联 failsafe 处理", exc_info=True)
+        temps, temps_failed = {}, True
     outputs = []
     for zone in zones:
         try:
-            outputs.append(await _drive_zone(db, zone, temps))
+            if temps_failed:
+                outputs.append(await _failsafe_on_sensor_lost(zone))
+            else:
+                outputs.append(await _drive_zone(db, zone, temps))
         except Exception as exc:  # noqa: BLE001 单控区故障不拖垮整轮调速与告警评估
             logger.warning("控区 %s(%s) 调速异常: %s", zone.id, zone.name, exc)
             outputs.append({"zone_id": zone.id, "name": zone.name, "mode": zone.mode, "error": str(exc)[:150]})
+    # PWM 连续写失败到达阈值的一次性告警事件（一次性记录，落库即 resolved）
+    now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    for out in outputs:
+        alert_msg = out.get("write_fail_alert")
+        if alert_msg:
+            db.add(
+                AlertEvent(
+                    rule_id=None,
+                    rule_name="风扇 PWM 写入",
+                    metric="fan_pwm_write",
+                    value=None,
+                    threshold=None,
+                    severity="warning",
+                    status="resolved",
+                    message=alert_msg,
+                    fired_at=now_str,
+                    resolved_at=now_str,
+                )
+            )
     return outputs
 
 
@@ -410,7 +474,7 @@ async def _drive_zone(db: AsyncSession, zone: FanZone, temps: dict[str, float | 
     # 高于定速/曲线/临界温度分支（临界本就 100%，行为一致）
     if alert_full_active():
         ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, 100.0)
-        return {
+        entry = {
             "zone_id": zone.id,
             "name": zone.name,
             "loop": zone.loop,
@@ -418,8 +482,13 @@ async def _drive_zone(db: AsyncSession, zone: FanZone, temps: dict[str, float | 
             "target_pwm_pct": 100.0,
             "current_rpm": hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel) if zone.fan_channel else None,
             "alert_full": True,
-            **({} if ok else {"error": "pwm write failed (alert_full)"}),
         }
+        if not ok:
+            entry["error"] = "pwm write failed (alert_full)"
+        fail_alert = _record_write_result(zone.id, zone.name, ok)
+        if fail_alert:
+            entry["write_fail_alert"] = fail_alert
+        return entry
     if zone.mode == "fixed":
         target, sensor_temp = float(zone.fixed_pwm), None
     else:
@@ -444,6 +513,7 @@ async def _drive_zone(db: AsyncSession, zone: FanZone, temps: dict[str, float | 
                 curve.points, sensor_temp - offset, curve.hysteresis_c, int(curve.ramp_per_tick), current_pct
             )
     ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, target)
+    fail_alert = _record_write_result(zone.id, zone.name, ok)
     entry = {
         "zone_id": zone.id,
         "name": zone.name,
@@ -458,6 +528,8 @@ async def _drive_zone(db: AsyncSession, zone: FanZone, temps: dict[str, float | 
         entry["quiet"] = True  # 静音窗口生效标记（FanView 提示用）
     if not ok:
         entry["error"] = "pwm write failed"
+    if fail_alert:
+        entry["write_fail_alert"] = fail_alert
     return entry
 
 
@@ -485,6 +557,7 @@ async def _failsafe_on_sensor_lost(zone: FanZone) -> dict:
             "streak": streak,
         }
     ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, 100.0)
+    fail_alert = _record_write_result(zone.id, zone.name, ok)
     entry = {
         "zone_id": zone.id,
         "name": zone.name,
@@ -496,6 +569,8 @@ async def _failsafe_on_sensor_lost(zone: FanZone) -> dict:
     }
     if not ok:
         entry["error"] = "pwm write failed (failsafe)"
+    if fail_alert:
+        entry["write_fail_alert"] = fail_alert
     return entry
 
 

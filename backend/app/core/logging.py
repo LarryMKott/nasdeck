@@ -23,6 +23,8 @@ def setup_logging() -> None:
     root.setLevel(settings.resolved_log_level)
     # 根 DEBUG 时第三方内部日志（aiosqlite 每条 DB 操作 / asyncio 事件循环 /
     # apscheduler 每秒调度心跳）无排障价值且刷屏，统一压到 WARNING；
-    # httpx 保留 INFO（webhook/渠道请求一线可见）
-    for noisy in ("uvicorn.access", "apscheduler", "aiosqlite", "asyncio"):
+    # httpx/httpcore 同样压到 WARNING（评审 2026-10-09 S4）：httpx 的 INFO 行会把
+    # 含 bot_token/device_key 的完整请求 URL 写入日志，导致渠道凭据泄露；渠道
+    # 请求可见性由各渠道自身的异常日志承担
+    for noisy in ("uvicorn.access", "apscheduler", "aiosqlite", "asyncio", "httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)

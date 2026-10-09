@@ -26,7 +26,7 @@ def trim_on(monkeypatch):
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "trim_auth", True, raising=False)
-    monkeypatch.setattr(settings, "proxy_token", "", raising=False)
+    monkeypatch.setattr(settings, "proxy_token", "tok", raising=False)
 
 
 @pytest.mark.asyncio
@@ -39,17 +39,21 @@ async def test_trim_off_allows_anonymous(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trim_requires_userid_for_read(trim_on):
+    # fail-closed（评审 S2）：fixture 已配置代理密钥；请求须持代理头，仅身份头仍拒
     with pytest.raises(PermissionDeniedError):
         await require_trim_auth(_Req())
-    await require_trim_auth(_Req({"X-Trim-Userid": "1000"}))
+    with pytest.raises(PermissionDeniedError):
+        await require_trim_auth(_Req({"X-Trim-Userid": "1000"}))
+    await require_trim_auth(_Req({"X-Nasdeck-Proxy": "tok", "X-Trim-Userid": "1000"}))
 
 
 @pytest.mark.asyncio
 async def test_trim_write_requires_admin(trim_on):
-    user = {"X-Trim-Userid": "1000", "X-Trim-Isadmin": "false"}
+    proxy = {"X-Nasdeck-Proxy": "tok"}
+    user = {**proxy, "X-Trim-Userid": "1000", "X-Trim-Isadmin": "false"}
     with pytest.raises(PermissionDeniedError):
         await require_trim_auth(_Req(user, method="POST"))
-    admin = {"X-Trim-Userid": "1", "X-Trim-Isadmin": "true"}
+    admin = {**proxy, "X-Trim-Userid": "1", "X-Trim-Isadmin": "true"}
     await require_trim_auth(_Req(admin, method="POST"))
     await require_trim_auth(_Req(admin, method="DELETE"))
 

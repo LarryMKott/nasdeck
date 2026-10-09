@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -89,5 +91,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_handler(_req: Request, exc: Exception):
-        """未捕获异常 → 信封 5000（兜底防线，正常业务不应走到这里）。"""
-        return JSONResponse(status_code=500, content=_envelope(5000, f"internal error: {exc}"))
+        """未捕获异常 → 信封 5000（兜底防线，正常业务不应走到这里）。
+
+        客户端不回显异常细节（可能含绝对路径/SQL 片段），完整堆栈仅进服务端日志。
+        """
+        logging.getLogger("nasdeck").error("未捕获异常 %s: %s", type(exc).__name__, exc, exc_info=True)
+        return JSONResponse(status_code=500, content=_envelope(5000, "internal error"))

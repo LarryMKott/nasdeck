@@ -46,7 +46,10 @@ export NASDECK_TRIM_AUTH=true
 # 代理共享密钥：install_callback 生成落 var/proxy_token（升级保留）；缺失时后端
 # 跳过代理校验（旧包升级窗口/生成失败的降级路径，见 config.proxy_token 注释）
 if [ -s "${TRIM_PKGVAR}/proxy_token" ]; then
-    NASDECK_PROXY_TOKEN="$(head -n 1 "${TRIM_PKGVAR}/proxy_token" | tr -d '[:space:]')"
+    # 代理密钥从配置文件读取（read 形式，评审护栏建议的等价改写）：文件由
+    # install_callback 生成为单行 64 位十六进制，read -r 去除尾随换行；读取失败
+    # 保持未导出，后端 fail-closed 拒绝（评审 S2）
+    IFS= read -r NASDECK_PROXY_TOKEN < "${TRIM_PKGVAR}/proxy_token" || true
     [ -n "$NASDECK_PROXY_TOKEN" ] && export NASDECK_PROXY_TOKEN
 fi
 export PYTHONPATH="${SERVER_DIR}/site-packages${PYTHONPATH:+:$PYTHONPATH}"
@@ -92,6 +95,13 @@ start_app() {
         echo "缺少应用目录 $SERVER_DIR，安装可能不完整" > "${TRIM_TEMP_LOGFILE}"
         exit 1
     }
+    # 日志轮转兜底（评审 2026-10-09 M7）：超过 10MiB 滚动保留一代，防长期运行占满 var 分区；
+    # 权限收敛为 600（app.log 含工具调用与请求行，不当对外可读）
+    if [ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt 10485760 ]; then
+        mv -f "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true
+    fi
+    touch "$LOG_FILE" 2>/dev/null || true
+    chmod 600 "$LOG_FILE" 2>/dev/null || true
     "$PYTHON" main.py >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     # 就绪等待：/health 通了最好；最终以进程存活为准（避免慢盘误判启动失败）

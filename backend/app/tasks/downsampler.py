@@ -123,6 +123,9 @@ def _bucket_key(ts: str, bucket_minutes: int) -> str | None:
 async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: int, since: str) -> None:
     """按时间桶聚合（cpu/内存/网络均值，温度取最大）——SQLite 端做轻量聚合。
 
+    只聚合已封口桶，当前桶下一轮完整重聚（评审 A1）：当前桶尚未写完，部分
+    均值一旦入桶会被 have 查重永久冻结为残缺数据。
+
     Args:
         db: 活动的异步数据库会话（flush 在此，commit 由调用方负责）。
         from_g: 源粒度（"raw" | "1m"）。
@@ -151,8 +154,12 @@ async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: i
     )
     have = {r[0] for r in existing.all()}
 
+    # 只聚合已封口桶（评审 A1）：当前桶此刻仍在写入，跳过留待下一轮——届时该桶
+    # 已封口且仍在其源粒度保留窗内，可完整重聚。current_key 由 strftime 产出，
+    # 恒为合法 ISO 串（_bucket_key 不会返回 None）。raw→1m 与 1m→10m 统一生效。
+    current_key = _bucket_key(_iso_minutes_ago(0), bucket_minutes)
     for key, members in buckets.items():
-        if key in have:
+        if key in have or key >= current_key:
             continue
         rows = (
             await db.execute(

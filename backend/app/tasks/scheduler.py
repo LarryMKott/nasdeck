@@ -31,22 +31,43 @@ scheduler = AsyncIOScheduler(timezone="UTC")
 def start_jobs() -> None:
     """注册全部周期任务：1s/5s/60s 实时采集 + 15m×2 趋势 + 10m 巡检 + 5m 降采样。
 
-    除 downsample 外全部 max_instances=1 + coalesce，机慢时合并执行不堆积。
+    全部 max_instances=1 + coalesce + replace_existing（评审 A6）：机慢时合并
+    执行不堆积，重复注册（测试直调、二次 startup）不抛 ConflictingIdError。
     """
-    scheduler.add_job(fast_tick, "interval", seconds=1, id="fast_1s", max_instances=1, coalesce=True)
-    scheduler.add_job(medium_tick, "interval", seconds=5, id="medium_5s", max_instances=1, coalesce=True)
-    scheduler.add_job(slow_tick, "interval", seconds=60, id="slow_60s", max_instances=1, coalesce=True)
-    scheduler.add_job(smart_15m_tick, "interval", minutes=15, id="smart_15m", max_instances=1, coalesce=True)
-    scheduler.add_job(volume_15m_tick, "interval", minutes=15, id="volume_15m", max_instances=1, coalesce=True)
-    scheduler.add_job(selftest_tick, "interval", minutes=10, id="selftest_10m", max_instances=1, coalesce=True)
-    scheduler.add_job(downsample_tick, "interval", minutes=5, id="downsample", max_instances=1)
-    scheduler.add_job(log_5m_tick, "interval", minutes=5, id="log_5m", max_instances=1, coalesce=True)
-    scheduler.add_job(report_10m_tick, "interval", minutes=10, id="report_10m", max_instances=1, coalesce=True)
+    scheduler.add_job(
+        fast_tick, "interval", seconds=1, id="fast_1s", max_instances=1, coalesce=True, replace_existing=True
+    )
+    scheduler.add_job(
+        medium_tick, "interval", seconds=5, id="medium_5s", max_instances=1, coalesce=True, replace_existing=True
+    )
+    scheduler.add_job(
+        slow_tick, "interval", seconds=60, id="slow_60s", max_instances=1, coalesce=True, replace_existing=True
+    )
+    scheduler.add_job(
+        smart_15m_tick, "interval", minutes=15, id="smart_15m", max_instances=1, coalesce=True, replace_existing=True
+    )
+    scheduler.add_job(
+        volume_15m_tick, "interval", minutes=15, id="volume_15m", max_instances=1, coalesce=True, replace_existing=True
+    )
+    scheduler.add_job(
+        selftest_tick, "interval", minutes=10, id="selftest_10m", max_instances=1, coalesce=True, replace_existing=True
+    )
+    scheduler.add_job(
+        downsample_tick, "interval", minutes=5, id="downsample", max_instances=1, coalesce=True, replace_existing=True
+    )
+    scheduler.add_job(
+        log_5m_tick, "interval", minutes=5, id="log_5m", max_instances=1, coalesce=True, replace_existing=True
+    )
+    scheduler.add_job(
+        report_10m_tick, "interval", minutes=10, id="report_10m", max_instances=1, coalesce=True, replace_existing=True
+    )
     logger.info("调度器任务注册完成")
 
 
 def start() -> None:
-    """启动全局调度器；尚未注册任务时先补一次 start_jobs()。"""
+    """启动全局调度器；已运行时幂等跳过（评审 A6），尚未注册任务时先补一次 start_jobs()。"""
+    if scheduler.running:
+        return
     if not scheduler.get_jobs():
         start_jobs()
     scheduler.start()

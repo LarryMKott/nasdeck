@@ -109,12 +109,19 @@ async def _run() -> None:
             last_flush = time.monotonic()
 
 
+def _watchdog(task: asyncio.Task) -> None:
+    """写手意外退出告警（评审 A7）：唯一落库通道死亡必须可见。"""
+    if not task.cancelled() and task.exception() is not None:
+        logger.error("ingest 写手协程意外退出", exc_info=task.exception())
+
+
 def start() -> None:
     """启动落库 worker（须在事件循环内调用，lifespan 里执行）；重复调用幂等。"""
     global _queue, _task
     if _task is None:
         _queue = asyncio.Queue(maxsize=_QUEUE_MAX)
         _task = asyncio.create_task(_run(), name="ingest-writer")
+        _task.add_done_callback(_watchdog)
 
 
 async def stop() -> None:

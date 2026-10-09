@@ -1,4 +1,7 @@
-"""安全校验工具：文件名白名单、设备名格式（契约 §3.6）。"""
+"""安全校验工具：文件名白名单、设备名格式（契约 §3.6）。
+
+正则一律 fullmatch 全串匹配（评审 2026-10-09 S7），防尾随换行绕过。
+"""
 
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ def validate_report_filename(filename: str) -> str:
     Raises:
         NotFoundError: 不在白名单（按"报告不存在"语义返回 1001）。
     """
-    if not _FILENAME_RE.match(filename):
+    if not _FILENAME_RE.fullmatch(filename):
         raise NotFoundError(f"report not found: {filename}")
     return filename
 
@@ -43,6 +46,6 @@ def validate_device_name(device: str) -> str:
             控制器键场景由调用方先过本函数再自行回退）。
     """
     name = device.removeprefix("/dev/")
-    if not _DEVICE_RE.match(name):
+    if not _DEVICE_RE.fullmatch(name):
         raise InvalidParamsError(f"invalid device name: {device}")
     return name

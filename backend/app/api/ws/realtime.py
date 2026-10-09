@@ -1,8 +1,11 @@
 """WebSocket 实时推送（契约 §4）：realtime 1s / fans 5s / alert 事件 / pong。
 
 鉴权与 REST 对齐（REST 各路由挂 ApiKeyDep/TrimAuthDep，本端点此前完全裸奔）：
-- trim 形态：要求 index.cgi 转发的 X-Trim-Userid 身份头；
-- api_key 形态：握手须带 ?api_key= 或 X-API-Key 头；
+- trim 形态：先 fail-closed 校验 X-Nasdeck-Proxy 代理共享密钥（未配置即拒，
+  与 REST require_trim_auth 对齐），通过后再要求 index.cgi 转发的
+  X-Trim-Userid 身份头非空；
+- api_key 形态：握手须带 ?api_key 查询参数或 X-API-Key 头，经 hmac.compare_digest
+  常数时间比较（空值先短路，防 None/空串进入比较函数抛 TypeError）；
 - 无鉴权形态：校验 Origin 与 Host 同源（浏览器跨站可不受 CORS 约束发起 WS），
   绑定回环时不校验（开发机 vite 代理 changeOrigin 会改写 Host）。
 非浏览器客户端不发 Origin，允许直连（运维脚本场景）。
@@ -13,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
 from urllib.parse import urlsplit
@@ -73,11 +77,19 @@ def _ws_authorized(ws: WebSocket) -> bool:
         bool: 是否通过鉴权。
     """
     if settings.trim_auth:
-        # 飞牛形态：无 X-Trim-Userid 身份头的连接直接拒（防本机进程绕过直连拉数据）
+        # 飞牛形态（评审 2026-10-09 S3，与 REST require_trim_auth 对齐）：先
+        # fail-closed 校验代理共享密钥（未配置即拒），再要求 X-Trim-Userid 身份
+        # 头非空（防本机进程绕过直连拉数据）
+        if not settings.proxy_token:
+            return False
+        if not hmac.compare_digest(ws.headers.get("x-nasdeck-proxy", ""), settings.proxy_token):
+            return False
         return bool(ws.headers.get("x-trim-userid", "").strip())
     if settings.api_key:
         supplied = ws.query_params.get("api_key") or ws.headers.get("x-api-key", "")
-        return bool(supplied) and supplied == settings.api_key
+        # compare_digest 防时序侧信道；supplied 经 or 链兜底必为 str（query_params
+        # 落空时为 None，由 "" 替代），空值先 False 短路避免对 None 比较抛 TypeError
+        return bool(supplied) and hmac.compare_digest(supplied, settings.api_key)
     if _loopback_bind():
         return True
     origin = ws.headers.get("origin")
@@ -153,8 +165,10 @@ async def realtime_ws(ws: WebSocket) -> None:
         await stop.wait()
     finally:
         stop.set()
+        # 先完成关闭握手再回收推送任务：推送方可能正阻塞在 send 上，先取消会
+        # 中止传输层导致 close 帧发不出去，客户端退出时等待关闭完成而超时/取消
+        with contextlib.suppress(Exception):
+            await ws.close()
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        with contextlib.suppress(Exception):
-            await ws.close()

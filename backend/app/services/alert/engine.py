@@ -501,7 +501,19 @@ def schedule_drain() -> None:
     if not _pending and not _pending_actions:
         return
     if _drain_task is not None and not _drain_task.done():
-        return
+        # 事件循环切换守卫：测试套件/热重载下旧 task 可能绑定已关闭的旧 loop，
+        # await 它会得到 RuntimeError("attached to a different loop")——此时
+        # 取消残留并在当前 loop 重建（同 loop 存活时仍按原语义跳过本轮）
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is None or _drain_task.get_loop() is running:
+            return
+        try:
+            _drain_task.cancel()  # 旧 loop 已关闭时 cancel 会同步抛 RuntimeError，忽略即可
+        except RuntimeError:
+            pass
     _drain_task = asyncio.create_task(_drain())
 
 

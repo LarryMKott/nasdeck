@@ -32,6 +32,9 @@ _DISK_CACHE_TTL = 60.0
 # 单次扫描同时产出温度条目与各盘 SMART 健康（disk_failed 告警/summary 数据源），
 # 共用同一轮 smartctl 与 60s 缓存，不增加 fork
 _disk_cache: dict = {"ts": 0.0, "items": [], "health": {}, "temps": {}}
+# SMART 扫描互斥锁（评审 A2）：TTL 检查与缓存回写之间隔着最坏 15s×N 盘的
+# 逐盘 gather，无锁时并发调用方（5s/60s 拍、API）会各自发起整轮 smartctl。
+_disk_scan_lock = asyncio.Lock()
 
 
 def _zone_for(chip: str, label: str | None) -> str:
@@ -129,45 +132,50 @@ async def _smart_disk_scan() -> None:
     到控制器名匹配（单命名空间 NAS 场景一一对应，多命名空间共享控制器健康）。
     逐盘并发执行：medium tick 等这轮结果做风扇调速与告警评估，串行时单盘
     卡 15s × N 盘会把 5s tick 拖到分钟级（scheduler max_instances=1 顺延）。
+    全程持 _disk_scan_lock 串行（评审 A2）：扫描在途时后到者排队，进锁后
+    命中新鲜缓存立即返回。
     """
-    now = time.monotonic()
-    if now - _disk_cache["ts"] < _DISK_CACHE_TTL:
-        return
-    items: list[dict] = []
-    health: dict[str, str] = {}
-    temps: dict[str, float] = {}
-    if shutil.which("smartctl"):
-        devices = sorted(glob.glob("/dev/sd?")) + sorted(glob.glob("/dev/nvme?"))
-        results = await asyncio.gather(
-            *(_probe_disk(dev) for dev in devices), return_exceptions=True
-        )
-        for _dev, result in zip(devices, results, strict=False):
-            if isinstance(result, Exception):
-                continue  # 单盘失败不影响其余
-            name, data = result
-            if data is None:
-                continue
-            passed = (data.get("smart_status") or {}).get("passed")
-            if passed is True:
-                health[name] = "passed"
-            elif passed is False:
-                health[name] = "failing"
-            current = (data.get("temperature") or {}).get("current")
-            if isinstance(current, (int, float)):
-                temps[name] = round(float(current), 1)
-                if name.startswith("nvme"):
-                    continue  # NVMe 温度已由 hwmon 直读条目上屏（zone nvme），不重复列
-                items.append(
-                    {
-                        "key": f"smart:{name}",
-                        "chip": "smart",
-                        "label": name,
-                        "celsius": round(float(current), 1),
-                        "zone": "disk",
-                        "grade": grade_of(current),
-                    }
-                )
-    _disk_cache.update(ts=now, items=items, health=health, temps=temps)
+    # 检查→执行→回写整段持锁（评审 A2）：TTL 检查移入锁内，消除跨长 await
+    # 的检查-执行竞态窗口；早退路径在 with 出口自动放锁。
+    async with _disk_scan_lock:
+        now = time.monotonic()
+        if now - _disk_cache["ts"] < _DISK_CACHE_TTL:
+            return
+        items: list[dict] = []
+        health: dict[str, str] = {}
+        temps: dict[str, float] = {}
+        if shutil.which("smartctl"):
+            devices = sorted(glob.glob("/dev/sd?")) + sorted(glob.glob("/dev/nvme?"))
+            results = await asyncio.gather(
+                *(_probe_disk(dev) for dev in devices), return_exceptions=True
+            )
+            for _dev, result in zip(devices, results, strict=False):
+                if isinstance(result, Exception):
+                    continue  # 单盘失败不影响其余
+                name, data = result
+                if data is None:
+                    continue
+                passed = (data.get("smart_status") or {}).get("passed")
+                if passed is True:
+                    health[name] = "passed"
+                elif passed is False:
+                    health[name] = "failing"
+                current = (data.get("temperature") or {}).get("current")
+                if isinstance(current, (int, float)):
+                    temps[name] = round(float(current), 1)
+                    if name.startswith("nvme"):
+                        continue  # NVMe 温度已由 hwmon 直读条目上屏（zone nvme），不重复列
+                    items.append(
+                        {
+                            "key": f"smart:{name}",
+                            "chip": "smart",
+                            "label": name,
+                            "celsius": round(float(current), 1),
+                            "zone": "disk",
+                            "grade": grade_of(current),
+                        }
+                    )
+        _disk_cache.update(ts=now, items=items, health=health, temps=temps)
 
 
 async def _probe_disk(dev: str) -> tuple[str, dict | None]:
