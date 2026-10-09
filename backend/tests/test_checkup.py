@@ -27,13 +27,21 @@ async def db():
 
 @pytest.fixture(autouse=True)
 def _no_hardware(monkeypatch):
-    """屏蔽真机差异：盘清单空、温度无源、storcli/mdstat 探测照常（Windows 下自然为空）。"""
+    """屏蔽真机差异：盘清单空、温度无源、storcli/mdstat 探测照常。
+
+    温度不能依赖「平台自然为空」——CI runner 是真 Linux，可能暴露真实温度源
+    （实测某次分配的 VM 读到 40.4 °C 致断言失败），温度维度一律显式屏蔽。
+    """
     from app.services.storage import volumes as volume_service
 
     async def _no_disks():
         return []
 
+    async def _no_temps():
+        return []
+
     monkeypatch.setattr(volume_service, "list_disks", _no_disks)
+    monkeypatch.setattr(checkup.temperature, "temperatures", _no_temps)
 
 
 async def test_checkup_shape_and_missing_data(db):
