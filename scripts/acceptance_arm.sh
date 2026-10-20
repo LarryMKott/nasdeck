@@ -31,6 +31,16 @@ echo "[L3] 解包 $FPK"
 tar -xzf "$FPK" -C "$WORK"
 tar -xzf "$WORK/app.tgz" -C "$WORK"
 
+# app.tgz 的顶层有两种可能：直接是 app.py + server/（当前打包器），或 app/ 前缀（旧产物）。
+# 不猜，按实际落点确认，避免 PYTHONPATH 指到不存在的目录后「import 不到依赖」被误判成架构问题。
+if [ -d "$WORK/server" ]; then
+    INNER=""
+else
+    INNER="/app"
+fi
+CONTAINER_APP="/w${INNER}"
+echo "[L3] 应用根目录（容器内）：$CONTAINER_APP"
+
 # 探针脚本在容器内执行：import → 起服务 → 打核心接口 → 校验架构画像
 cat > "$WORK/probe.py" <<'PY'
 import asyncio
@@ -86,8 +96,8 @@ PY
 
 echo "[L3] 在 arm64 容器里跑后端"
 if ! OUT="$(docker run --rm --platform linux/arm64 \
-        -v "$WORK:/w" -w /w/app \
-        -e PYTHONPATH=/w/app/server:/w/app/server/site-packages \
+        -v "$WORK:/w" -w "$CONTAINER_APP" \
+        -e PYTHONPATH="$CONTAINER_APP/server:$CONTAINER_APP/server/site-packages" \
         -e NASDECK_DB_URL=sqlite+aiosqlite:////tmp/l3.db \
         -e NASDECK_STORCLI_PATH=/nonexistent \
         python:3.12-slim python /w/probe.py)"; then
