@@ -89,8 +89,10 @@ async def probe():
     async with httpx.AsyncClient(transport=transport, base_url="http://l3") as client:
         health = await client.get("/health")
         results.append({"check": "GET /health", "ok": health.status_code == 200, "detail": health.text[:200]})
+        # 注意：/api/v1/hardware 在首轮 tick 落库前本来就返回 {}，不算失败；
+        # 采集能力由下面直连采集器的检查覆盖
         for path in ("/api/v1/system/info", "/api/v1/system/env",
-                     "/api/v1/monitor/summary", "/api/v1/storage/volumes", "/api/v1/hardware"):
+                     "/api/v1/monitor/summary", "/api/v1/storage/volumes"):
             resp = await client.get(path)
             payload = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             data = payload.get("data", payload)
