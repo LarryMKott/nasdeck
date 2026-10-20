@@ -26,7 +26,9 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# 容器里以 root 跑会在挂载卷里留下 root 所有的 __pycache__，清理时不加这个就会让
+# 整个 L3 因为 rm 失败而红灯（真机验收跑挂了看着像架构问题，其实只是清理没权限）
+trap 'chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK" 2>/dev/null || true' EXIT
 echo "[L3] 解包 $FPK"
 tar -xzf "$FPK" -C "$WORK"
 tar -xzf "$WORK/app.tgz" -C "$WORK"
@@ -47,6 +49,11 @@ import asyncio
 import json
 import os
 import sys
+
+# 产物根的 app.py 是 FPK 入口脚本，和 server/app 包同名：脚本目录在 sys.path[0] 时
+# `import app.xxx` 会命中那个脚本而不是包。真机由 cmd/main 在 server/ 下起进程，
+# 这里显式把 server/ 放到最前面，复现真机解析顺序。
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "server"))
 
 results = []
 
@@ -96,6 +103,7 @@ PY
 
 echo "[L3] 在 arm64 容器里跑后端"
 if ! OUT="$(docker run --rm --platform linux/arm64 \
+        --user "$(id -u):$(id -g)" -e HOME=/tmp \
         -v "$WORK:/w" -w "$CONTAINER_APP" \
         -e PYTHONPATH="$CONTAINER_APP/server:$CONTAINER_APP/server/site-packages" \
         -e NASDECK_DB_URL=sqlite+aiosqlite:////tmp/l3.db \
