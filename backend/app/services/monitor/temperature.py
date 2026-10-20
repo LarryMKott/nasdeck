@@ -22,10 +22,14 @@ import psutil
 from app.utils.async_cmd import run_cmd
 
 _ZONE_HINTS = {
-    "cpu": ("coretemp", "k10temp", "zenpower", "cpu_thermal", "acpitz"),
+    # ARM SoC 的 hwmon 命名差异大：soc_thermal / cpu-thermal / cluster/big/little 都要认
+    "cpu": (
+        "coretemp", "k10temp", "zenpower", "cpu_thermal", "acpitz",
+        "soc_thermal", "cpu-thermal", "big0", "little0", "cluster", "soc0",
+    ),
     "nvme": ("nvme",),
     "disk": ("drivetemp",),
-    "board": ("acpitz", "pch", "nct"),
+    "board": ("acpitz", "pch", "nct", "soc", "board"),
 }
 
 _DISK_CACHE_TTL = 60.0
@@ -175,6 +179,35 @@ async def disk_temps() -> dict[str, float]:
     return dict(_disk_cache["temps"])
 
 
+def _thermal_zone_items(root: str = "/sys/class/thermal") -> list[dict]:
+    """generic thermal 兜底：ARM SoC 常只有 thermal_zoneN 而没有任何 hwmon 温度芯片。
+
+    单位统一为 ℃：thermal_zone 的 temp 是毫摄氏度（x86 上部分驱动同样如此）。
+    """
+    items: list[dict] = []
+    for zone_dir in sorted(glob.glob(os.path.join(root, "thermal_zone*"))):
+        name = os.path.basename(zone_dir)
+        try:
+            with open(os.path.join(zone_dir, "type"), encoding="ascii", errors="replace") as fh:
+                zone_type = fh.read().strip()
+            with open(os.path.join(zone_dir, "temp"), encoding="ascii") as fh:
+                millideg = int(fh.read().strip())
+        except (OSError, ValueError):
+            continue
+        celsius = round(millideg / 1000.0, 1)
+        items.append(
+            {
+                "key": f"thermal:{name}",
+                "chip": zone_type or name,
+                "label": zone_type or name,
+                "celsius": celsius,
+                "zone": _zone_for(zone_type, name),
+                "grade": grade_of(celsius),
+            }
+        )
+    return items
+
+
 async def temperatures() -> list[dict]:
     if platform.system() != "Linux" or not hasattr(psutil, "sensors_temperatures"):
         return []
@@ -196,6 +229,9 @@ async def temperatures() -> list[dict]:
                     "grade": grade_of(entry.current),
                 }
             )
+    if not any(item["zone"] == "cpu" for item in result):
+        # hwmon 拿不到 CPU 温度时用 thermal_zone 兜底（ARM SoC 无 coretemp/k10temp）
+        result.extend(_thermal_zone_items())
     result.extend(await _smart_disk_temps())
     return result
 

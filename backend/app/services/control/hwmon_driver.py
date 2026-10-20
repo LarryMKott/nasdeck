@@ -73,6 +73,13 @@ def write_pwm(hwmon_name: str, pwm_channel: int, pct: float) -> bool:
     pwm = find_channel(hwmon_name, pwm_channel)
     if not pwm:
         return False
+    # 只读通道（ARM 板级 fan 驱动常见：可读转速但 pwm 不可写）直接拒绝，
+    # 不进入「写入-失败-回滚」流程，避免每 tick 刷一次 OSError
+    try:
+        if not (pwm.stat().st_mode & 0o200):
+            return False
+    except OSError:
+        return False
     try:
         pwm.write_text(str(max(0, min(255, round(pct / 100 * 255)))))
         enable = pwm.parent / f"pwm{pwm_channel}_enable"

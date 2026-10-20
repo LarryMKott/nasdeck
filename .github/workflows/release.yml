@@ -2,7 +2,11 @@ name: Release nasdeck fpk
 
 # 发版流程（版本号唯一来源是 backend/pyproject.toml，构建时注入 fpk/manifest 的 @VERSION@）：
 #   改 backend/pyproject.toml 的 version → git tag <版本> && git push origin <版本>
-#   → 本 workflow 构建标准 FPK（build/fpk/nasdeck-fnpack-<版本>.fpk）并自动创建 GitHub Release 挂上产物
+#   → 本 workflow 构建 x86_64 与 aarch64 两个 FPK + sha256sums.txt 并创建 GitHub Release
+#
+# 判定口径（#18 决策）：L1 结构 / L2 单元在 CI 必然通过；L3 aarch64 模拟与 L4 真机补验
+# 不在本 workflow 内——真机未验时 release notes 显式标注「ARM 未验证」，不写「ARM 可用」，
+# 也不阻断 x86 包发布。
 on:
   push:
     tags: [ 'v*', 'dev-*' ]
@@ -60,10 +64,16 @@ jobs:
           python3 -m pip install -q -r requirements-ci.txt pytest pytest-asyncio
           (cd backend && python3 -m pytest -q)
 
+      # 一次出两个包：x86_64 + aarch64（双附件发布）
       # 手工打包器显式设置可执行位，产物结构与官方 fnpack 一致；--skip-fnpack-download 跳过 Windows 版 fnpack
-      - name: Build release fpk（前端 fpk 模式构建 + 离线 wheels 装配 + fnpack 同等校验）
+      - name: Build release fpk（x86_64 + aarch64）
         run: |
-          python3 scripts/build_fpk.py --skip-fnpack-download --python "$(command -v python3)"
+          python3 scripts/build_fpk.py --arch all --skip-fnpack-download --python "$(command -v python3)"
+
+      # 双附件必须带校验和：用户下载后能自证包没被截断/篡改
+      - name: Generate sha256sums
+        run: |
+          cd build/fpk && sha256sum nasdeck_*_x86-*.fpk nasdeck_*_arm-*.fpk > sha256sums.txt && cat sha256sums.txt
 
       # 发布说明取 fpk/manifest 的 changelog 中当前版本对应段落
       # （格式：`changelog = ver1: 说明; ver2: 说明; …`，整行连发会带出全部历史版本）
@@ -82,8 +92,17 @@ jobs:
                       break
           if not body:
               body = '开发版。'
-          notes = (f"nasdeck {ver}\n\n{body}\n\n---\n\n"
-                   "安装：飞牛 fnOS 应用中心 → 手动安装 → 选择本 fpk（官方注明仅限本地测试），详见 README。")
+          notes = (f"nasdeck {ver}\n\n{body}\n\n"
+                   "## 下载\n"
+                   f"- `nasdeck_x86-fnpack-{ver}.fpk` — x86_64（含 storcli64，MegaRAID 可用）\n"
+                   f"- `nasdeck_arm-fnpack-{ver}.fpk` — aarch64（不含 storcli64，硬 RAID 区段显式降级）\n"
+                   "- `sha256sums.txt` — 校验和\n\n"
+                   "## ARM 状态\n"
+                   "ARM 包已通过 L1 结构校验与 L2 单元测试；**尚未完成 L4 真机补验**，"
+                   "因此不声明「ARM 可用」，首批机型待社区真机反馈后另行公示。\n\n"
+                   "---\n\n"
+                   "安装：飞牛 fnOS 应用中心 → 手动安装 → 选择与本机架构对应的 fpk"
+                   "（官方注明仅限本地测试），详见 README。")
           path = os.path.join(os.environ['RUNNER_TEMP'], 'release-notes.md')
           open(path, 'w', encoding='utf-8').write(notes)
           print(notes)
@@ -94,5 +113,7 @@ jobs:
         with:
           name: nasdeck ${{ github.ref_name }}
           body_path: ${{ runner.temp }}/release-notes.md
-          files: build/fpk/nasdeck-fnpack-*.fpk
+          files: |
+            build/fpk/nasdeck_*-fnpack-*.fpk
+            build/fpk/sha256sums.txt
           fail_on_unmatched_files: true

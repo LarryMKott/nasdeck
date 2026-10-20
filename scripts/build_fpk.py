@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import shutil
 import struct
@@ -45,10 +46,43 @@ TOOLS_DIR = BUILD_DIR / "tools"
 FNPACK_VERSION = "1.2.3"
 FNPACK_URL = f"https://static2.fnnas.com/fnpack/fnpack-{FNPACK_VERSION}-windows-amd64"
 
-# 交叉安装目标平台（可重复传给 pip；manylinux2014 兼容面最大，2_28 兜新版本轮子）
-TARGET_PLATFORMS = ["manylinux2014_x86_64", "manylinux_2_28_x86_64"]
+# 目标架构表：wheel 平台标签、manifest platform 值、ELF e_machine、是否随包 storcli。
+# 双架构 = 两个独立包（不用 platform=all）：随包 ELF 与 wheel 标签必须与目标架构一致，
+# 否则 ARM 机器装上 x86 目录件会在 import 期直接炸。
+ARCHES: dict[str, dict] = {
+    "x86": {
+        "platforms": ["manylinux2014_x86_64", "manylinux_2_28_x86_64"],
+        "manifest_platform": "x86",
+        "elf_machine": 0x3E,  # EM_X86_64
+        "elf_name": "x86_64",
+        "storcli": True,
+    },
+    "arm": {
+        "platforms": ["manylinux2014_aarch64", "manylinux_2_28_aarch64"],
+        "manifest_platform": "arm",
+        "elf_machine": 0xB7,  # EM_AARCH64
+        "elf_name": "aarch64",
+        "storcli": False,
+    },
+}
 TARGET_PY = "3.12"
 TARGET_ABI = "cp312"
+
+# ARM 包不得沿用 x86 的文案事实（否则等于虚假宣传）：逐条替换，漏一条即构建失败
+ARM_TEXT_REPLACEMENTS: list[tuple[str, str]] = [
+    (
+        "storcli 已内置（MegaRAID 开箱即用）",
+        "ARM 版不内置 storcli，MegaRAID 阵列卡功能不可用（其余正常降级）",
+    ),
+    (
+        "<b>storcli 已随包内置</b>：MegaRAID / HBA 卡用户无需手动下载。",
+        "ARM 版不内置 storcli；MegaRAID / HBA 阵列卡功能不可用，软 RAID 与其余监控正常。",
+    ),
+    (
+        "<b>Intel 显卡机型会额外安装 intel-gpu-tools</b> 以支持核显实时利用率",
+        "x86 Intel 显卡机型会额外安装 intel-gpu-tools；ARM 板载 GPU 不做实时利用率",
+    ),
+]
 
 EXEC_FILES = {"app.py", "index.cgi", "storcli64"}  # 打包时显式置 0755 的零散文件
 # cmd/ 与 server/bin/ 目录下的文件整体置 0755（见 is_exec）
@@ -79,11 +113,30 @@ def read_dependencies() -> list[str]:
     return list(data["project"]["dependencies"])
 
 
-def render_manifest(version: str) -> str:
+def render_manifest(version: str, arch: str) -> str:
     text = (FNP_DIR / "manifest").read_text(encoding="utf-8")
     if "@VERSION@" not in text:
         die("fpk/manifest 缺少 @VERSION@ 占位符")
-    return text.replace("@VERSION@", version)
+    if "@PLATFORM@" not in text:
+        die("fpk/manifest 缺少 @PLATFORM@ 占位符")
+    return text.replace("@VERSION@", version).replace("@PLATFORM@", ARCHES[arch]["manifest_platform"])
+
+
+def render_arch_text(text: str, arch: str) -> str:
+    """按目标架构改写文案事实（x86 原样返回）。"""
+    if arch == "x86":
+        return text
+    for old, new in ARM_TEXT_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
+
+
+def assert_no_x86_claims(path: Path) -> None:
+    """ARM 包残留 x86 专属承诺即失败（文案也是交付物，不许骗用户）。"""
+    text = path.read_text(encoding="utf-8")
+    for old, _new in ARM_TEXT_REPLACEMENTS:
+        if old in text:
+            die(f"{path} 仍宣称 x86 专属能力（{old[:24]}…），ARM 包不得包含")
 
 
 # ---------------------------------------------------------------- 前端构建
@@ -290,7 +343,7 @@ def gen_icons(staging: Path) -> None:
 
 # ---------------------------------------------------------------- 组装 staging
 
-def copy_backend(staging: Path) -> None:
+def copy_backend(staging: Path, arch: str) -> None:
     server = staging / "app" / "server"
     server.mkdir(parents=True, exist_ok=True)
     shutil.copytree(
@@ -302,18 +355,22 @@ def copy_backend(staging: Path) -> None:
     # 版本单源：运行时 config.app_version 从 pyproject 读取，必须随包分发
     shutil.copyfile(ROOT / "backend" / "pyproject.toml", server / "pyproject.toml")
     (server / "bin").mkdir(exist_ok=True)
-    shutil.copyfile(ROOT / "backend" / "bin" / "storcli64", server / "bin" / "storcli64")
-    log("后端代码与 storcli64 已复制")
+    if ARCHES[arch]["storcli"]:
+        shutil.copyfile(ROOT / "backend" / "bin" / "storcli64", server / "bin" / "storcli64")
+        log("后端代码与 storcli64 已复制")
+    else:
+        log("后端代码已复制（ARM 包不随包 storcli：无 MegaRAID 卡场景，硬 RAID 区段降级）")
 
 
-def install_site_packages(staging: Path, python: Path) -> None:
-    """交叉安装 Linux x86_64 cp312 依赖到随包 site-packages（离线分发，装机不联网）。"""
+def install_site_packages(staging: Path, python: Path, arch: str) -> None:
+    """交叉安装 Linux cp312 依赖到随包 site-packages（离线分发，装机不联网）。"""
     site = staging / "app" / "server" / "site-packages"
     deps = read_dependencies()
-    log(f"交叉安装 {len(deps)} 个运行依赖 → site-packages（{TARGET_PLATFORMS[0]} …）")
+    platforms = ARCHES[arch]["platforms"]
+    log(f"交叉安装 {len(deps)} 个运行依赖 → site-packages（{arch}: {', '.join(platforms)}）")
     cmd = [str(python), "-m", "pip", "install", "--target", str(site), "--no-compile",
            "--no-cache-dir", "--disable-pip-version-check"]
-    for plat in TARGET_PLATFORMS:
+    for plat in platforms:
         cmd += ["--platform", plat]
     cmd += ["--python-version", TARGET_PY, "--implementation", "cp", "--abi", TARGET_ABI, "--only-binary=:all:", *deps]
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -335,7 +392,7 @@ def copy_frontend(dist: Path, staging: Path) -> None:
     log("前端产物已复制 → app/server/web/dist")
 
 
-def assemble(staging: Path, version: str) -> None:
+def assemble(staging: Path, version: str, arch: str) -> None:
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
@@ -348,14 +405,40 @@ def assemble(staging: Path, version: str) -> None:
     shutil.copytree(FNP_DIR / "cmd", staging / "cmd")
     shutil.copytree(FNP_DIR / "config", staging / "config")
     shutil.copytree(FNP_DIR / "wizard", staging / "wizard")
-    (staging / "manifest").write_text(render_manifest(version), encoding="utf-8")
+    (staging / "manifest").write_text(render_manifest(version, arch), encoding="utf-8")
+    # 文案事实按架构改写：ARM 包不得出现 x86 专属承诺
+    if arch != "x86":
+        for rel in ("manifest", "wizard/install"):
+            target = staging / rel
+            if target.is_file():
+                target.write_text(
+                    render_arch_text(target.read_text(encoding="utf-8"), arch), encoding="utf-8"
+                )
+        assert_no_x86_claims(staging / "manifest")
+        # 软链声明：ARM 包没有 storcli64，留着会让 usr-local-linker 指向不存在的文件
+        res_path = staging / "config" / "resource"
+        res = json.loads(res_path.read_text(encoding="utf-8"))
+        res.setdefault("usr-local-linker", {})["bin"] = []
+        res_path.write_text(json.dumps(res, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+        log("ARM 包：已改写文案事实并移除 config/resource 的 storcli 软链声明")
     gen_icons(staging)
-    log(f"staging 组装完成：{staging}")
+    log(f"staging 组装完成（{arch}）：{staging}")
 
 
 # ---------------------------------------------------------------- 校验（对齐 fnpack 1.2.3）
 
-def validate(staging: Path) -> None:
+def elf_machine(path: Path) -> int | None:
+    """读 ELF 的 e_machine（offset 18，小端 u16）；非 ELF/读失败返回 None。"""
+    try:
+        head = path.read_bytes()[:20]
+    except OSError:
+        return None
+    if len(head) < 20 or head[:4] != b"ELF":
+        return None
+    return int.from_bytes(head[18:20], "little")
+
+
+def validate(staging: Path, arch: str) -> None:
     errors: list[str] = []
 
     def need(cond: bool, msg: str) -> None:
@@ -365,7 +448,15 @@ def validate(staging: Path) -> None:
     # manifest 必要字段
     text = (staging / "manifest").read_text(encoding="utf-8")
     for field in ("appname", "version", "display_name", "desc", "source", "platform", "desktop_uidir"):
-        need(f"{field}" in text and f"@VERSION@" not in text, f"manifest 字段缺失或未渲染：{field}")
+        need(
+            f"{field}" in text and "@VERSION@" not in text and "@PLATFORM@" not in text,
+            f"manifest 字段缺失或未渲染：{field}",
+        )
+    plat_line = next((ln for ln in text.splitlines() if ln.strip().startswith("platform")), "")
+    need(
+        plat_line.split("=", 1)[-1].strip() == ARCHES[arch]["manifest_platform"],
+        f"manifest platform 应为 {ARCHES[arch]['manifest_platform']}，实际 {plat_line.strip()!r}",
+    )
     appname = next(
         (ln.split("=", 1)[1].strip() for ln in text.splitlines() if ln.strip().startswith("appname")), ""
     )
@@ -426,7 +517,14 @@ def validate(staging: Path) -> None:
     need((staging / "app" / "server" / "site-packages" / "fastapi").is_dir(), "site-packages 缺 fastapi")
     need((staging / "app" / "server" / "web" / "dist" / "index.html").is_file(), "缺少前端 dist/index.html")
     bin_storcli = staging / "app" / "server" / "bin" / "storcli64"
-    need(bin_storcli.is_file() and bin_storcli.read_bytes()[:4] == b"\x7fELF", "storcli64 缺失或非 Linux ELF")
+    if ARCHES[arch]["storcli"]:
+        machine = elf_machine(bin_storcli) if bin_storcli.is_file() else None
+        need(
+            machine == ARCHES[arch]["elf_machine"],
+            f"storcli64 缺失或架构不符（期望 {ARCHES[arch]['elf_name']}，实际 e_machine={machine}）",
+        )
+    else:
+        need(not bin_storcli.exists(), "ARM 包不得包含 storcli64")
 
     if errors:
         for e in errors:
@@ -528,7 +626,7 @@ def ensure_fnpack() -> Path | None:
         return None
 
 
-def fnpack_build(exe: Path, staging: Path) -> Path | None:
+def fnpack_build(exe: Path, staging: Path, before: set[Path]) -> Path | None:
     proc = subprocess.run(
         [str(exe), "build", "--directory", str(staging)],
         cwd=BUILD_DIR,
@@ -540,11 +638,11 @@ def fnpack_build(exe: Path, staging: Path) -> Path | None:
     output = f"{proc.stdout or ''}{proc.stderr or ''}"
     log(output.strip()[-800:])
     # fnpack 失败时退出码可能仍为 0，只在 stdout 打印 Packing failed（1.2.3 实测），
-    # 不能只信退出码；配合 main() 里先清理旧 *.fpk，杜绝 glob 捞到上次的产物
+    # 不能只信退出码；用构建前快照比对，杜绝 glob 捞到另一架构/上次的产物
     if proc.returncode != 0 or "Packing failed" in output:
         return None
-    produced = sorted(BUILD_DIR.glob("*.fpk"))
-    return produced[-1] if produced else None
+    produced = [p for p in BUILD_DIR.glob("*.fpk") if p not in before]
+    return sorted(produced)[-1] if produced else None
 
 
 def fpk_modes_ok(path: Path) -> bool:
@@ -571,46 +669,114 @@ def fpk_summary(path: Path) -> None:
     log(f"fpk 顶层条目：{sorted(set(n.split('/')[0] for n in names))}")
 
 
-def main() -> None:
+def _scan_app_tgz(blob: bytes) -> tuple[list[str], bool, int | None]:
+    """扫描内层 app.tgz：wheel Tag 清单、是否含 storcli64、其 e_machine。
+
+    fpk 是「tar.gz 套 app.tgz」的两层结构，L1 必须穿透内层，否则会把随包内容全判缺失。
+    """
+    wheel_tags: list[str] = []
+    has_storcli = False
+    storcli_machine: int | None = None
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
+        for m in tf.getmembers():
+            if m.name.endswith("/WHEEL"):
+                raw = tf.extractfile(m).read().decode("utf-8", "replace")
+                wheel_tags += [ln.split(":", 1)[1].strip() for ln in raw.splitlines() if ln.startswith("Tag:")]
+            elif m.name.endswith("bin/storcli64"):
+                has_storcli = True
+                fh = tf.extractfile(m)
+                head = fh.read(20) if fh is not None else b""
+                if len(head) >= 20 and head[:4] == b"ELF":
+                    storcli_machine = int.from_bytes(head[18:20], "little")
+    return wheel_tags, has_storcli, storcli_machine
+
+
+def verify_fpk(path: Path, arch: str) -> None:
+    """L1 结构校验：直接读产物字节，不信任 staging——打进包里的才是真的。"""
+    cfg = ARCHES[arch]
+    errors: list[str] = []
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
-        pass
+        with tarfile.open(path, "r:gz") as tf:
+            members = tf.getmembers()
+            manifest_member = next((m for m in members if m.name == "manifest"), None)
+            manifest = (
+                tf.extractfile(manifest_member).read().decode("utf-8")
+                if manifest_member is not None
+                else ""
+            )
+            app_blob = None
+            for m in members:
+                if m.name == "app.tgz":
+                    fh = tf.extractfile(m)
+                    app_blob = fh.read() if fh is not None else None
+                    break
+            if app_blob is not None:
+                wheel_tags, has_storcli, storcli_machine = _scan_app_tgz(app_blob)
+            else:
+                # 兜底：某些打包器把 app/ 平铺（无 app.tgz）
+                wheel_tags, has_storcli, storcli_machine = [], False, None
+                for m in members:
+                    if m.name.endswith("/WHEEL"):
+                        raw = tf.extractfile(m).read().decode("utf-8", "replace")
+                        wheel_tags += [
+                            ln.split(":", 1)[1].strip() for ln in raw.splitlines() if ln.startswith("Tag:")
+                        ]
+                    elif m.name.endswith("bin/storcli64"):
+                        has_storcli = True
+    except (OSError, tarfile.TarError) as exc:
+        die(f"{path.name} 无法读取：{exc}")
 
-    parser = argparse.ArgumentParser(description="nasdeck FPK 打包")
-    parser.add_argument("--skip-frontend", action="store_true", help="复用现有 frontend/dist")
-    parser.add_argument("--builder", choices=["auto", "fnpack", "manual"], default="auto")
-    parser.add_argument("--skip-fnpack-download", action="store_true")
-    parser.add_argument("--python", default=str(ROOT / "backend" / ".venv" / "Scripts" / "python.exe"),
-                        help="用于 pip 交叉安装的解释器（只看其 pip，不影响目标平台）")
-    args = parser.parse_args()
+    plat = next(
+        (ln.split("=", 1)[-1].strip() for ln in manifest.splitlines() if ln.strip().startswith("platform")),
+        "",
+    )
+    if plat != cfg["manifest_platform"]:
+        errors.append(f"manifest platform={plat!r}，期望 {cfg['manifest_platform']!r}")
+    if cfg["storcli"]:
+        if not has_storcli or storcli_machine != cfg["elf_machine"]:
+            errors.append(f"包内 storcli64 缺失或 e_machine={storcli_machine}，期望 {cfg['elf_name']}")
+    elif has_storcli:
+        errors.append("ARM 包出现了 storcli64")
+    if not wheel_tags:
+        errors.append("包内没有任何 WHEEL Tag（site-packages 未随包？）")
+    other = "aarch64" if cfg["elf_name"] == "x86_64" else "x86_64"
+    for tag in wheel_tags:
+        if "any" in tag:
+            continue
+        if cfg["elf_name"] not in tag:
+            errors.append(f"wheel Tag {tag} 不含目标架构 {cfg['elf_name']}")
+        elif other in tag:
+            errors.append(f"wheel Tag {tag} 含对向架构 {other}")
+    if errors:
+        for e in errors:
+            log(f"L1 校验失败：{e}")
+        die(f"{path.name} L1 校验未通过（{len(errors)} 项）")
+    log(
+        f"L1 校验通过：{path.name}（platform={plat}，wheel tag {len(wheel_tags)} 条，"
+        f"storcli={'有' if has_storcli else '无'}）"
+    )
 
-    t0 = time.time()
-    version = read_version()
-    log(f"nasdeck v{version} → FPK")
 
-    dist = build_frontend(args.skip_frontend)
-    assemble(STAGING, version)
-    copy_backend(STAGING)
-    install_site_packages(STAGING, Path(args.python))
-    copy_frontend(dist, STAGING)
-    validate(STAGING)
-
-    out = BUILD_DIR / f"nasdeck-fnpack-{version}.fpk"
+def build_arch(arch: str, dist: Path, version: str, args) -> Path:
+    """按架构产出一个包：组装 → 依赖交叉安装 → 校验 → 打包 → L1 复验。"""
+    staging = BUILD_DIR / f"pkg-{arch}"
+    out = BUILD_DIR / f"nasdeck_{arch}-fnpack-{version}.fpk"
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
-    # 清掉全部旧 .fpk：fnpack 失败退出码可能为 0，防止 glob 误捞上次产物当新包
-    for stale in BUILD_DIR.glob("*.fpk"):
-        stale.unlink()
-        log(f"已清理旧产物 {stale.name}")
+    out.unlink(missing_ok=True)
+
+    assemble(staging, version, arch)
+    copy_backend(staging, arch)
+    install_site_packages(staging, Path(args.python), arch)
+    copy_frontend(dist, staging)
+    validate(staging, arch)
 
     builder = args.builder
     if builder in ("auto", "fnpack") and not args.skip_fnpack_download:
         exe = ensure_fnpack()
         if exe:
-            produced = fnpack_build(exe, STAGING)
+            produced = fnpack_build(exe, staging, set(BUILD_DIR.glob("*.fpk")))
             if produced and fpk_modes_ok(produced):
-                shutil.move(produced, out)
+                shutil.move(str(produced), out)
                 builder = "fnpack"
             else:
                 log("fnpack 产物缺失或可执行位丢失（Windows 已知坑），回退手工打包")
@@ -621,17 +787,61 @@ def main() -> None:
         exe = TOOLS_DIR / "fnpack.exe"
         if not exe.is_file():
             die("--builder fnpack 但 tools 里没有 fnpack.exe（去掉 --skip-fnpack-download 重试）")
-        produced = fnpack_build(exe, STAGING)
+        produced = fnpack_build(exe, staging, set(BUILD_DIR.glob("*.fpk")))
         if not produced:
             die("fnpack build 失败")
-        shutil.move(produced, out)
+        shutil.move(str(produced), out)
 
     if builder in ("auto", "manual"):
-        manual_build(STAGING, out)
+        manual_build(staging, out)
 
     fpk_summary(out)
-    log(f"完成：{out}（{time.time() - t0:.0f}s）")
-    log("安装验证：应用中心 → 手动安装 → 选择该 .fpk（仅限本地测试），或 appcenter-cli install-fpk")
+    verify_fpk(out, arch)
+    return out
+
+
+def main() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        pass
+
+    parser = argparse.ArgumentParser(description="nasdeck FPK 打包（x86_64 / aarch64 双架构）")
+    parser.add_argument("--skip-frontend", action="store_true", help="复用现有 frontend/dist")
+    parser.add_argument("--builder", choices=["auto", "fnpack", "manual"], default="auto")
+    parser.add_argument("--skip-fnpack-download", action="store_true")
+    parser.add_argument(
+        "--arch",
+        choices=["x86", "arm", "all"],
+        default="x86",
+        help="目标架构：x86（默认，行为与旧版一致）/ arm / all（两个包都出）",
+    )
+    parser.add_argument("--verify", metavar="FPK", help="只做 L1 结构校验，不重新构建（须配 --arch）")
+    parser.add_argument(
+        "--python",
+        default=str(ROOT / "backend" / ".venv" / "Scripts" / "python.exe"),
+        help="用于 pip 交叉安装的解释器（只看其 pip，不影响目标平台）",
+    )
+    args = parser.parse_args()
+
+    t0 = time.time()
+    if args.verify:
+        if args.arch == "all":
+            die("--verify 需配 --arch x86|arm，指明这个包的目标架构")
+        verify_fpk(Path(args.verify), args.arch)
+        return
+
+    version = read_version()
+    arches = ["x86", "arm"] if args.arch == "all" else [args.arch]
+    log(f"nasdeck v{version} → FPK（架构：{', '.join(arches)}）")
+
+    dist = build_frontend(args.skip_frontend)
+    outs = [build_arch(arch, dist, version, args) for arch in arches]
+    for out in outs:
+        log(f"产物：{out}（{out.stat().st_size // 1024} KB）")
+    log(f"完成：{len(outs)} 个包（{time.time() - t0:.0f}s）")
+    log("安装验证：应用中心 → 手动安装 → 选择对应架构的 .fpk，或 appcenter-cli install-fpk")
 
 
 if __name__ == "__main__":

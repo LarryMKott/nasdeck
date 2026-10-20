@@ -110,5 +110,11 @@ export PYTHONPATH="${SERVER_DIR}/site-packages"
 ## 已知限制
 
 - 实时推送（WebSocket）经 CGI 反代不可用，前端自动降级为 2s 轮询（设计内行为）。
-- `platform=x86`：随包 storcli64 为 x86_64 ELF；ARM 机器缺少阵列卡功能（其余正常降级）。
+- **双架构**：`nasdeck_x86-fnpack-*.fpk`（x86_64，含 storcli64，MegaRAID 可用）与
+  `nasdeck_arm-fnpack-*.fpk`（aarch64，**不含** storcli64，硬 RAID 区段显式降级）。
+  装错架构的包在应用中心会被拒绝；ARM 包尚无真机验证结论，不声明「ARM 可用」。
+- ARM 板的降级项（均有可读原因，不伪造数据）：MegaRAID 硬 RAID（无 storcli）、
+  Intel/AMD 专属 GPU 实时指标、RAPL CPU 功耗、DMI 内存条明细（无 DMI 的板走设备树）、
+  PWM 风扇调速（只读转速）。核心监控闭环（CPU/内存/温度/风扇转速/SMART/软 RAID/
+  存储卷/Docker/端口/告警/报告/鉴权）不受影响。
 - 健康报告 HTML 写在应用 target 目录（升级会清），历史数据本体在 @appdata 不受影响。

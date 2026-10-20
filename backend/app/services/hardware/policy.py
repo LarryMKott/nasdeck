@@ -43,6 +43,80 @@ SYS_DRM = "/sys/class/drm"
 # Intel 无全局忙闲 sysfs，走 intel_gpu_top -J 长驻进程（perf PMU），在位才启用
 GPU_STRATEGIES = {"amd": "sysfs", "nvidia": "nvidia-smi", "intel": "intel-gpu-top"}
 
+# 架构画像的探测点：DMI（x86 主板）与设备树（无 DMI 的 ARM 板卡）互斥出现
+DMI_ROOT = "/sys/class/dmi/id"
+DT_ROOT = "/proc/device-tree"
+DT_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "board_vendor": ("vendor", "compatible"),
+    "board_name": ("model",),
+    "board_serial": ("serial-number",),
+    "product_name": ("model",),
+}
+
+
+@dataclass(frozen=True)
+class ArchProfile:
+    """CPU 架构画像：架构分支的唯一事实源。
+
+    采集层不得各自猜 sysfs 布局（x86 的 coretemp / ARM 的 soc_thermal、DMI 有无、
+    EDAC 有无），一律读本画像；新增架构分支先扩本类，再改采集器。
+    """
+
+    arch: str  # x86_64 | aarch64 | <platform.machine() 原值>
+    machine: str  # platform.machine() 原值（小写）
+    is_arm: bool
+    has_dmi: bool  # /sys/class/dmi/id 在位（x86 通常有，设备树板卡通常无）
+    has_device_tree: bool  # /proc/device-tree 在位（ARM 板卡的板级信息源）
+
+
+def _dt_read(*names: str) -> str | None:
+    """读设备树字段（去尾部 NUL 与空白）；按候选名顺序取第一个非空。"""
+    for name in names:
+        try:
+            raw = (Path(DT_ROOT) / name).read_bytes()
+        except OSError:
+            continue
+        text = raw.rstrip(b"\x00").decode("utf-8", "replace").strip()
+        if text:
+            return text
+    return None
+
+
+def read_board_field(field_name: str) -> tuple[str, str] | None:
+    """按 DMI → 设备树兜底读板级字段，返回 (值, 来源)；两处都没有返回 None。
+
+    来源值：dmi | device-tree（前端/自检页据此标注数据出处）。
+    """
+    dmi_value: str | None = None
+    try:
+        dmi_value = (Path(DMI_ROOT) / field_name).read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        dmi_value = None
+    if dmi_value:
+        return dmi_value, "dmi"
+    dt_value = _dt_read(*DT_FALLBACKS.get(field_name, (field_name,)))
+    if dt_value:
+        return dt_value, "device-tree"
+    return None
+
+
+def build_arch_profile() -> ArchProfile:
+    """探测一次架构画像（进程生命周期内不变，由 decide 调用）。"""
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        arch = "x86_64"
+    elif machine in ("aarch64", "arm64"):
+        arch = "aarch64"
+    else:
+        arch = machine or "unknown"
+    return ArchProfile(
+        arch=arch,
+        machine=machine,
+        is_arm=arch == "aarch64",
+        has_dmi=_readable(DMI_ROOT),
+        has_device_tree=_readable(DT_ROOT),
+    )
+
 
 def _readable(path: str) -> bool:
     try:
@@ -64,6 +138,7 @@ class HardwarePolicy:
     tools: dict = field(default_factory=dict)  # 工具名 → 在位 bool
     reasons: dict = field(default_factory=dict)  # 探测点 → 结论说明
     schemes: list = field(default_factory=list)  # 逐域采集方案（自检页/启动日志展示）
+    arch_profile: ArchProfile | None = None  # CPU 架构画像（采集层架构分支唯一事实源）
 
 
 def _build_schemes(
@@ -74,6 +149,7 @@ def _build_schemes(
     gpu_scan: bool,
     gpu_vendors: dict,
     tools: dict,
+    arch_profile: ArchProfile | None = None,
 ) -> list[dict]:
     """按决策结论汇总每个数据域在本机实际采用的采集方案（EnvCheck 展示用）。
 
@@ -198,6 +274,23 @@ def _build_schemes(
             "仅 MegaRAID/HBA 卡机器有数据，无卡机器恒空属正常",
         ),
     ]
+    # 架构画像放首行：所有「本机为什么没有 X」的第一个判断依据
+    if arch_profile is not None:
+        board_src = "DMI（/sys/class/dmi/id）" if arch_profile.has_dmi else (
+            "设备树（/proc/device-tree）" if arch_profile.has_device_tree else "无（DMI 与设备树均缺失）"
+        )
+        out.insert(
+            0,
+            scheme(
+                "arch",
+                "CPU 架构",
+                arch_profile.arch,
+                f"platform.machine()={arch_profile.machine or '未知'}；板级信息来源：{board_src}",
+                "—",
+                True,
+                "",
+            ),
+        )
     # GPU 实时：逐 vendor 一行
     vendor_labels = {"intel": "Intel GPU", "nvidia": "NVIDIA GPU", "amd": "AMD GPU"}
     vendor_src = {
@@ -258,6 +351,12 @@ def decide() -> HardwarePolicy:
             gpu_vendors[vendor] = strategy
     reasons["gpu_scan"] = f"/sys/class/drm {'可枚举' if gpu_scan else '缺失'}"
 
+    arch_profile = build_arch_profile()
+    reasons["arch"] = (
+        f"platform.machine()={arch_profile.machine or '未知'} → {arch_profile.arch}"
+        f"（DMI {'有' if arch_profile.has_dmi else '无'} / 设备树 {'有' if arch_profile.has_device_tree else '无'}）"
+    )
+
     policy = HardwarePolicy(
         platform=system,
         cpu_util=cpu_util,
@@ -267,10 +366,15 @@ def decide() -> HardwarePolicy:
         gpu_vendors=gpu_vendors,
         tools=tools,
         reasons=reasons,
-        schemes=_build_schemes(system, cpu_util, cpu_freq, memory, gpu_scan, gpu_vendors, tools),
+        schemes=_build_schemes(system, cpu_util, cpu_freq, memory, gpu_scan, gpu_vendors, tools, arch_profile),
+        arch_profile=arch_profile,
     )
     logger.info(
-        "硬件采集策略决策：platform=%s cpu_util=%s cpu_freq=%s memory=%s gpu_scan=%s gpu=%s 外部工具=%s",
+        "硬件采集策略决策：arch=%s（DMI=%s 设备树=%s） platform=%s cpu_util=%s "
+        "cpu_freq=%s memory=%s gpu_scan=%s gpu=%s 外部工具=%s",
+        arch_profile.arch,
+        arch_profile.has_dmi,
+        arch_profile.has_device_tree,
         system,
         cpu_util,
         cpu_freq,

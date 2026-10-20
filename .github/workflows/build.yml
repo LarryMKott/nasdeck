@@ -3,6 +3,9 @@ name: Build nasdeck fpk
 # 默认分支是 main（origin/HEAD 已核实）；PR 与手动触发同走此流程。
 # 注意：frontend/package.json 没有 typecheck/test 脚本，前端只做 lint + build；
 # fpk 打包走 scripts/build_fpk.py（旧模板里的 build.sh/app.py 均不存在）。
+#
+# 双架构：test 先跑 lint + 单元（L2），package 用 matrix 分别打 x86 / arm 两个包，
+# 每个包在打包末尾做 L1 结构校验（build_fpk.py verify_fpk），各自上传 artifact。
 on:
   push:
     branches: [ main ]
@@ -15,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -53,6 +56,13 @@ jobs:
         working-directory: frontend
         run: pnpm build
 
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
       - name: Backend lint (ruff)
         run: |
           python3 -m pip install -q ruff
@@ -65,13 +75,70 @@ jobs:
           python3 -m pip install -q -r requirements-ci.txt pytest pytest-asyncio
           (cd backend && python3 -m pytest -q)
 
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ x86, arm ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      # 交叉下载只取目标架构的轮子，不装到本机；pip 版本要够新才支持 --platform 组合
+      - name: Upgrade pip
+        run: python3 -m pip install --upgrade pip
+
       # fpk 组装 + 校验 + 打包（--skip-fnpack-download：CI 为 Linux，跳过 Windows 版 fnpack）
-      - name: Build fpk
-        run: python3 scripts/build_fpk.py --skip-fnpack-download --python "$(command -v python3)"
+      # 打包末尾自动做 L1 结构校验：platform / wheel Tag / ELF e_machine / ARM 无 storcli
+      - name: Build fpk (${{ matrix.arch }})
+        run: |
+          python3 scripts/build_fpk.py --arch ${{ matrix.arch }} --skip-frontend --skip-fnpack-download \
+            --python "$(command -v python3)"
 
       - name: Upload fpk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nasdeck-fpk
-          path: build/fpk/*.fpk
+          name: nasdeck-fpk-${{ matrix.arch }}
+          path: build/fpk/nasdeck_${{ matrix.arch }}-fnpack-*.fpk
+          if-no-files-found: error
+
+  # L3：aarch64 用户态模拟验收。结构对了不等于能用——这里在 arm64 容器里真起后端，
+  # 验证依赖 import、DB 初始化、核心接口有数据、架构画像为 aarch64。
+  acceptance-arm:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64 user-mode emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Download arm fpk
+        uses: actions/download-artifact@v4
+        with:
+          name: nasdeck-fpk-arm
+          path: build/fpk
+
+      - name: L3 acceptance (aarch64)
+        run: bash scripts/acceptance_arm.sh "$(ls build/fpk/nasdeck_arm-*.fpk | head -1)" build/fpk/acceptance-report.md
+
+      - name: Upload acceptance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-report
+          path: build/fpk/acceptance-report.md
           if-no-files-found: error

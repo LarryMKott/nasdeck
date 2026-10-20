@@ -106,6 +106,27 @@ async def env_check() -> dict:
             "path": resolved_storcli if storcli_ok else "",
             "desc": "LSI MegaRAID/HBA 阵列卡工具",
         },
+        # 架构画像：与采集层同一个事实源（policy.build_arch_profile），自检页不另算一套
+        "arch": _arch_block(),
+    }
+
+
+def _arch_block() -> dict:
+    profile = get_policy().arch_profile
+    if profile is None:
+        return {"arch": "unknown", "machine": platform.machine(), "board_source": "unknown"}
+    if profile.has_dmi:
+        board_source = "dmi"
+    elif profile.has_device_tree:
+        board_source = "device-tree"
+    else:
+        board_source = "none"
+    return {
+        "arch": profile.arch,
+        "machine": profile.machine or platform.machine(),
+        "board_source": board_source,
+        "has_dmi": profile.has_dmi,
+        "has_device_tree": profile.has_device_tree,
     }
 
 
