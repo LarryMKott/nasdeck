@@ -89,13 +89,23 @@ async def probe():
     async with httpx.AsyncClient(transport=transport, base_url="http://l3") as client:
         health = await client.get("/health")
         results.append({"check": "GET /health", "ok": health.status_code == 200, "detail": health.text[:200]})
-        for path in ("/api/v1/system/info", "/api/v1/system/env", "/api/v1/hardware/cpu",
-                     "/api/v1/monitor/summary", "/api/v1/storage/volumes"):
+        for path in ("/api/v1/system/info", "/api/v1/system/env",
+                     "/api/v1/monitor/summary", "/api/v1/storage/volumes", "/api/v1/hardware"):
             resp = await client.get(path)
             payload = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             data = payload.get("data", payload)
             ok = resp.status_code == 200 and data not in ({}, [], None, "")
             results.append({"check": f"GET {path}", "ok": bool(ok), "detail": f"{resp.status_code} {str(data)[:160]}"})
+
+        # 采集器直连：/hardware/{kind} 要等首轮 tick 落库才有数据，这里直接跑一次 CPU 采集，
+        # 验证 aarch64 上「库可导入 + 采集不抛异常 + 型号有值」这条真实路径
+        from app.services.hardware.cpu import CpuCollector  # noqa: E402
+        cpu = await CpuCollector().collect()
+        results.append({
+            "check": "CpuCollector.collect()",
+            "ok": bool(cpu.get("available")) and bool(cpu.get("name")) and cpu.get("machine") == "aarch64",
+            "detail": f"machine={cpu.get('machine')} name={str(cpu.get('name'))[:80]} cores={cpu.get('logical_cores')}",
+        })
 
 asyncio.run(probe())
 print(json.dumps({"arch": profile.arch, "results": results}, ensure_ascii=False))
