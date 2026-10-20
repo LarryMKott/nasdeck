@@ -29,6 +29,9 @@ async def test_board_without_dmi_but_with_device_tree(monkeypatch):
         "product_name": ("NanoPi R6S", "device-tree"),
     }
     monkeypatch.setattr(board_mod, "read_board_field", lambda name: values.get(name))
+    # BIOS 字段走真实 DMI 读盘：CI runner 是虚拟机，/sys/class/dmi/id 存在但内容因环境而异，
+    # 测试里必须把 read_text 也按住，否则断言会随跑测机器漂移
+    monkeypatch.setattr(board_mod, "read_text", lambda _p: None)
     # lspci 不在位：patch 到策略对象上，而不是去改 dict 的 get
     monkeypatch.setattr(
         board_mod, "get_policy", lambda: types.SimpleNamespace(tools={"lspci": None})
