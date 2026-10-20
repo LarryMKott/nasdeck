@@ -57,7 +57,7 @@ jobs:
         run: pnpm build
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: frontend/dist
@@ -109,7 +109,7 @@ jobs:
             --python "$(command -v python3)"
 
       - name: Upload fpk artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nasdeck-fpk-${{ matrix.arch }}
           path: build/fpk/nasdeck_${{ matrix.arch }}-fnpack-*.fpk
@@ -137,7 +137,7 @@ jobs:
         run: bash scripts/acceptance_arm.sh "$(ls build/fpk/nasdeck_arm-*.fpk | head -1)" build/fpk/acceptance-report.md
 
       - name: Upload acceptance report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: acceptance-report
           path: build/fpk/acceptance-report.md
