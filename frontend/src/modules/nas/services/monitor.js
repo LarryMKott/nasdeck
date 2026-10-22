@@ -157,18 +157,31 @@ export async function fetchHistoryStats(dim, rangeKey) {
  * 温度是主源（不可达才演示回退）；风区/硬盘缺失是合法真值（视图显式降级，不造数）
  * @returns {Promise<{data: {sensors: Array, fans: Array, disks: Array}, live: boolean}>} */
 export async function fetchChassis() {
-  const [tempsS, fansS, disksS] = await Promise.allSettled([
+  const [tempsS, fansS, disksS, hwS] = await Promise.allSettled([
     getTemperatures(),
     import('../api/endpoints/control').then((m) => m.getFans()),
     import('../api/endpoints/storage').then((m) => m.getDisks()),
+    import('../api/endpoints/hardware').then((m) => m.getHardware()),
   ]);
   const temps = pick(tempsS);
   if (!temps?.length) return { data: mock.chassis, live: false };
   const zones = pick(fansS);
   const disks = pick(disksS);
+  const hw = pick(hwS);
+  const board = hw?.board?.available
+    ? {
+        vendor: hw.board.vendor ?? '',
+        model: hw.board.model || hw.board.product_name || '',
+        product_name: hw.board.product_name ?? '',
+        cpuName: hw.cpu?.name ?? '',
+      }
+    : null;
   const HEALTH_TEXT = { passed: '正常', warning: '警告', failing: '故障', unknown: '未知' };
   return {
     data: {
+      board,
+      dimms: (hw?.memory?.dimms ?? []).filter((m) => m.size_mb).length,
+      nics: hw?.nic?.nics?.length ?? 1,
       sensors: temps.map((t) => ({
         key: t.key,
         label: t.label || t.key,
@@ -201,18 +214,27 @@ export async function fetchChassis() {
  * 单源失败该屏数据置 null（轮播跳过空屏，不造数）
  * @returns {Promise<{data: object, live: boolean}>} */
 export async function fetchKiosk() {
-  const [rtS, tempsS, disksS, eventsS] = await Promise.allSettled([
+  const [rtS, tempsS, disksS, eventsS, fansS] = await Promise.allSettled([
     getRealtime(),
     getTemperatures(),
     import('../api/endpoints/storage').then((m) => m.getDisks()),
     import('../api/endpoints/alert').then((m) => m.getEvents(6)),
+    import('../api/endpoints/control').then((m) => m.getFans()),
   ]);
   const realtime = pick(rtS);
   const temps = pick(tempsS);
   const disks = pick(disksS);
   const events = pick(eventsS);
+  const zones = pick(fansS);
   return {
-    data: { realtime, temps, disks, events },
+    data: {
+      realtime,
+      temps,
+      events,
+      // 立体机箱（三期 R3）温度屏数据面：风扇/盘清单映射同 fetchChassis 口径
+      fans: (zones ?? []).map((z) => ({ name: z.name, rpm: z.current_rpm ?? 0 })),
+      disks,
+    },
     live: realtime != null,
   };
 }

@@ -1,0 +1,19 @@
+; 网关存活探针 FPK 元数据（临时试验包：验证飞牛是否仍周期性清空第三方 gateway 入口，
+; 结论出来即卸载。与生产包 com.dashboard.nasdeck 完全独立，互不影响）
+appname               = com.test.gatewayprobe
+version               = 0.0.2
+display_name          = Gateway Probe
+desc                  = <p>统一网关入口存活探针（临时试验包）。验证飞牛 fnOS 是否周期性清空第三方 gateway_socket 入口导致 404（nasdeck 2026-08 真机教训复核）。验证完成后请卸载。</p>
+source                = thirdparty
+platform              = x86
+maintainer            = LarryMKott
+distributor           = LarryMKott
+maintainer_url        = https://github.com/LarryMKott
+distributor_url       = https://github.com/LarryMKott
+; 与生产环境同版本基线（fpk/README manifest 注释同源）
+os_min_version        = 1.2.0
+desktop_uidir         = ui
+desktop_applaunchname = com.test.gatewayprobe.main
+; 纯 AF_UNIX 监听，无 TCP 端口：省略 service_port，checkport=false
+ctl_stop              = true
+checkport             = false

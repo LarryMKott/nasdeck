@@ -6,6 +6,7 @@
 
 import * as mock from '../mock';
 import {
+  getBenchHistory,
   getDisks,
   getRaid,
   getSelfTests,
@@ -121,6 +122,7 @@ export async function fetchStorage() {
         name: disk.device,
         model: disk.model || disk.device,
         slot: null, // 无真实槽位数据源（storcli PD 不经 lsblk）：显式 '—'，不虚构盘位序号
+        serial: disk.serial ?? null, // 舱位墙（花活二期 I）背面 SN 摘要用
         role: isHot ? '热备' : isMember ? 'RAID 成员' : null,
         alias: disk.alias || null,
         fsText: fsPart ? fsPart.fstype.toUpperCase() : null,
@@ -267,6 +269,7 @@ export async function fetchDisks() {
         { passed: '正常', warning: '警告', failing: '故障', unknown: '未知' }[disk.health] ??
         '未知',
       serial: disk.serial,
+      oracle: disk.oracle ?? null, // 健康预言（花活二期 J；盘未采样时 null 显"—"）
     })),
     // 无进行中自检 = 合法真值：置 null 由视图隐藏区块（回退 mock 会显示假进度条）
     selftest: running
@@ -290,5 +293,16 @@ export async function fetchDiskTrend(device, metric, days = 30) {
     return { data: await getSmartTrend(device, metric, days), live: true };
   } catch {
     return { data: mock.smartTrendDemo(device, metric, days), live: false };
+  }
+}
+
+/** 跑分成绩榜取数（花活二期 Q）：live 取真实成绩，后端不可达回退演示成绩
+ * @param {string} [device] 盘名过滤（同盘历史对比）
+ * @returns {Promise<{data: import('../models/storage').BenchResultItem[], live: boolean}>} */
+export async function fetchBenchHistory(device) {
+  try {
+    return { data: await getBenchHistory(device), live: true };
+  } catch {
+    return { data: mock.benchHistory, live: false };
   }
 }

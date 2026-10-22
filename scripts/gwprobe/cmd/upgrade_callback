@@ -1,0 +1,12 @@
+#!/bin/bash
+# 升级回调：重注册监控 cron（与 install_callback 相同的稳定前门路径策略）。
+LOG="${TRIM_TEMP_LOGFILE}"
+_APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd 2>/dev/null)"
+
+chmod +x "$_APP_DIR/cmd/"* "$_APP_DIR/app.py" 2>/dev/null
+chmod +x /var/apps/com.test.gatewayprobe/target/watch.sh 2>/dev/null
+
+(crontab -l 2>/dev/null | grep -v "gwprobe-watch"; \
+  echo "*/10 * * * * bash /var/apps/com.test.gatewayprobe/target/watch.sh # gwprobe-watch") | crontab - 2>>"$LOG" \
+  && echo "[gwprobe] 监控 cron 已重注册" >> "$LOG"
+exit 0

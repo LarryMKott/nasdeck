@@ -22,7 +22,7 @@ from app.services.monitor.cache import realtime_cache
 from app.services.storage import raid as raid_service
 from app.services.storage import sync_watch
 from app.services.storage import volumes as volume_service
-from app.services.system import docker_watch, port_watch
+from app.services.system import container_points, docker_watch, port_watch
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,16 @@ async def slow_tick() -> None:
             logger.warning("容器退出 %d 个：%s", len(exits), "; ".join(e["name"] for e in exits))
     except Exception as exc:  # noqa: BLE001
         logger.warning("docker_watch 异常: %s", exc)
+
+    # 容器资源 1m 桶（花活二期 M）：独立段，docker 不可用自然 0 行
+    try:
+        async with session_factory() as db:
+            n = await container_points.record_tick(db)
+            await db.commit()
+        if n:
+            logger.debug("容器资源落桶 %d 行", n)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("container_points 异常: %s", exc)
 
     # 监听端口异动（安全哨兵：新端口且无标注 → 事件 + 广播；24h 去重）
     try:

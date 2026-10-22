@@ -15,6 +15,7 @@ import { fetchActiveAlerts } from '@/modules/nas/services/automation';
 import IconSprite from '@/modules/nas/components/IconSprite.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 import NDanmaku from '@/modules/nas/components/NDanmaku.vue';
+import UPostSplash from '@/modules/nas/components/UPostSplash.vue';
 import UCommandPalette from '@/modules/nas/components/UCommandPalette.vue';
 import { refreshChartColors } from '@/modules/nas/utils/themeColors';
 
@@ -392,5 +393,8 @@ const themeMeta = computed(() => {
         </keep-alive>
       </router-view>
     </main>
+
+    <!-- 开机自检动画（花活二期 O）：会话首次进入播 POST 序列，组件内部自判跳过条件 -->
+    <u-post-splash />
   </div>
 </template>

@@ -8,11 +8,20 @@
  * 经 Pinia store（realtime.js）使用，视图不直连。
  */
 
+import { apiBase } from './client.js';
+
 const BASE = `${typeof location !== 'undefined' && location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
 
-/** 飞牛 CGI 反代形态（页面路径带 index.cgi）：网关不透传 WebSocket 升级，
- * WS 在该形态下永远连不上——直接轮询，省去 3 次重连失败的约 10s 演示数据空窗 */
-const GATEWAY_FORM = typeof location !== 'undefined' && location.pathname.includes('index.cgi');
+// WS 路径前缀：CGI/直连形态空串；统一网关形态带网关前缀（复用 apiBase 的形态
+// 识别，避免两处各自维护）
+function wsPrefix() {
+  return apiBase();
+}
+
+/** 飞牛 CGI 反代形态（页面路径带 index.cgi）：cgi 反代不透传 WebSocket 升级，
+ * WS 在该形态下永远连不上——直接轮询，省去 3 次重连失败的约 10s 演示数据空窗。
+ * 统一网关形态（/app/{appname}）支持 WS，正常建立连接。 */
+const CGI_FORM = typeof location !== 'undefined' && location.pathname.includes('index.cgi');
 
 export function createRealtimeSocket({ onSnapshot, onFans, onAlert, pollFallback } = {}) {
   let ws = null;
@@ -40,8 +49,12 @@ export function createRealtimeSocket({ onSnapshot, onFans, onAlert, pollFallback
 
   function connect() {
     if (closed) return;
+    if (CGI_FORM) {
+      startPolling();
+      return;
+    }
     try {
-      ws = new WebSocket(`${BASE}/api/v1/ws/realtime`);
+      ws = new WebSocket(`${BASE}${wsPrefix()}/api/v1/ws/realtime`);
     } catch {
       scheduleReconnect();
       return;
@@ -81,20 +94,7 @@ export function createRealtimeSocket({ onSnapshot, onFans, onAlert, pollFallback
     setTimeout(() => connect(), attempt >= 3 ? delay : Math.min(delay, 3000));
   }
 
-  if (GATEWAY_FORM) {
-    startPolling();
-    return {
-      close() {
-        closed = true;
-        stopPolling();
-      },
-      /** 轮询形态无 WS 连接，恒 false */
-      get open() {
-        return false;
-      },
-    };
-  }
-
+  // CGI 反代形态在 connect() 内直接转轮询（不建 WS）；统一网关/直连形态正常建连
   connect();
 
   return {

@@ -13,6 +13,9 @@ from app.schemas.storage import (
     AliasDeleted,
     AliasIn,
     AliasOut,
+    BenchIn,
+    BenchResultItem,
+    BenchState,
     DiskItem,
     RaidResponse,
     SelfTestIn,
@@ -22,7 +25,7 @@ from app.schemas.storage import (
     VolumeItem,
 )
 from app.services.monitor import temperature
-from app.services.storage import capacity, disk_name, self_test, smart, smart_history
+from app.services.storage import benchmark, capacity, disk_name, self_test, smart, smart_history, smart_oracle
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
 from app.utils.validators import validate_device_name
@@ -44,12 +47,17 @@ async def _disk_items(db: AsyncSession) -> list[DiskItem]:
     # 健康与温度来自 SMART 慢采集缓存（temperature 60s 一轮，零额外 fork）
     health_map = await temperature.disk_health()
     temps = await temperature.disk_temps()
+    # 健康预言（花活二期 J）：smart_points 1h 桶斜率批量装配，一查不逐盘
+    oracle_map = await smart_oracle.forecast_all(
+        db, [smart_history.smart_key(d.get("device") or "") for d in disks]
+    )
     items = []
     for d in disks:
         d["alias"] = aliases.get(d.get("serial") or "")
         key = smart_history.smart_key(d.get("device") or "")
         d["health"] = health_map.get(key, "unknown")
         d["temp_c"] = temps.get(key)
+        d["oracle"] = oracle_map.get(key)
         items.append(DiskItem(**d))
     return items
 
@@ -179,6 +187,67 @@ async def get_trend(
     if metric not in smart_history.TRACKED_METRICS:
         raise NotFoundError(f"unknown smart metric: {metric}")
     return await smart_history.trend_series(db, name, metric, days)
+
+
+@router.post("/benchmarks")
+async def start_benchmark(body: BenchIn) -> dict:
+    """触发单盘只读跑分（花活二期 Q；全局互斥，standby 盘不唤醒）。
+
+    写操作经路由级 TrimAuthDep 非 GET 管理员强校验。
+
+    Args:
+        body (BenchIn): 盘名 / 时长（5-120s）/ IO 占用（10-100%）。
+
+    Returns:
+        dict: 见 schemas.storage.BenchState。
+
+    Raises:
+        StateConflictError: 已有跑分在执行（1005）或盘处于休眠。
+    """
+    from app.utils.validators import validate_device_name
+
+    return await benchmark.start(validate_device_name(body.device), body.seconds, body.duty)
+
+
+@router.get("/benchmarks", response_model=list[BenchResultItem])
+async def benchmark_history(
+    db: AsyncSession = DbDep,
+    device: str | None = Query(default=None),
+) -> list[dict]:
+    """跑分成绩榜（新→旧；device 过滤做同盘历史对比）。
+
+    Args:
+        db (AsyncSession): 数据库会话（框架注入）。
+        device (str | None): 盘名过滤。
+
+    Returns:
+        list[dict]: 见 schemas.storage.BenchResultItem。
+    """
+    return await benchmark.history(db, device)
+
+
+@router.get("/benchmarks/current", response_model=BenchState)
+async def current_benchmark(db: AsyncSession = DbDep) -> dict:
+    """跑分实时状态（前端 1s 轮询；done 后首次观测惰性落库防丢）。
+
+    Args:
+        db (AsyncSession): 数据库会话（done 未落库时写成绩行）。
+
+    Returns:
+        dict: 见 schemas.storage.BenchState。
+    """
+    await benchmark.maybe_persist(db)
+    return benchmark.current()
+
+
+@router.delete("/benchmarks/current", response_model=BenchState)
+async def cancel_benchmark() -> dict:
+    """取消当前跑分（协作式收尾，部分数据有效仍计成绩）。
+
+    Returns:
+        dict: 见 schemas.storage.BenchState。
+    """
+    return benchmark.cancel()
 
 
 @router.post("/self-tests", response_model=SelfTestState)

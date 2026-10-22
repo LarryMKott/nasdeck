@@ -1,12 +1,28 @@
 <script setup>
-/** 硬盘 SMART：健康状态表 + 在线自检下拉 + 进行中自检进度 + 健康趋势（后端 + 演示回退） */
-import { computed, reactive, ref, watch } from 'vue';
-import { startSelfTest } from '../api/endpoints/storage';
+/** 硬盘 SMART：健康状态表 + 在线自检下拉 + 进行中自检进度 + 健康趋势 + 跑分中心（后端 + 演示回退） */
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
+import {
+  cancelBenchmark,
+  getBenchCurrent,
+  startBenchmark,
+  startSelfTest,
+} from '../api/endpoints/storage';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
-import { fetchDisks, fetchDiskTrend } from '../services/storage';
+import { fetchBenchHistory, fetchDisks, fetchDiskTrend } from '../services/storage';
 import UPageHeader from '../components/UPageHeader.vue';
 import UDropdown from '../components/UDropdown.vue';
+import UDiskBays from '../components/UDiskBays.vue';
+import USpark from '../components/USpark.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasDisks' });
@@ -14,6 +30,15 @@ defineOptions({ name: 'NasDisks' });
 // 权限铁律：设置类操作仅管理员；非管理员不渲染自检入口（写操作 POST /self-tests）
 const identity = useIdentityStore();
 identity.ensure();
+
+// 清单区视图：表格 / 舱位墙（花活二期 I），记忆上次选择
+const MODE_KEY = 'nd_disks_mode';
+const viewMode = ref(localStorage.getItem(MODE_KEY) === 'bays' ? 'bays' : 'table');
+function setViewMode(m) {
+  if (viewMode.value === m) return;
+  viewMode.value = m;
+  localStorage.setItem(MODE_KEY, m);
+}
 
 // 初始值用空骨架（mock 只在 live:false 整页演示时由适配层回退），避免首帧闪现假自检
 const {
@@ -51,6 +76,21 @@ const headerTag = computed(() => {
   };
 });
 
+/** 舱位墙数据适配（UDiskBays 形状）：IO 由组件订阅快照，mock 盘无 device 时灯灭显"—" */
+const bays = computed(() =>
+  (d.value.list ?? []).map((disk) => ({
+    device: disk.device || null,
+    slot: disk.slot,
+    model: disk.model,
+    tempC: disk.tempC,
+    capacityText: disk.capacity,
+    healthText: disk.health,
+    serial: disk.serial ?? null,
+    hoursText: disk.hours ?? null,
+    role: null,
+  }))
+);
+
 // ---- SMART 健康趋势（smart_15m 每 15 分钟落 1h/1d 桶；近 30 天用 1h 桶） ----
 const TREND_METRICS = [
   { key: 'reallocated', label: '重映射扇区' },
@@ -85,10 +125,193 @@ watch(
     if (n && !trendDevice.value) {
       trendDevice.value = d.value.list[0].device || `sd${d.value.list[0].slot}`;
     }
+    if (n && !oracleDevice.value) {
+      oracleDevice.value = d.value.list[0].device || `sd${d.value.list[0].slot}`;
+    }
+    if (n && !benchDevice.value) {
+      benchDevice.value = d.value.list[0].device || `sd${d.value.list[0].slot}`;
+    }
   },
   { immediate: true }
 );
 watch([trendDevice, trendMetric], loadTrend);
+
+// ---- 健康预言（花活二期 J）：五维雷达 + 触阈值倒计时条 ----
+const oracleDevice = ref('');
+const oracleDisk = computed(
+  () => d.value.list.find((x) => (x.device || `sd${x.slot}`) === oracleDevice.value) ?? null
+);
+
+const RADAR_LABELS = {
+  reallocated: '重映射增速',
+  pending: '待定扇区',
+  media: '介质错误',
+  temp: '温度余量',
+  wear: '磨损度',
+};
+const METRIC_LABELS = {
+  reallocated: '重映射扇区',
+  pending: '待定扇区',
+  uncorrectable: '不可修正扇区',
+  percent_used: '寿命已用',
+};
+const GRADE_TEXT = { good: '良好', watch: '观察', bad: '异常' };
+
+// 雷达几何：五轴正五边形（起点正上，顺时针），viewBox 0 0 220 190
+const RCX = 110;
+const RCY = 96;
+const RR = 68;
+function rpt(idx, ratio) {
+  const ang = -Math.PI / 2 + (idx * 2 * Math.PI) / 5;
+  return `${(RCX + Math.cos(ang) * RR * ratio).toFixed(1)},${(RCY + Math.sin(ang) * RR * ratio).toFixed(1)}`;
+}
+const radarRings = [0.25, 0.5, 0.75, 1].map((r) =>
+  Array.from({ length: 5 }, (_, i) => rpt(i, r)).join(' ')
+);
+const radarAxes = Array.from({ length: 5 }, (_, i) => {
+  const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+  return {
+    x1: RCX,
+    y1: RCY,
+    x2: RCX + Math.cos(ang) * RR,
+    y2: RCY + Math.sin(ang) * RR,
+  };
+});
+const radarPoly = computed(() => {
+  const o = oracleDisk.value?.oracle;
+  if (!o?.dims?.length) return '';
+  return o.dims.map((dim, i) => rpt(i, (dim.value ?? 0) / 100)).join(' ');
+});
+const radarVertexes = computed(() => {
+  const o = oracleDisk.value?.oracle;
+  if (!o?.dims?.length) return [];
+  return o.dims.map((dim, i) => {
+    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+    const ratio = (dim.value ?? 0) / 100;
+    return { dim, cx: RCX + Math.cos(ang) * RR * ratio, cy: RCY + Math.sin(ang) * RR * ratio };
+  });
+});
+const radarLabels = computed(() => {
+  const o = oracleDisk.value?.oracle;
+  return (o?.dims ?? []).map((dim, i) => {
+    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+    return {
+      dim,
+      text: t(RADAR_LABELS[dim.key] || dim.key),
+      x: RCX + Math.cos(ang) * (RR + 20),
+      y: RCY + Math.sin(ang) * (RR + 18),
+      anchor: Math.abs(Math.cos(ang)) < 0.3 ? 'middle' : Math.cos(ang) > 0 ? 'start' : 'end',
+    };
+  });
+});
+
+function etaClass(days) {
+  return days <= 30 ? 't-bad' : days <= 90 ? 't-warn' : 't-ok';
+}
+function etaMeterClass(days) {
+  return days <= 30 ? 'c-bad' : days <= 90 ? 'c-warn' : 'c-ok';
+}
+function etaWidth(days) {
+  return Math.max(4, Math.min(100, (days / 365) * 100));
+}
+function etaText(eta) {
+  return t('预计 {n} 天后触及阈值 {v}', { n: Math.round(eta.days), v: eta.threshold });
+}
+
+// ---- 跑分中心（花活二期 Q）：只读 O_DIRECT 顺序读基准，占空比限速，全局单任务 ----
+const bench = ref({
+  status: 'idle',
+  device: null,
+  seconds: 20,
+  duty: 30,
+  progress: 0,
+  elapsed: 0,
+  bps: 0,
+  curve: [],
+  bytes_read: 0,
+  error: null,
+});
+const benchDevice = ref('');
+const benchSeconds = ref(20);
+const benchDuty = ref(30);
+const benchBusy = ref(false);
+const benchHistory = ref([]);
+const benchLive = ref(true);
+let benchTimer = null;
+
+async function pollBench() {
+  try {
+    const prev = bench.value.status;
+    bench.value = await getBenchCurrent();
+    if (prev === 'running' && bench.value.status !== 'running') loadBenchHistory(); // 收尾刷新榜
+  } catch {
+    /* 轮询失败保上次状态（演示回退由 history 适配层负责） */
+  }
+}
+
+/** running 时 1s 轮询实时曲线；keep-alive 离开即停 */
+function syncBenchPolling() {
+  clearInterval(benchTimer);
+  benchTimer = null;
+  if (bench.value.status === 'running') benchTimer = setInterval(pollBench, 1000);
+}
+watch(() => bench.value.status, syncBenchPolling, { immediate: true });
+onActivated(syncBenchPolling);
+onDeactivated(() => clearInterval(benchTimer));
+onBeforeUnmount(() => clearInterval(benchTimer));
+
+async function runBench() {
+  if (!identity.canWrite || benchBusy.value || !benchDevice.value) return;
+  benchBusy.value = true;
+  try {
+    bench.value = await startBenchmark(benchDevice.value, benchSeconds.value, benchDuty.value);
+    syncBenchPolling();
+  } catch {
+    /* 1005 互斥 / standby 拒绝等由错误信封全局提示 */
+  } finally {
+    benchBusy.value = false;
+  }
+}
+
+async function cancelBench() {
+  if (!identity.canWrite) return;
+  try {
+    bench.value = await cancelBenchmark();
+  } catch {
+    /* 静默，状态以下轮轮询为准 */
+  }
+}
+
+async function loadBenchHistory() {
+  const r = await fetchBenchHistory();
+  benchHistory.value = r.data;
+  benchLive.value = r.live;
+}
+onMounted(loadBenchHistory);
+
+/** 盘与盘对比：每盘最新成绩，按均速降序，条形按最高分归一 */
+const benchTop = computed(() => {
+  const latest = new Map();
+  for (const r of benchHistory.value) if (!latest.has(r.device)) latest.set(r.device, r);
+  const rows = [...latest.values()].sort((a, b) => b.avg_mbps - a.avg_mbps);
+  const max = rows[0]?.avg_mbps || 1;
+  return rows.map((r) => ({ ...r, bar: Math.max(4, Math.round((r.avg_mbps / max) * 100)) }));
+});
+const benchRecent = computed(() => benchHistory.value.slice(0, 8));
+
+/** 曲线点序列（USpark 数据）与实时读数 */
+const benchCurve = computed(() => bench.value.curve.map((p) => p.mbps));
+const benchBpsText = computed(() => {
+  const v = bench.value.bps;
+  if (!v) return '—';
+  return v < 1024 ** 2 ? `${(v / 1024).toFixed(0)} KB/s` : `${(v / 1024 ** 2).toFixed(1)} MB/s`;
+});
+function mbpsText(v) {
+  return v != null ? `${v} MB/s` : '—';
+}
+function benchTime(ts) {
+  return ts ? String(ts).replace('T', ' ').slice(5, 16) : '—';
+}
 
 /** 折线坐标（viewBox 0 0 100 30 归一化） */
 const trendLine = computed(() => {
@@ -124,10 +347,38 @@ const trendDelta = computed(() => {
       :sub="t('健康状态 · 自检')"
       :tag="headerTag"
       :updated="lastUpdated"
-    />
+    >
+      <template #right>
+        <div class="seg">
+          <button :class="{ on: viewMode === 'table' }" @click="setViewMode('table')">
+            {{ t('表格') }}
+          </button>
+          <button :class="{ on: viewMode === 'bays' }" @click="setViewMode('bays')">
+            {{ t('舱位') }}
+          </button>
+        </div>
+      </template>
+    </u-page-header>
+
+    <!-- 清单区：表格 / 舱位墙（花活二期 I）两态切换 -->
+    <div v-if="viewMode === 'bays'" class="wg">
+      <div class="wg-h">
+        <u-icon name="drive" />
+        <h3>{{ t('硬盘舱位') }}</h3>
+        <span class="x">{{
+          t('面板色 = 温度（{a} °C 偏高 · {b} °C 过热）· 灯 = 真实 IO · 点击翻面看 SMART 摘要', {
+            a: 60,
+            b: 75,
+          })
+        }}</span>
+      </div>
+      <div class="wg-b">
+        <u-disk-bays :disks="bays" />
+      </div>
+    </div>
 
     <!-- 桌面表格 -->
-    <div class="wg m-hide">
+    <div v-else class="wg m-hide">
       <div class="tscroll">
         <table class="u">
           <thead>
@@ -137,6 +388,7 @@ const trendDelta = computed(() => {
               <th class="r">{{ t('容量') }}</th>
               <th class="r">{{ t('转速') }}</th>
               <th class="r">{{ t('温度') }}</th>
+              <th class="r">{{ t('健康分') }}</th>
               <th class="r">{{ t('通电时间') }}</th>
               <th>{{ t('健康') }}</th>
               <th>{{ t('操作') }}</th>
@@ -152,6 +404,12 @@ const trendDelta = computed(() => {
               <td class="r num">{{ disk.rpm }}</td>
               <td class="r num" :class="disk.tempC >= 45 ? 't-warn' : 't-ok'">
                 {{ disk.tempC }} °C
+              </td>
+              <td class="r">
+                <span v-if="disk.oracle?.score != null" class="obadge" :class="disk.oracle.grade">
+                  {{ disk.oracle.score }}
+                </span>
+                <span v-else class="muted">—</span>
               </td>
               <td class="r num">{{ disk.hours }}</td>
               <td>
@@ -188,7 +446,7 @@ const trendDelta = computed(() => {
     </div>
 
     <!-- 移动端卡片 -->
-    <div class="m-cards">
+    <div v-if="viewMode === 'table'" class="m-cards">
       <div v-for="disk in d.list" :key="disk.slot" class="wg" style="margin-bottom: 10px">
         <div class="wg-b">
           <div style="display: flex; justify-content: space-between; margin-bottom: 7px">
@@ -283,6 +541,265 @@ const trendDelta = computed(() => {
       </div>
     </div>
 
+    <!-- 健康预言（花活二期 J）：五维雷达 + 触阈值倒计时；评分=速率为主绝对值为辅 -->
+    <div class="wg" style="margin-top: 14px">
+      <div class="wg-h">
+        <u-icon name="pulse" />
+        <h3>{{ t('健康预言') }}</h3>
+        <span v-if="oracleDisk?.oracle?.grade" class="x">
+          <span
+            class="tag"
+            :class="
+              oracleDisk.oracle.grade === 'good'
+                ? 'ok'
+                : oracleDisk.oracle.grade === 'watch'
+                  ? 'warn'
+                  : 'bad'
+            "
+            ><span class="dot" />{{ t(GRADE_TEXT[oracleDisk.oracle.grade] || '') }}</span
+          >
+        </span>
+        <span v-if="oracleDisk?.oracle && !oracleDisk.oracle.has_history" class="x">
+          <span class="tag acc"><span class="dot" />{{ t('新盘') }}</span>
+        </span>
+      </div>
+      <div class="wg-b">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px">
+          <label class="small muted" style="align-self: center">
+            {{ t('磁盘') }}
+            <select v-model="oracleDevice" style="margin-left: 6px">
+              <option
+                v-for="disk in d.list"
+                :key="disk.slot"
+                :value="disk.device || `sd${disk.slot}`"
+              >
+                {{ t('盘位 {n}', { n: disk.slot }) }} · {{ disk.model.split(' ').pop() }}
+              </option>
+            </select>
+          </label>
+          <span class="small muted num" style="align-self: center">
+            {{ t('评分 = 五维加权（变化速率为主、绝对值为辅）') }}
+          </span>
+        </div>
+
+        <template v-if="oracleDisk?.oracle?.score != null">
+          <div class="oracle-wrap">
+            <svg class="radar" viewBox="-52 0 324 196" role="img">
+              <polygon
+                v-for="(ring, i) in radarRings"
+                :key="'r' + i"
+                :points="ring"
+                fill="none"
+                stroke="var(--bd)"
+                stroke-width="0.6"
+              />
+              <line
+                v-for="(ax, i) in radarAxes"
+                :key="'a' + i"
+                :x1="ax.x1"
+                :y1="ax.y1"
+                :x2="ax.x2"
+                :y2="ax.y2"
+                stroke="var(--bd)"
+                stroke-width="0.6"
+              />
+              <polygon
+                :points="radarPoly"
+                fill="var(--acc)"
+                fill-opacity="0.18"
+                stroke="var(--acc)"
+                stroke-width="1.2"
+              />
+              <circle
+                v-for="(v, i) in radarVertexes"
+                :key="'v' + i"
+                :cx="v.cx"
+                :cy="v.cy"
+                r="2.4"
+                :fill="v.dim.value == null ? 'var(--tx3)' : 'var(--acc)'"
+              />
+              <text
+                v-for="l in radarLabels"
+                :key="l.dim.key"
+                :x="l.x"
+                :y="l.y"
+                :text-anchor="l.anchor"
+                class="rlabel"
+                :class="{ none: l.dim.value == null }"
+              >
+                {{ l.text }} {{ l.dim.value != null ? Math.round(l.dim.value) : '—' }}
+              </text>
+            </svg>
+            <div class="eta-col">
+              <div class="score-big">
+                <b class="num" :class="oracleDisk.oracle.grade">{{ oracleDisk.oracle.score }}</b>
+                <small>/ 100</small>
+              </div>
+              <template v-if="oracleDisk.oracle.etas.length">
+                <div v-for="eta in oracleDisk.oracle.etas" :key="eta.metric" class="eta">
+                  <div class="small num" style="margin-bottom: 3px">
+                    {{ t(METRIC_LABELS[eta.metric] || eta.metric) }}
+                    <b :class="etaClass(eta.days)">{{ etaText(eta) }}</b>
+                  </div>
+                  <div class="meter thin">
+                    <i
+                      :class="etaMeterClass(eta.days)"
+                      :style="{ width: `${etaWidth(eta.days)}%` }"
+                    />
+                  </div>
+                  <div class="small muted num">
+                    {{ t('当前 {c} · 日增 {r}', { c: eta.current, r: eta.slope_per_day }) }}
+                  </div>
+                </div>
+              </template>
+              <div v-else class="small muted">
+                {{ t('暂无触阈值预测（—）：拿得到 SMART 阈值且有正增速时给出') }}
+              </div>
+            </div>
+          </div>
+        </template>
+        <div v-else class="small muted" style="padding: 10px 0">
+          {{ t('该盘暂无评分（—）：接入并完成 SMART 采样后自动给出') }}
+        </div>
+      </div>
+    </div>
+
+    <!-- 跑分中心（花活二期 Q）：只读 O_DIRECT 顺序读基准，占空比限速，全局单任务 -->
+    <div class="wg" style="margin-top: 14px">
+      <div class="wg-h">
+        <u-icon name="pulse" />
+        <h3>{{ t('跑分中心') }}</h3>
+        <span class="x">{{ t('只读顺序读基准 · 占空比限速 · 同一时间仅一块盘') }}</span>
+        <span v-if="!benchLive" class="tag acc" style="margin-left: auto">{{ t('演示数据') }}</span>
+      </div>
+      <div class="wg-b">
+        <!-- 运行态：进度 + 实时曲线 + 取消 -->
+        <template v-if="bench.status === 'running'">
+          <div class="bench-live">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px">
+              <span
+                ><b class="num">{{ bench.device }}</b>
+                <span class="small muted num"
+                  >{{ t('已读') }} {{ (bench.bytes_read / 1024 ** 3).toFixed(1) }} GB ·
+                  {{ bench.elapsed.toFixed(0) }}s · {{ bench.duty }}% {{ t('占用') }}</span
+                ></span
+              >
+              <b class="num">{{ benchBpsText }}</b>
+            </div>
+            <div class="meter"><i :style="{ width: `${bench.progress}%` }" /></div>
+            <div class="bench-curve">
+              <u-spark v-if="benchCurve.length > 1" :data="benchCurve" color="var(--acc)" />
+              <span v-else class="small muted">{{ t('速度曲线随采样点逐步出现…') }}</span>
+            </div>
+            <div style="margin-top: 10px">
+              <button v-if="identity.canWrite" class="btn sm stop" @click="cancelBench">
+                {{ t('取消跑分') }}
+              </button>
+              <span class="small muted" style="margin-left: 10px">{{
+                t('基准期间该盘业务延迟会上升（物理规律）；休眠盘默认跳过不唤醒')
+              }}</span>
+            </div>
+          </div>
+        </template>
+
+        <!-- 触发态：选盘 + 参数 + 启动（管理员） -->
+        <template v-else>
+          <div class="bench-form">
+            <label class="small muted" style="align-self: center">
+              {{ t('磁盘') }}
+              <select v-model="benchDevice" style="margin-left: 6px">
+                <option
+                  v-for="disk in d.list"
+                  :key="disk.slot"
+                  :value="disk.device || `sd${disk.slot}`"
+                >
+                  {{ t('盘位 {n}', { n: disk.slot }) }} · {{ disk.model.split(' ').pop() }}
+                </option>
+              </select>
+            </label>
+            <label class="small muted" style="align-self: center">
+              {{ t('时长') }}
+              <select v-model.number="benchSeconds" style="margin-left: 6px">
+                <option :value="20">20s</option>
+                <option :value="40">40s</option>
+                <option :value="60">60s</option>
+              </select>
+            </label>
+            <label class="small muted" style="align-self: center">
+              {{ t('IO 占用') }}
+              <select v-model.number="benchDuty" style="margin-left: 6px">
+                <option :value="20">20%</option>
+                <option :value="30">30%</option>
+                <option :value="50">50%</option>
+                <option :value="100">100%</option>
+              </select>
+            </label>
+            <button
+              v-if="identity.canWrite"
+              class="btn sm go"
+              :disabled="benchBusy || !benchDevice"
+              @click="runBench"
+            >
+              <u-icon name="pulse" />{{ t('开始跑分') }}
+            </button>
+            <span class="small muted" style="align-self: center">
+              {{ t('只读不写（O_DIRECT 绕页缓存）；standby 盘默认跳过不唤醒') }}
+            </span>
+          </div>
+          <div v-if="bench.status === 'error'" class="small t-warn" style="margin-top: 8px">
+            {{ t('上次跑分出错') }}：{{ bench.error }}
+          </div>
+        </template>
+
+        <!-- 盘与盘对比（每盘最新成绩） -->
+        <template v-if="benchTop.length">
+          <div class="small muted" style="margin: 14px 0 8px">
+            {{ t('盘与盘对比（最新成绩 · 墙钟均值含限速窗口）') }}
+          </div>
+          <div class="rows">
+            <div v-for="r in benchTop" :key="r.device" class="prow">
+              <span class="pname num">{{ r.device }}</span>
+              <span class="pbar"><i :style="{ width: `${r.bar}%` }" /></span>
+              <span class="pval num"
+                >{{ mbpsText(r.avg_mbps)
+                }}<small class="muted"> · {{ t('峰值') }} {{ mbpsText(r.peak_mbps) }}</small></span
+              >
+            </div>
+          </div>
+        </template>
+        <div v-else class="small muted" style="margin-top: 12px">
+          {{ t('暂无成绩（—）：跑分完成后此处出榜') }}
+        </div>
+
+        <!-- 历史明细 -->
+        <template v-if="benchRecent.length > 1">
+          <div class="small muted" style="margin: 12px 0 6px">{{ t('历史成绩') }}</div>
+          <table class="u">
+            <thead>
+              <tr>
+                <th>{{ t('时间') }}</th>
+                <th>{{ t('磁盘') }}</th>
+                <th class="r">{{ t('平均') }}</th>
+                <th class="r">{{ t('峰值') }}</th>
+                <th class="r">{{ t('时长') }}</th>
+                <th class="r">{{ t('IO 占用') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in benchRecent" :key="r.id">
+                <td class="num">{{ benchTime(r.created_at) }}</td>
+                <td class="num">{{ r.device }}</td>
+                <td class="r num">{{ mbpsText(r.avg_mbps) }}</td>
+                <td class="r num">{{ mbpsText(r.peak_mbps) }}</td>
+                <td class="r num">{{ r.seconds }}s</td>
+                <td class="r num">{{ r.duty }}%</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+      </div>
+    </div>
+
     <!-- 进行中的自检（无自检任务 = 合法真值：整卡隐藏，不显示假进度） -->
     <div v-if="d.selftest" class="wg" style="margin-top: 14px">
       <div class="wg-h">
@@ -302,3 +819,153 @@ const trendDelta = computed(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+/* 跑分中心（花活二期 Q） */
+.bench-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.bench-curve {
+  height: 44px;
+  margin-top: 10px;
+}
+
+.prow {
+  display: grid;
+  grid-template-columns: 64px 1fr 240px;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 12.5px;
+
+  .pbar {
+    display: block;
+    height: 8px;
+    overflow: hidden;
+    background: var(--sf3);
+    border-radius: 4px;
+
+    i {
+      display: block;
+      height: 100%;
+      background: var(--acc);
+      border-radius: 4px;
+    }
+  }
+
+  .pval {
+    color: var(--tx2);
+    text-align: right;
+  }
+}
+
+/* 健康分徽章与预言卡（花活二期 J） */
+.obadge {
+  display: inline-block;
+  min-width: 34px;
+  padding: 1px 8px;
+  font-weight: 600;
+  color: var(--ok);
+  background: var(--okbg);
+  border: 1px solid var(--ok);
+  border-radius: 10px;
+
+  &.watch {
+    color: var(--warn);
+    background: var(--warnbg);
+    border-color: var(--warn);
+  }
+
+  &.bad {
+    color: var(--bad);
+    background: var(--badbg);
+    border-color: var(--bad);
+  }
+}
+
+.oracle-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+}
+
+.radar {
+  flex: 0 0 300px;
+  max-width: 100%;
+}
+
+.rlabel {
+  font-size: 10.5px;
+  fill: var(--tx2);
+
+  &.none {
+    fill: var(--tx3);
+  }
+}
+
+.eta-col {
+  flex: 1;
+  min-width: 240px;
+}
+
+.score-big {
+  margin-bottom: 10px;
+
+  b {
+    font-size: 34px;
+    line-height: 1.1;
+
+    &.good {
+      color: var(--ok);
+    }
+
+    &.watch {
+      color: var(--warn);
+    }
+
+    &.bad {
+      color: var(--bad);
+    }
+  }
+
+  small {
+    margin-left: 4px;
+    color: var(--tx3);
+  }
+}
+
+.eta {
+  margin-bottom: 10px;
+}
+
+.seg {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--bd2);
+  border-radius: 6px;
+
+  button {
+    height: 28px;
+    padding: 0 12px;
+    font-size: 13px;
+    color: var(--tx2);
+    background: transparent;
+    border: none;
+    transition: all var(--t) var(--ease);
+
+    &.on {
+      color: #fff;
+      background: var(--acc);
+    }
+
+    &:hover:not(.on) {
+      color: var(--acc);
+    }
+  }
+}
+</style>

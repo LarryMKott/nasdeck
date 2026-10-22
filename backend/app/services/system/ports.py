@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 
 import psutil
@@ -88,3 +89,63 @@ async def upsert_alias(db: AsyncSession, port: int, label: str, note: str | None
         db.add(row)
     await db.flush()
     return row
+
+
+# 星图内网归类（花活二期 L）：RFC1918 + 环回 + 链路本地 + ULA；不引 GeoIP 不出网
+_LAN_NETS = tuple(
+    ipaddress.ip_network(n)
+    for n in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "::1/128",
+        "fe80::/10",
+        "fc00::/7",
+    )
+)
+
+
+def _is_lan(ip: str) -> bool:
+    """远端 IP 是否内网（RFC1918/环回/链路本地/ULA）；解析失败按外网计。"""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in _LAN_NETS)
+
+
+def network_map() -> dict:
+    """星图数据面（花活二期 L）：一次 psutil 连接表扫描的聚合视图。
+
+    Returns:
+        dict: {listening, established, lan, wan, remotes}；remotes 为远端
+            IP 聚合（最多 24 条按连接数降序），每项 {ip, lan, count}——
+            只计数与聚合 IP，不列端口/进程详情（隐私口径同 §2.12）。
+    """
+    conns = psutil.net_connections(kind="inet")
+    listening = 0
+    lan = wan = 0
+    remotes: dict[str, dict] = {}
+    for c in conns:
+        if c.status == psutil.CONN_LISTEN:
+            listening += 1
+            continue
+        if c.status != psutil.CONN_ESTABLISHED or not c.raddr:
+            continue
+        ip = c.raddr.ip
+        is_lan = _is_lan(ip)
+        if is_lan:
+            lan += 1
+        else:
+            wan += 1
+        agg = remotes.setdefault(ip, {"ip": ip, "lan": is_lan, "count": 0})
+        agg["count"] += 1
+    return {
+        "listening": listening,
+        "established": lan + wan,
+        "lan": lan,
+        "wan": wan,
+        "remotes": sorted(remotes.values(), key=lambda r: -r["count"])[:24],
+    }

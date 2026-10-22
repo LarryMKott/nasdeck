@@ -50,16 +50,22 @@ _ADMIN_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 
 
 async def require_trim_auth(request: Request) -> None:
-    """飞牛 CGI 反代形态的分级鉴权（NASDECK_TRIM_AUTH=true 时启用）。
+    """飞牛形态的分级鉴权（NASDECK_TRIM_AUTH=true 时启用）。
 
-    index.cgi 把飞牛注入的可信身份头原样转发（登录态已由飞牛在调 CGI 前校验）：
-    - X-Nasdeck-Proxy：本机代理共享密钥（NASDECK_PROXY_TOKEN），证明身份头来自
-      持密的 index.cgi 而非客户端/任意本机进程伪造（网关是否剥离客户端同名
-      X-Trim-* 头无法保证，此为根防线）；必须配置，未配置直接拒绝（fail-closed），
-      不存在"未配置则跳过校验"的降级路径——开发直连应关闭 trim_auth；
-    - X-Trim-Userid：证明请求属于已登录的飞牛用户，全部接口必需；
-    - X-Trim-Isadmin：写操作（风扇/PWM/WOL/告警/进程/设置等，均为非 GET）必需。
-    头缺失一律 403，本机直连 9800 的无头请求因此被拒。
+    两种入口形态的信任链：
+    - CGI 反代（NASDECK_UDS 空）：index.cgi 把飞牛注入的可信身份头原样转发（登录态
+      已由飞牛在调 CGI 前校验），并附代理共享密钥——
+      · X-Nasdeck-Proxy：本机代理共享密钥（NASDECK_PROXY_TOKEN），证明身份头来自
+        持密的 index.cgi 而非客户端/任意本机进程伪造（网关是否剥离客户端同名
+        X-Trim-* 头无法保证，此为根防线）；必须配置，未配置直接拒绝（fail-closed，
+        评审 2026-10-09 S2：不存在“未配置则跳过校验”的降级路径——开发直连应
+        关闭 trim_auth）；
+      · X-Trim-Userid：证明请求属于已登录的飞牛用户，全部接口必需；
+      · X-Trim-Isadmin：写操作（风扇/PWM/WOL/告警/进程/设置等，均为非 GET）必需。
+    - 统一网关（NASDECK_UDS 非空）：trim_http_cgi 校验登录态后经 Unix Socket 转发，
+      无 index.cgi 参与故无代理密钥——socket 文件权限即信任边界（等价强度），
+      跳过 X-Nasdeck-Proxy 校验；X-Trim-Userid / Isadmin 语义不变（网关转发）。
+    头缺失一律 403，本机直连的无头请求因此被拒。
     """
     import hmac
 
@@ -67,12 +73,14 @@ async def require_trim_auth(request: Request) -> None:
 
     if not settings.trim_auth:
         return
-    if not settings.proxy_token:
-        # fail-closed（评审 2026-10-09 S2）：trim 形态必须配置代理共享密钥，否则
-        # 网关透传的客户端同名 X-Trim-* 头无法被识破（网关剥离行为无法保证）。
-        # 开发直连形态应关闭 trim_auth，而不是留空 proxy_token。
+    if not settings.uds and not settings.proxy_token:
+        # fail-closed（评审 2026-10-09 S2）：CGI 形态必须配置代理共享密钥，否则网关
+        # 透传的客户端同名 X-Trim-* 头无法被识破。UDS 形态以 socket 文件权限为
+        # 信任边界，无此要求；开发直连形态应关闭 trim_auth。
         raise PermissionDeniedError("trim 鉴权未配置代理共享密钥（NASDECK_PROXY_TOKEN），已拒绝")
-    if not hmac.compare_digest(request.headers.get("X-Nasdeck-Proxy", ""), settings.proxy_token):
+    if not settings.uds and not hmac.compare_digest(
+        request.headers.get("X-Nasdeck-Proxy", ""), settings.proxy_token
+    ):
         raise PermissionDeniedError("缺少代理信任凭据（X-Nasdeck-Proxy）")
     if not request.headers.get("X-Trim-Userid", "").strip():
         raise PermissionDeniedError("未登录：须经飞牛 CGI 反代访问（缺失 X-Trim-Userid）")

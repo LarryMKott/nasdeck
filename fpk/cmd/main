@@ -26,6 +26,10 @@ case "$NASDECK_PORT" in
 esac
 export NASDECK_PORT
 export NASDECK_HOST=127.0.0.1
+# 前端资源基址占位符替换值（statics 挂载时按此重写 dist/index.html；NASDECK_UDS/
+# NASDECK_GATEWAY_PREFIX 网关形态分支已休眠——fnOS 1.2.0701 本地安装不导入入口
+# gateway 字段（trim_sac.entry 表实测），网关路由无法随包注册，恢复见 docs/访问模型切换方案.md）
+export NASDECK_PUBLIC_PATH="/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi"
 # 运行参数：配置向导（config_callback）落盘于 ${TRIM_PKGVAR}/runtime.env，
 # 值均经白名单/数字校验后写入。
 # 日志级别仅在用户显式配置过时导出：缺省由后端 Settings.resolved_log_level 按版本
@@ -85,6 +89,23 @@ start_app() {
     # fnOS 默认不加载，须由应用自启恢复风扇可见性。
     modprobe nct6775 2>/dev/null || true
     modprobe it87 2>/dev/null || true
+    # ui 镜像自愈：install_callback 在下载暂存目录执行（真机 fnOS 1.2.0701 实测，
+    # 无 TRIM_APPDEST），写不进 target/ui/，index.cgi 只能走 var 权威副本回退。此处
+    # 以 var 为源刷新 ui/port、ui/proxy_token 镜像——不依赖回调时机，安装/升级/改端口
+    # 后 start 均自愈，恢复「CGI 读同目录镜像最可靠」的设计意图（index.cgi 仍保留
+    # var 回退链，双保险）。镜像 644：CGI 可能以非 root 拉起。
+    UI_DIR="${TRIM_APPDEST}/ui"
+    if [ -d "$UI_DIR" ]; then
+        for f in port proxy_token; do
+            if [ -s "${TRIM_PKGVAR}/$f" ]; then
+                cp -f "${TRIM_PKGVAR}/$f" "$UI_DIR/$f" 2>/dev/null
+                chmod 644 "$UI_DIR/$f" 2>/dev/null
+            fi
+        done
+    fi
+    # 网关形态遗留 socket 清理（0.2.17 测试残留；常态 cgi 部署无此文件）。
+    # 僵尸 socket 文件会骗过 index.cgi 分派的存在性检查导致面板不可达，必须清。
+    rm -f "${TRIM_APPDEST}/app.sock" 2>/dev/null
     # 兜底：WOL 依赖 ethtool。安装阶段 NAS 无外网时可能缺，启动时幂等补一次
     # （已存在则 command -v 直接命中，不产生开销）。
     if ! command -v ethtool >/dev/null 2>&1; then

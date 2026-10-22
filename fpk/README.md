@@ -42,7 +42,7 @@ fpk/                        # 打包源（本目录）
     ├── app.py              # 健康检 shim：飞牛经 /app/app.py 软链探活（真机实测，勿删）
     ├── ui/
 │   ├── config          # 桌面入口（iframe → /cgi/ThirdParty/.../index.cgi/，所有用户可见）
-│   ├── index.cgi       # CGI 反代 → 本机回环端口（默认 9800，读同目录 ui/port 镜像）
+│   ├── index.cgi       # CGI 反代 → 本机回环端口（默认 9800，读同目录 ui/port 镜像；按 var/access_mode 分派 TCP/app.sock）
 │   └── images/icon_{64,256}.png
     └── server/             # 构建脚本生成
         ├── main.py + app/          # FastAPI 后端
@@ -58,7 +58,7 @@ build/fpk/nasdeck-fnpack-*.fpk  # 最终交付物
 
 | 主题 | 决策 | 原因 |
 |---|---|---|
-| 访问模型 | **CGI 反代**（iframe → index.cgi → 本机回环端口），不用统一网关 | 飞牛会周期性清空第三方 `entry.gateway_socket` 导致网关 404（2026-08 真机实测，看门狗方案已废弃） |
+| 访问模型 | **CGI 反代**（iframe → index.cgi → 本机回环端口），统一网关不可用 | fnOS 1.2.0701 实测（2026-10-09，trim_sac.entry 表 + 六次安装对照）：**本地安装的包（UI/CLI 皆然）入口导入时 gateway_prefix/gateway_socket 一律被丢弃**，网关路由无法随包注册（有字段的 13 条目全部来自 09-29 系统初始化批量导入与商店安装，如 moo）；后端网关能力（NASDECK_UDS/前缀剥离中间件/占位符基址/uds 鉴权边界，test_access_modes 6 项）已实现并休眠，待 fnOS 修复导入或经商店分发（moo 佐证商店路径可导入）后启用；index.cgi 按 var/access_mode 分派转发目标（TCP/app.sock），遗留 gateway 状态自动兼容 |
 | 端口 | 回环端口**默认 9800，安装向导可自定义、应用「配置」可随时修改**（`wizard_port` → 校验+占用预检 → 落盘 `${TRIM_PKGVAR}/port`，镜像 `ui/port`）；manifest 按 CGI 规范省略 `service_port`、`checkport=false` | cmd/main 与 index.cgi 从同一落盘文件读端口（非法值回退 9800）；仅绑 127.0.0.1，不向局域网暴露管理面板 |
 | 运行参数 | 日志级别 / 原始数据保留时长经**配置向导**落盘 `${TRIM_PKGVAR}/runtime.env`，cmd/main 启动时 source | `NASDECK_LOG_LEVEL` 仅在用户显式选过时落盘导出，缺省由后端按版本通道判定：**dev- 前缀包 DEBUG**（真机排查采集链路）、正式包 INFO；`NASDECK_RAW_KEEP_MINUTES`（默认 120）；后端 pydantic-settings 前缀映射零改动 |
 | 鉴权 | `NASDECK_TRIM_AUTH=true`：读=飞牛登录（X-Trim-Userid），写=管理员（X-Trim-Isadmin） | index.cgi 转发的可信身份头在后端强制校验（`require_trim_auth`）；桌面入口 `allUsers=true` 全员可见（普通用户只读，前端屏蔽设置按钮）；`/health` 探针除外 |
@@ -77,8 +77,13 @@ export NASDECK_HOST=127.0.0.1   # 回环反代
 . "${TRIM_PKGVAR}/runtime.env"  # 配置向导落盘：LOG_LEVEL（显式配置才有）/ RAW_KEEP_MINUTES（缺省 120）
 export NASDECK_DB_URL="sqlite+aiosqlite:///${TRIM_PKGVAR}/nasdeck.db"  # 四斜杠=绝对路径，三斜杠是相对路径
 export NASDECK_STORCLI_PATH="${SERVER_DIR}/bin/storcli64"
-export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist" # 后端托管 SPA
-export NASDECK_TRIM_AUTH=true                      # 分级鉴权：读=登录用户，写=管理员
+export NASDECK_STATIC_DIR="${SERVER_DIR}/web/dist" # 后端托管 SPA（挂载时按 PUBLIC_PATH 替换 index.html 资源基址占位符）
+export NASDECK_TRIM_AUTH=true                      # 分级鉴权：读=飞牛登录用户，写=管理员
+export NASDECK_PUBLIC_PATH="/cgi/ThirdParty/com.dashboard.nasdeck/index.cgi"  # CGI 形态；网关形态=/app/com.dashboard.nasdeck
+# 以下仅网关形态导出（CGI 形态缺省）：
+# export NASDECK_UDS="${TRIM_APPDEST}/app.sock"                # uvicorn 监听 Unix Socket（TCP 不生效）
+# export NASDECK_GATEWAY_PREFIX="/app/com.dashboard.nasdeck"   # 前缀剥离中间件
+# 网关形态不导出 NASDECK_PROXY_TOKEN（无 index.cgi，信任边界=app.sock 文件权限）
 export PYTHONPATH="${SERVER_DIR}/site-packages"
 ```
 
@@ -112,3 +117,33 @@ export PYTHONPATH="${SERVER_DIR}/site-packages"
 - 实时推送（WebSocket）经 CGI 反代不可用，前端自动降级为 2s 轮询（设计内行为）。
 - `platform=x86`：随包 storcli64 为 x86_64 ELF；ARM 机器缺少阵列卡功能（其余正常降级）。
 - 健康报告 HTML 写在应用 target 目录（升级会清），历史数据本体在 @appdata 不受影响。
+
+## 真机形态事实（fnOS 1.2.0701，2026-10-08/09 gwprobe 试验实测）
+
+试验包 `scripts/gwprobe/`（应用 `com.test.gatewayprobe`，独立于生产包，验证完卸载）。
+以下事实影响所有 FPK 包与「访问模型」选型：
+
+- **生命周期回调在下载暂存目录执行**（`/vol2/appcenter-downloads/...-tpk`，升级后即清）：
+  `TRIM_APPDEST` 不注入、`TRIM_PKGVAR` 正常。回调里禁止用脚本自身位置反推目标路径写
+  长期存活文件，一律走 `/var/apps/{appname}` 稳定前门。生产包 `install_callback` 的
+  `ui/port`、`ui/proxy_token` 镜像因此落不进 target/ui/——**功能无损**：index.cgi 有
+  var 权威副本回退链，且 fnOS 维护 `/var/apps/{app}/var → @appdata` 符号链接；镜像由
+  cmd/main start 自愈（2026-10-09 起）。安装向导「自定义端口」真机验证仍是待办。
+- **appcenter-cli 无升级命令**：install-fpk 对已装应用一律拒绝（同版本跳过、新版本也拒），
+  升级 = uninstall + install；uninstall 不清 @appdata。
+- fnpack 设备端校验 `config/resource` 必需（缺则装机失败 code 10111），最小合法内容
+  `{"data-share":{"shares":[]}}`。
+- **网关鉴权先于路由**：未登录 curl 对存在/不存在的网关入口一律 `200 "invalid token"`，
+  HTTP 层无判别力；入口存活性只能看存储层——`/var/apps_ui/{app}` 符号链接（安装时
+  创建，指向 target/ui）+ config 的 `gatewaySocket` 字段（系统不改写 ui/config 内容）。
+  网关路由由 `trim_http_cgi`（Go）服务读取。
+
+## 网关模式复核试验（进行中，结论待 48h watch.log）
+
+「安装时让用户选访问模型（index.cgi / 统一网关）」的前置验证：2026-08 的
+「飞牛周期性清空第三方 gateway 入口」缺陷在当前版本是否仍复现。探针 root cron
+每 10 分钟采样落 `/vol2/@appdata/com.test.gatewayprobe/watch.log`，判据：
+`ALIVE` 全链路健康 / `ENTRY_CLEARED` 入口被清（缺陷复现）/ `SVC_DOWN`、`SOCK_DEAD`
+非入口问题。2026-10-08 23:02 部署起持续 ALIVE（截至 10-09 上午无复现）。
+结论出来后更新「访问模型」决策行；若缺陷已消失，网关模式的价值是 WS 实时推送
+（省掉 2s 轮询降级），届时再做安装/配置向导的模型切换（判据走存储层，不带登录态即可监控）。

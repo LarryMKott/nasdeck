@@ -1,13 +1,26 @@
 <script setup>
 /** 温度监控：速览磁贴 + 温度墙 / 机箱热力图（花活 F），5s 轮询，后端 + 演示回退 */
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
 import { temps as mockTemps } from '../mock';
 import { tempClass } from '../utils/format';
 import { useViewData } from '../composables/useViewData';
 import { fetchChassis, fetchTemps } from '../services/monitor';
+import { getSettings, putSetting } from '../api/endpoints/system';
+import { useRealtimeStore } from '../stores/realtime';
+import { useIdentityStore } from '../stores/identity';
 import UPageHeader from '../components/UPageHeader.vue';
 import USpark from '../components/USpark.vue';
 import UChassis from '../components/UChassis.vue';
+import UChassis3D from '../components/UChassis3D.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasTemps' });
@@ -16,9 +29,70 @@ defineOptions({ name: 'NasTemps' });
 const warmAt = 45;
 const hotAt = 60;
 
-/** 视图模式：速览（磁贴+温度墙）/ 机箱（热力图），记忆上次选择 */
+/** 视图模式：速览（磁贴+温度墙）/ 立体（等距机箱，三期 R1）/ 机箱（2D 热力图），记忆上次选择 */
 const MODE_KEY = 'nd_temps_mode';
-const mode = ref(localStorage.getItem(MODE_KEY) === 'chassis' ? 'chassis' : 'quick');
+const _modeRaw = localStorage.getItem(MODE_KEY);
+const mode = ref(['quick', 'iso', 'chassis'].includes(_modeRaw) ? _modeRaw : 'quick');
+
+// 立体机箱实时分量：每盘 IO / 每网口吞吐 / RAPL 功耗 / GPU 可用（realtime 快照）
+const realtime = useRealtimeStore();
+onMounted(() => realtime.acquire());
+onBeforeUnmount(() => realtime.release());
+const ioMap = computed(() => realtime.snapshot?.disk_io_devices ?? null);
+const netMap = computed(() => realtime.snapshot?.net ?? null);
+const powerSnap = computed(() => realtime.snapshot?.power ?? null);
+const gpuOn = computed(() => !!realtime.snapshot?.gpu?.available);
+
+// 权限铁律沿用：chassis3d 配置仅管理员可写（GET 全员可读）
+const identity = useIdentityStore();
+identity.ensure();
+
+// R3：模板/机位/分解——机器级配置存 system_settings（所有访问者与 Kiosk 共享），
+// 仅管理员可写（PUT 被后端非 GET 强校验拒绝时静默，本地态仍生效到刷新为止）
+const chassis3d = reactive({ template: 'auto', preset: 'iso', explode: false, remap: {} });
+const remapOpen = ref(false);
+/** 自动映射的角色推断（面板展示用；实际映射在 templates.mapSensors） */
+function autoRole(s) {
+  const zone = s.zone ?? '';
+  if (zone === 'cpu') return 'cpu';
+  if (zone === 'nvme') return 'nvme';
+  if (zone === 'board') return 'board';
+  return 'free';
+}
+function remapRole(s) {
+  return chassis3d.remap?.[s.key] || autoRole(s);
+}
+function setRemap(key, role) {
+  if (role === 'auto') delete chassis3d.remap[key];
+  else chassis3d.remap[key] = role;
+  saveChassis3d();
+}
+const chassisEditable = ref(false);
+onMounted(async () => {
+  try {
+    const settings = await getSettings();
+    const v = settings?.chassis3d?.value;
+    if (v && typeof v === 'object') {
+      chassis3d.template = ['auto', 'tower', 'rack', 'compact', 'virtual'].includes(v.template)
+        ? v.template
+        : 'auto';
+      chassis3d.preset = ['iso', 'high', 'side'].includes(v.preset) ? v.preset : 'iso';
+      chassis3d.explode = !!v.explode;
+      chassis3d.remap = typeof v.remap === 'object' && v.remap ? v.remap : {};
+    }
+    chassisEditable.value = true;
+  } catch {
+    chassisEditable.value = false;
+  }
+});
+async function saveChassis3d() {
+  if (!identity.canWrite) return;
+  try {
+    await putSetting('chassis3d', { ...chassis3d });
+  } catch {
+    /* 非管理员写入被拒：本地生效即可 */
+  }
+}
 function setMode(m) {
   if (mode.value === m) return;
   mode.value = m;
@@ -32,7 +106,7 @@ const {
   live,
   refresh,
   lastUpdated,
-} = useViewData(() => (mode.value === 'chassis' ? fetchChassis() : fetchTemps()), mockTemps);
+} = useViewData(() => (mode.value === 'quick' ? fetchTemps() : fetchChassis()), mockTemps);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
@@ -98,6 +172,9 @@ onDeactivated(stopTimer);
           <button :class="{ on: mode === 'quick' }" @click="setMode('quick')">
             {{ t('速览') }}
           </button>
+          <button :class="{ on: mode === 'iso' }" @click="setMode('iso')">
+            {{ t('立体') }}
+          </button>
           <button :class="{ on: mode === 'chassis' }" @click="setMode('chassis')">
             {{ t('机箱') }}
           </button>
@@ -107,6 +184,93 @@ onDeactivated(stopTimer);
         </label>
       </template>
     </u-page-header>
+
+    <!-- 立体机箱（三期 R1/R3）：inventory × 模板 → layout → 等距 SVG 渲染器 -->
+    <template v-if="mode === 'iso'">
+      <div class="wg" style="margin-bottom: 14px">
+        <div class="wg-b iso-ctl">
+          <label class="small muted" style="align-self: center">
+            {{ t('机型模板') }}
+            <select v-model="chassis3d.template" style="margin-left: 6px" @change="saveChassis3d">
+              <option value="auto">{{ t('自动（DMI 自适配）') }}</option>
+              <option value="tower">{{ t('塔式侧透') }}</option>
+              <option value="rack">{{ t('机架式') }}</option>
+              <option value="compact">{{ t('紧凑型') }}</option>
+              <option value="virtual">{{ t('逻辑视图') }}</option>
+            </select>
+          </label>
+          <div class="seg">
+            <button
+              v-for="pc in [
+                ['iso', '正等测'],
+                ['high', '高俯'],
+                ['side', '侧俯'],
+              ]"
+              :key="pc[0]"
+              :class="{ on: chassis3d.preset === pc[0] }"
+              @click="
+                chassis3d.preset = pc[0];
+                saveChassis3d();
+              "
+            >
+              {{ t(pc[1]) }}
+            </button>
+          </div>
+          <label
+            class="switch"
+            :class="{ on: chassis3d.explode }"
+            @click="
+              chassis3d.explode = !chassis3d.explode;
+              saveChassis3d();
+            "
+          >
+            <span class="tr" />{{ t('分解视图') }}
+          </label>
+          <button class="btn sm" @click="remapOpen = !remapOpen">
+            {{ t('传感器映射') }}
+          </button>
+        </div>
+        <div v-if="remapOpen" class="remap-panel">
+          <div class="small muted" style="margin-bottom: 8px">
+            {{ t('自动映射错了就在这里改：把传感器指到正确的部件上，修正会持久化') }}
+          </div>
+          <div v-for="s in d.sensors ?? []" :key="s.key" class="remap-row">
+            <span
+              class="small"
+              style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+            >
+              {{ s.label || s.key }}
+              <span class="muted num">{{ s.celsius }} °C</span>
+            </span>
+            <select :value="remapRole(s)" @change="setRemap(s.key, $event.target.value)">
+              <option value="auto">{{ t('自动') }}</option>
+              <option value="cpu">{{ t('CPU 块') }}</option>
+              <option value="nvme">{{ t('M.2 区') }}</option>
+              <option value="board">{{ t('环境光') }}</option>
+              <option value="free">{{ t('游离方块') }}</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <u-chassis3-d
+        :sensors="d.sensors ?? []"
+        :fans="d.fans ?? []"
+        :disks="d.disks ?? []"
+        :board="d.board ?? null"
+        :dimms="d.dimms ?? 2"
+        :nics="d.nics ?? 1"
+        :io="ioMap"
+        :net="netMap"
+        :power="powerSnap"
+        :gpu-available="gpuOn"
+        :warm-at="60"
+        :hot-at="75"
+        :template="chassis3d.template"
+        :preset="chassis3d.preset"
+        :explode="chassis3d.explode"
+        @jump="refresh"
+      />
+    </template>
 
     <template v-if="mode === 'chassis'">
       <u-chassis
@@ -165,6 +329,28 @@ onDeactivated(stopTimer);
 </template>
 
 <style scoped>
+.iso-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
+.remap-panel {
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px dashed var(--bd);
+
+  .remap-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 420px;
+    padding: 3px 0;
+  }
+}
+
 .seg {
   display: inline-flex;
   overflow: hidden;

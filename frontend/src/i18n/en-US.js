@@ -350,4 +350,124 @@ export default {
   '（已是最新）': ' (up to date)',
   更新日志: 'Changelog',
   构建信息: 'Build info',
+
+  // ---- 花活二期 I：2.5D 硬盘舱位墙 ----
+  表格: 'Table',
+  舱位: 'Bays',
+  硬盘舱位: 'Disk bays',
+  '面板色 = 温度（{a} °C 偏高 · {b} °C 过热）· 灯 = 真实 IO · 点击翻面看 SMART 摘要':
+    'Panel = temp ({a} °C warm · {b} °C hot) · LEDs = real IO · click to flip for SMART summary',
+  '暂无盘位数据（—）': 'No disk bay data (—)',
+  '暂无趋势数据（—）': 'No trend data yet (—)',
+  '近 30 天重映射扇区 · 1h 桶': 'Reallocated sectors · last 30 days, 1h buckets',
+
+  // ---- 花活二期 K：进程风暴榜 ----
+  进程风暴榜: 'Process storm board',
+  '5s 采样 · 两轮均值去抖 · 仅名称与占用': '5s sampling · 2-round smoothed · names & usage only',
+  '等待采样（—）': 'Waiting for samples (—)',
+  'CPU Top 8': 'CPU Top 8',
+  '内存 Top 8': 'Memory Top 8',
+  '暂无进程采样（—）：实时通道接入后自动出现':
+    'No process samples yet (—): appears once the realtime channel connects',
+  'CPU 榜首': 'Top CPU',
+
+  // ---- 花活二期 J：硬盘健康预言 ----
+  健康分: 'Score',
+  健康预言: 'Health oracle',
+  良好: 'Good',
+  观察: 'Watch',
+  异常: 'Bad',
+  新盘: 'New disk',
+  重映射增速: 'Realloc growth',
+  温度余量: 'Temp margin',
+  磨损度: 'Wear',
+  寿命已用: 'Life used',
+  '评分 = 五维加权（变化速率为主、绝对值为辅）':
+    'Score = 5-dim weighted (growth rate primary, absolute secondary)',
+  '预计 {n} 天后触及阈值 {v}': 'Hits threshold {v} in ~{n} days',
+  '当前 {c} · 日增 {r}': 'now {c} · +{r}/day',
+  '暂无触阈值预测（—）：拿得到 SMART 阈值且有正增速时给出':
+    'No ETA yet (—): shown when a SMART threshold exists and growth is positive',
+  '该盘暂无评分（—）：接入并完成 SMART 采样后自动给出':
+    'No score yet (—): appears automatically after SMART sampling',
+
+  // ---- 花活二期 O：开机自检动画 ----
+  不再播放: "Don't play again",
+  点击任意处跳过: 'Click anywhere to skip',
+
+  // ---- 花活二期 N：一键体检 ----
+  一键体检: 'Health checkup',
+  '六维体检：预言/容量/阵列/温度/告警/端口':
+    '6-dim checkup: oracle/capacity/raid/temp/alerts/ports',
+  '正在体检…': 'Checking…',
+  '体检不可用（—）：后端不可达，不显示假分':
+    'Checkup unavailable (—): backend unreachable, no fake score',
+  硬盘预言: 'Disk oracle',
+  容量预测: 'Capacity forecast',
+  阵列状态: 'Array status',
+  '30 天告警': '30-day alerts',
+  端口暴露面: 'Port exposure',
+  '生成分享 PNG': 'Share PNG',
+  点击任意处跳过动画: 'Click anywhere to skip animation',
+
+  // ---- 花活 R 遗留收口：传感器重映射 ----
+  传感器映射: 'Sensor mapping',
+  '自动映射错了就在这里改：把传感器指到正确的部件上，修正会持久化':
+    'Fix wrong auto-mapping here: pin each sensor to the right part; changes persist',
+  'CPU 块': 'CPU block',
+  'M.2 区': 'M.2 area',
+  环境光: 'Ambient',
+  游离方块: 'Free cube',
+
+  // ---- 花活三期 R3：立体机箱交互 ----
+  机型模板: 'Chassis template',
+  '自动（DMI 自适配）': 'Auto (DMI detect)',
+  机架式: 'Rackmount',
+  紧凑型: 'Compact',
+  逻辑视图: 'Logical view',
+  正等测: 'Isometric',
+  高俯: 'High angle',
+  侧俯: 'Side angle',
+  分解视图: 'Exploded view',
+
+  // ---- 花活三期 R1：立体机箱 ----
+  立体: '3D',
+  塔式侧透: 'Tower (side panel off)',
+  '逻辑视图（虚拟机）': 'Logical view (virtual machine)',
+  立体机箱: '3D chassis',
+
+  // ---- 花活二期 Q：跑分中心 ----
+  跑分中心: 'Disk benchmark',
+  '只读顺序读基准 · 占空比限速 · 同一时间仅一块盘':
+    'Read-only sequential benchmark · duty-cycled · one disk at a time',
+  开始跑分: 'Start benchmark',
+  取消跑分: 'Cancel benchmark',
+  占用: 'duty',
+  已读: 'Read',
+  '速度曲线随采样点逐步出现…': 'Speed curve builds up as samples arrive…',
+  '基准期间该盘业务延迟会上升（物理规律）；休眠盘默认跳过不唤醒':
+    'Disk latency will rise during the benchmark (physics); standby disks are skipped, never woken',
+  '只读不写（O_DIRECT 绕页缓存）；standby 盘默认跳过不唤醒':
+    'Read-only, never writes (O_DIRECT bypasses page cache); standby disks are skipped, never woken',
+  上次跑分出错: 'Last benchmark failed',
+  '盘与盘对比（最新成绩 · 墙钟均值含限速窗口）':
+    'Disk vs disk (latest results · wall-clock average incl. duty windows)',
+  历史成绩: 'History',
+  '暂无成绩（—）：跑分完成后此处出榜':
+    'No results yet (—): the board appears after a benchmark finishes',
+  时长: 'Duration',
+  平均: 'Avg',
+
+  // ---- 花活二期 M：Docker 舰牌墙 ----
+  容器舰队: 'Container fleet',
+  意外退出: 'Unexpected exit',
+  '↓ 读 · ↑ 写': '↓ read · ↑ write',
+  '24h CPU': '24h CPU',
+  '暂无 24h 趋势（1m 桶积累中）': 'No 24h trend yet (1m buckets accumulating)',
+  重启: 'Restart',
+  停止: 'Stop',
+  启动: 'Start',
+  '确认重启容器 {n}？': 'Restart container {n}?',
+  '确认停止容器 {n}？': 'Stop container {n}?',
+  'Docker 不可用（—）': 'Docker unavailable (—)',
 };

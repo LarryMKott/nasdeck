@@ -17,12 +17,21 @@ export class ApiError extends Error {
   }
 }
 
-/** 计算基址（网关形态带 index.cgi 前缀） */
+// 统一网关形态转发前缀（ui/config 的 gatewayPrefix，与 cmd/main 导出的
+// NASDECK_GATEWAY_PREFIX 同源；JS 内联常量避免构建期依赖）
+const GATEWAY_PREFIX = '/app/com.dashboard.nasdeck';
+
+/** 计算基址：CGI 反代形态截 index.cgi 前缀，统一网关形态取网关前缀，直连为空串 */
 export function apiBase() {
   if (typeof location === 'undefined') return '';
+  const pathname = location.pathname;
   const marker = 'index.cgi';
-  const idx = location.pathname.indexOf(marker);
-  return idx >= 0 ? location.pathname.slice(0, idx + marker.length) : '';
+  const idx = pathname.indexOf(marker);
+  if (idx >= 0) return pathname.slice(0, idx + marker.length);
+  if (pathname === GATEWAY_PREFIX || pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
+    return GATEWAY_PREFIX;
+  }
+  return '';
 }
 
 /**

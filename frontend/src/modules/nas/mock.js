@@ -443,6 +443,19 @@ export const disks = {
       tempC: 34,
       hours: '18240 h',
       health: '正常',
+      oracle: {
+        score: 92,
+        grade: 'good',
+        has_history: true,
+        dims: [
+          { key: 'reallocated', value: 100 },
+          { key: 'pending', value: 100 },
+          { key: 'media', value: 100 },
+          { key: 'temp', value: 92 },
+          { key: 'wear', value: 65 },
+        ],
+        etas: [],
+      },
     },
     {
       slot: 2,
@@ -461,6 +474,19 @@ export const disks = {
       tempC: 47,
       hours: '29511 h',
       health: '警告 (05)',
+      oracle: {
+        score: 71,
+        grade: 'watch',
+        has_history: true,
+        dims: [
+          { key: 'reallocated', value: 55 },
+          { key: 'pending', value: 100 },
+          { key: 'media', value: 100 },
+          { key: 'temp', value: 52 },
+          { key: 'wear', value: 44 },
+        ],
+        etas: [{ metric: 'reallocated', days: 20, current: 8, threshold: 10, slope_per_day: 0.1 }],
+      },
     },
     {
       slot: 5,
@@ -677,8 +703,17 @@ export const temps = {
   ],
 };
 
-/** 机箱热力图（花活 F）演示回退：与 fetchChassis 输出同形（sensors/fans/disks） */
+/** 机箱热力图（花活 F）演示回退：与 fetchChassis 输出同形（board/dimms/nics/sensors/fans/disks）。
+ * board 取 QEMU——立体机箱（三期 R）演示自动落到 virtual 逻辑视图 */
 export const chassis = {
+  board: {
+    vendor: 'Supermicro',
+    model: 'X11SCH-F',
+    product_name: 'X11SCH-F',
+    cpuName: 'Intel Xeon E-2124',
+  },
+  dimms: 2,
+  nics: 1,
   sensors: [
     { key: 'm:pkg', label: 'CPU Package', zone: 'cpu', celsius: 45, grade: 'normal' },
     { key: 'm:core1', label: 'Core 1', zone: 'cpu', celsius: 44, grade: 'normal' },
@@ -740,43 +775,143 @@ export const chassis = {
   ],
 };
 
+/** 跑分演示成绩（花活二期 Q；fetchBenchHistory 后端不可达时回退） */
+export const benchHistory = [
+  {
+    id: 3,
+    device: 'sdc',
+    seconds: 20,
+    duty: 30,
+    avg_mbps: 142.3,
+    peak_mbps: 158.7,
+    bytes_read: 2983,
+    direct: true,
+    created_at: '2026-10-08T21:40:00',
+    curve: [
+      { t: 0.5, mbps: 138.2 },
+      { t: 1, mbps: 149.6 },
+      { t: 1.5, mbps: 155.1 },
+      { t: 2, mbps: 158.7 },
+      { t: 2.5, mbps: 141.9 },
+    ],
+  },
+  {
+    id: 2,
+    device: 'sda',
+    seconds: 20,
+    duty: 30,
+    avg_mbps: 118.6,
+    peak_mbps: 131.4,
+    bytes_read: 2486,
+    direct: true,
+    created_at: '2026-10-08T21:30:00',
+    curve: [
+      { t: 0.5, mbps: 112.0 },
+      { t: 1, mbps: 124.5 },
+      { t: 1.5, mbps: 131.4 },
+      { t: 2, mbps: 118.8 },
+    ],
+  },
+];
+
+/** 网络星图演示聚合（花活二期 L；UNetMap 后端不可达时回退） */
+export const networkMap = {
+  listening: 12,
+  established: 9,
+  lan: 7,
+  wan: 2,
+  remotes: [
+    { ip: '192.168.31.12', lan: true, count: 3 },
+    { ip: '192.168.31.240', lan: true, count: 2 },
+    { ip: '223.5.5.5', lan: false, count: 1 },
+  ],
+};
+
+/** 容器 24h 趋势演示序列（花活二期 M；后端不可达时 fetchContainerTrend 回退） */
+export function dockerTrendDemo(name, hours = 24) {
+  const n = Math.min(hours * 60, 400);
+  const points = [];
+  const t0 = Date.now() - n * 60000;
+  for (let i = 0; i < n; i += 1) {
+    const wave = Math.sin(i / 23) * 1.6 + Math.sin(i / 7) * 0.7;
+    points.push({
+      ts: new Date(t0 + i * 60000).toISOString().slice(0, 19),
+      cpu_percent: Math.max(0.2, 3 + wave),
+      mem_mb: 420 + Math.sin(i / 40) * 60,
+      read_kbps: Math.max(0, 40 + wave * 18),
+      write_kbps: Math.max(0, 12 + Math.cos(i / 15) * 8),
+    });
+  }
+  return { name, hours, points };
+}
+
 /** Docker 页 */
 export const docker = {
   containers: [
     {
       name: 'plex',
+      image: 'plexinc/pms-docker:latest',
       av: 'P',
       avClass: 'c4',
       running: true,
+      statusText: 'Up 6 days',
       mem: '1.2 GB',
+      memBytes: 1.2 * 1024 ** 3,
       cpu: '3.4%',
-      net: '↓2.1 ↑0.4 MB/s',
+      cpuPercent: 3.4,
+      readBps: 2.1 * 1024 ** 2,
+      writeBps: 0.4 * 1024 ** 2,
       ports: '32400→32400',
       up: '6 天',
     },
     {
       name: 'qBittorrent',
+      image: 'linuxserver/qbittorrent:latest',
       av: 'q',
       avClass: 'c1',
       running: true,
+      statusText: 'Up 2 days',
       mem: '420 MB',
+      memBytes: 420 * 1024 ** 2,
       cpu: '1.1%',
-      net: '↓8.9 ↑1.2 MB/s',
+      cpuPercent: 1.1,
+      readBps: 8.9 * 1024 ** 2,
+      writeBps: 1.2 * 1024 ** 2,
       ports: '6881→6881',
       up: '2 天',
     },
     {
       name: 'homeassistant',
+      image: 'homeassistant/home-assistant:stable',
       av: 'h',
       avClass: 'c3',
       running: true,
+      statusText: 'Up 23 days',
       mem: '660 MB',
+      memBytes: 660 * 1024 ** 2,
       cpu: '0.8%',
-      net: '↓0.1 ↑0.1 MB/s',
+      cpuPercent: 0.8,
+      readBps: 0.1 * 1024 ** 2,
+      writeBps: 0.1 * 1024 ** 2,
       ports: '8123→8123',
       up: '23 天',
     },
-    { name: 'memcached', av: 'm', avClass: 'c2', running: false },
+    {
+      name: 'memcached',
+      image: 'memcached:alpine',
+      av: 'm',
+      avClass: 'c2',
+      running: false,
+      statusText: 'Exited (0) 3 days ago',
+      mem: '—',
+      memBytes: null,
+      cpu: '—',
+      cpuPercent: null,
+      readBps: null,
+      writeBps: null,
+      ports: '—',
+      up: '—',
+    },
   ],
 };
 
@@ -960,7 +1095,7 @@ export const manual = {
 
 /** 关于页 */
 export const about = {
-  version: 'dev-0.0.6',
+  version: 'dev-0.2.19',
   desc: '飞牛 fnOS 硬件监控面板 · UNRAID 风格',
   slogan: '把要 SSH 才能看的硬件状态，装进一块面板',
   build: [

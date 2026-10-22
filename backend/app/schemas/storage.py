@@ -14,6 +14,30 @@ class PartitionItem(BaseModel):
     type: str = "part"  # part/lvm/crypt…（lsblk TYPE，非分区形态平铺展示）
 
 
+class OracleDim(BaseModel):
+    """健康雷达维度（花活二期 J）：0-100 子分，null = 无数据。"""
+    key: str  # reallocated/pending/media/temp/wear
+    value: float | None = None
+
+
+class OracleEta(BaseModel):
+    """触阈值倒计时（拿得到 THRESH 且有正增速才给出）。"""
+    metric: str
+    days: float
+    current: float
+    threshold: float
+    slope_per_day: float
+
+
+class DiskOracle(BaseModel):
+    """硬盘健康预言：0-100 健康分 + 五维雷达 + 触阈值 ETA（smart_points 1h 桶斜率）。"""
+    score: int | None = None  # null = 连当前值都拿不到（盘未采样）
+    grade: str | None = None  # good(≥85)/watch(≥60)/bad(<60)
+    has_history: bool = False  # 窗口内有无 1h 桶历史（新盘只按当前值给分）
+    dims: list[OracleDim] = []
+    etas: list[OracleEta] = []
+
+
 class DiskItem(BaseModel):
     """物理磁盘（合并别名/SMART 健康/温度，契约 §2.5）。"""
     device: str  # 不带 /dev/ 前缀
@@ -28,6 +52,7 @@ class DiskItem(BaseModel):
     health: str = "unknown"  # passed/failing/unknown（SMART 慢采集缓存回填）
     temp_c: float | None = None
     power_on_hours: int | None = None
+    oracle: DiskOracle | None = None  # 健康预言（花活二期 J；盘未采样时 null）
     partitions: list[PartitionItem] = []  # lsblk children 平铺（拓扑树层级边）
 
 
@@ -172,3 +197,41 @@ class SmartTrendResponse(BaseModel):
     granularity: str  # 1h（days≤30）/ 1d（更长）
     days: int
     points: list[SmartTrendPoint]
+
+
+class BenchIn(BaseModel):
+    """跑分触发参数（花活二期 Q）。"""
+    device: str
+    seconds: int = Field(default=20, ge=5, le=120)
+    duty: int = Field(default=30, ge=10, le=100)
+
+
+class BenchResultItem(BaseModel):
+    """跑分成绩行（avg_mbps 为墙钟均值，含限速休眠窗——业务真实视角）。"""
+    id: int
+    device: str
+    seconds: int
+    duty: int
+    avg_mbps: float
+    peak_mbps: float
+    bytes_read: int
+    direct: bool = True
+    created_at: str | None = None
+    curve: list = []
+
+
+class BenchState(BaseModel):
+    """跑分实时状态（GET current 1s 轮询数据面）。"""
+    status: str  # idle/running/done/error
+    device: str | None = None
+    seconds: int = 20
+    duty: int = 30
+    direct: bool = False
+    started_at: str | None = None
+    elapsed: float = 0.0
+    progress: float = 0.0
+    bps: float = 0.0
+    curve: list = []
+    bytes_read: int = 0
+    error: str | None = None
+    result_id: int | None = None

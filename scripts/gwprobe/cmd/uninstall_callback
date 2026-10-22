@@ -1,0 +1,8 @@
+#!/bin/bash
+# 卸载回调：清除监控 cron（应用目录由系统随后删除，cron 是系统级残留必须主动清）。
+LOG="${TRIM_TEMP_LOGFILE}"
+if crontab -l 2>/dev/null | grep -q "gwprobe-watch"; then
+    crontab -l 2>/dev/null | grep -v "gwprobe-watch" | crontab - 2>>"$LOG" \
+        && echo "[gwprobe] 监控 cron 已清除" >> "$LOG"
+fi
+exit 0

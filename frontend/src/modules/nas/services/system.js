@@ -5,7 +5,13 @@
  */
 
 import * as mock from '../mock';
-import { getDocker, getEnv, getPorts, getSystemInfo } from '../api/endpoints/system';
+import {
+  getContainerTrend,
+  getDocker,
+  getEnv,
+  getPorts,
+  getSystemInfo,
+} from '../api/endpoints/system';
 import { getHardware } from '../api/endpoints/hardware';
 import { getDisks } from '../api/endpoints/storage';
 import { pick, uptimeText } from './shared';
@@ -21,12 +27,17 @@ export async function fetchDocker() {
       // docker 不可用或 0 容器都是合法真值：空列表 + 不可用原因（extra），不回退假容器
       containers: (resp.containers ?? []).map((c, i) => ({
         name: c.name,
+        image: c.image ?? null,
         av: (c.name[0] || '?').toUpperCase(),
         avClass: avClasses[i % 4],
         running: c.state === 'running',
+        statusText: c.status ?? '',
         mem: c.mem_usage ?? '—',
+        memBytes: c.mem_bytes ?? null,
+        cpuPercent: c.cpu_percent ?? null,
         cpu: c.cpu_percent != null ? `${c.cpu_percent}%` : '—',
-        net: '—',
+        readBps: c.read_bps ?? null, // 磁盘 IO（花活二期 M；v1/无 io.stat 为 null 显"—"）
+        writeBps: c.write_bps ?? null,
         ports: c.ports[0] ?? '—',
         up: c.status,
       })),
@@ -36,6 +47,18 @@ export async function fetchDocker() {
     live: true,
     extra: resp.available ? null : (resp.reason ?? 'docker 不可用'),
   };
+}
+
+/** 容器 24h 趋势取数（花活二期 M）：live 取 1m 桶序列，后端不可达回退演示序列
+ * @param {string} name 容器名
+ * @param {number} [hours] 窗口小时数
+ * @returns {Promise<{data: import('../models/system').ContainerTrendResponse, live: boolean}>} */
+export async function fetchContainerTrend(name, hours = 24) {
+  try {
+    return { data: await getContainerTrend(name, hours), live: true };
+  } catch {
+    return { data: mock.dockerTrendDemo(name, hours), live: false };
+  }
 }
 
 /** 端口页取数：只展示 LISTEN 前 20 条，行内附搜索/确认文案

@@ -38,4 +38,11 @@ if __name__ == "__main__":
 
     from app.core.config import settings  # noqa: E402  (这里的 app 指后端包)
 
-    uvicorn.run("main:app", host=settings.host, port=settings.port, log_level="info")
+    # 统一网关形态（NASDECK_UDS 非空）监听 Unix Socket；CGI/直连形态走 TCP
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        uds=settings.uds or None,
+        log_level="info",
+    )

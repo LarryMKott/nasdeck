@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Float, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -56,3 +56,27 @@ class SystemSetting(Base, TimestampMixin):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSON, default=None)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class ContainerPoint(Base, TimestampMixin):
+    """容器资源 1m 桶（花活二期 M）：CPU/内存/磁盘 IO 趋势，保留 7 天。
+
+    Attributes:
+        ts (str): 整分桶键（UTC 墙钟串，口径同 MetricPoint）。
+        name (str): 容器名（同桶覆盖写键之一）。
+        cpu_percent (float | None): 全核口径 CPU%；首采无增量为 null。
+        mem_mb (float | None): working set MB。
+        read_kbps / write_kbps (float | None): cgroup v2 io.stat 差分 KB/s；
+            v1/无 io.stat 为 null（前端显"—"）。
+    """
+
+    __tablename__ = "container_points"
+    __table_args__ = (UniqueConstraint("ts", "name", name="uq_container_point"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ts: Mapped[str] = mapped_column(String(20), index=True)
+    name: Mapped[str] = mapped_column(String(64), index=True)
+    cpu_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mem_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    read_kbps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    write_kbps: Mapped[float | None] = mapped_column(Float, nullable=True)

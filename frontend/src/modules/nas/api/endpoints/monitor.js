@@ -31,6 +31,12 @@ export function getTemperatures() {
   return apiData('/api/v1/monitor/temperatures');
 }
 
+/** 一键体检（花活二期 N：六维聚合只读）
+ * @returns {Promise<import('../../models/monitor').CheckupResponse>} */
+export function getCheckup() {
+  return apiData('/api/v1/monitor/checkup');
+}
+
 /** 历史序列
  * @param {string} rangeKey '24h'|'7d'|'30d'
  * @returns {Promise<import('../../models/monitor').HistoryResponse>} */

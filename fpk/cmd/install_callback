@@ -35,6 +35,9 @@ fi
 # 0.2 监听端口落盘（安装向导 wizard_port，默认 9800）：
 #     权威副本落 ${TRIM_PKGVAR}/port（升级/重装保留），并镜像一份到 ui/port——
 #     index.cgi 由飞牛 CGI 从应用目录拉起，读自身同目录最可靠；cmd/main 读 var/port。
+#     ⚠️ 真机实测（fnOS 1.2.0701）：本回调在下载暂存目录执行（无 TRIM_APPDEST），
+#     下方 ui/port、ui/proxy_token 镜像写的是暂存副本，落不进 target/ui/——镜像由
+#     cmd/main start 时自愈（以 var 为源刷新），index.cgi 另有 var 权威副本回退链兜底。
 #     manifest 按 CGI 规范未声明 service_port，端口占用在此自检，冲突则装机失败并提示。
 wizard_port="${wizard_port:-9800}"
 case "$wizard_port" in

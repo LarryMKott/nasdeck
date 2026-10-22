@@ -5,6 +5,7 @@
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { useRealtimeStore } from '../stores/realtime';
 import { chartColors } from '../utils/themeColors';
+import { drawGlowChannel } from '../utils/scopeCore';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 
 defineOptions({ name: 'NasScope' });
@@ -163,7 +164,6 @@ function drawChart() {
   const winMs = windowSec.value * 1000;
   const tNow = data[data.length - 1].t;
   const t0 = tNow - winMs;
-  const xOf = (t) => ((t - t0) / winMs) * w;
 
   // 游标
   if (cursorX.value != null) {
@@ -176,31 +176,8 @@ function drawChart() {
 
   for (const c of CHANNELS) {
     if (!enabled.value.has(c.key)) continue;
-    // 窗口内该通道数值 → 自动量程（min 保底 1，避免零基线变成直线重叠轴）
-    const vals = [];
-    for (const p of data) {
-      if (p.t < t0) continue;
-      const v = p.v[c.key];
-      if (v != null) vals.push(v);
-    }
-    if (vals.length < 2) continue;
-    const max = Math.max(...vals, 1);
-    const min = Math.min(...vals, 0);
-    const span = max - min || 1;
-    ctx.strokeStyle = c.color;
-    ctx.lineWidth = 1.6;
-    ctx.shadowColor = c.color;
-    ctx.shadowBlur = 6; // 荧光辉光
-    ctx.beginPath();
-    let started = false;
-    for (const p of data) {
-      if (p.t < t0 || p.v[c.key] == null) continue;
-      const x = xOf(p.t);
-      const y = h - 6 - ((p.v[c.key] - min) / span) * (h - 24);
-      started ? ctx.lineTo(x, y) : (ctx.moveTo(x, y), (started = true));
-    }
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+    // 通道自动量程 + 荧光描线（渲染内核见 utils/scopeCore.js，与大屏波形带共用）
+    drawGlowChannel(ctx, data, c.key, c.color, { w, h, t0, tNow });
   }
 }
 
@@ -236,6 +213,12 @@ function onLeave() {
 }
 
 const connText = computed(() => (realtime.connected ? t('实时推送') : t('轮询降级')));
+
+/** 角落榜首读数（花活二期 K）：当前 CPU 榜首进程；null = 尚无采样不占位 */
+const topProcText = computed(() => {
+  const p = realtime.snapshot?.top_procs?.cpu?.[0];
+  return p ? { name: p.name, pct: p.percent ?? '—' } : null;
+});
 </script>
 
 <template>
@@ -287,6 +270,10 @@ const connText = computed(() => (realtime.connected ? t('实时推送') : t('轮
             <span v-for="v in cursorVals.vals" :key="v.label" :style="{ color: v.color }">
               {{ v.label }} {{ v.text }}
             </span>
+          </div>
+          <div v-if="topProcText" class="scope-top num">
+            {{ t('CPU 榜首') }} <b>{{ topProcText.name }}</b
+            ><span class="pct">{{ topProcText.pct }}%</span>
           </div>
           <div v-else-if="!points.length" class="scope-empty small muted">
             {{ t('等待实时数据流入（—）：WS 推送或轮询降级接入后开始绘制') }}
@@ -345,6 +332,29 @@ const connText = computed(() => (realtime.connected ? t('实时推送') : t('轮
 
   .t {
     color: var(--tx2);
+  }
+}
+
+// 右上角榜首进程读数（花活二期 K），与左上角游标读数对称
+.scope-top {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--tx2);
+  pointer-events: none;
+  background: rgb(0 0 0 / 55%);
+  border-radius: 6px;
+
+  b {
+    margin-left: 4px;
+    color: var(--warn);
+  }
+
+  .pct {
+    margin-left: 6px;
+    color: var(--tx0);
   }
 }
 

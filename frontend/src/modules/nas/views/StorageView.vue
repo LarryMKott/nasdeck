@@ -1,5 +1,5 @@
 <script setup>
-/** 存储卷：Array Operation 卡 + 阵列设备表 + 卷/数据卷 + 拓扑树（后端 + 演示回退） */
+/** 存储卷：Array Operation 卡 + 阵列设备表/舱位墙 + 卷/数据卷 + 拓扑树（后端 + 演示回退） */
 import { computed, ref } from 'vue';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
@@ -8,6 +8,7 @@ import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
 // unplugin 只扫 src/components：nas 组件须显式 import（此前 u-icon 未导入，图标从未渲染）
 import UIcon from '../components/UIcon.vue';
+import UDiskBays from '../components/UDiskBays.vue';
 
 defineOptions({ name: 'NasStorage' });
 
@@ -17,6 +18,30 @@ identity.ensure();
 
 // 初始值用空骨架，避免首帧向非管理员闪现演示阵列操作卡；mock 仅由适配层在 live:false 整页回退
 const { data: s, lastUpdated } = useViewData(fetchStorage, emptyStorage());
+
+// 设备区视图：表格 / 舱位墙（花活二期 I），记忆上次选择
+const MODE_KEY = 'nd_storage_mode';
+const viewMode = ref(localStorage.getItem(MODE_KEY) === 'bays' ? 'bays' : 'table');
+function setViewMode(m) {
+  if (viewMode.value === m) return;
+  viewMode.value = m;
+  localStorage.setItem(MODE_KEY, m);
+}
+
+/** 舱位墙数据适配（UDiskBays 形状）：温度分档 60/75、厚度按容量、IO 由组件订阅快照 */
+const bays = computed(() =>
+  s.value.devices.map((dev) => ({
+    device: dev.name,
+    slot: dev.slot,
+    model: dev.model,
+    tempC: dev.tempC,
+    capacityText: String(dev.capacityText || '').split(' · ')[0],
+    healthText: dev.status,
+    serial: dev.serial ?? null,
+    hoursText: null,
+    role: dev.role || dev.alias || dev.fsText || null,
+  }))
+);
 
 const stopConfirmOpen = ref(false);
 /** 手动「停止阵列」后的本地覆盖（联调阶段不动后端状态） */
@@ -102,7 +127,18 @@ function stopArray() {
         text: arrayRunning ? t('运行中') : t('无阵列'),
       }"
       :updated="lastUpdated"
-    />
+    >
+      <template #right>
+        <div class="seg">
+          <button :class="{ on: viewMode === 'table' }" @click="setViewMode('table')">
+            {{ t('表格') }}
+          </button>
+          <button :class="{ on: viewMode === 'bays' }" @click="setViewMode('bays')">
+            {{ t('舱位') }}
+          </button>
+        </div>
+      </template>
+    </u-page-header>
 
     <!-- 阵列操作卡：写操作入口仅管理员可见（后端仍有最终校验） -->
     <div v-if="identity.canWrite && s.array" class="wg">
@@ -165,8 +201,8 @@ function stopArray() {
       </div>
     </div>
 
-    <!-- 阵列设备表 -->
-    <div class="wg">
+    <!-- 阵列设备表：表格 / 舱位墙（花活二期 I）两态切换 -->
+    <div v-if="viewMode === 'table'" class="wg">
       <div class="wg-h">
         <u-icon name="drive" />
         <h3>{{ t('阵列设备') }}</h3>
@@ -243,6 +279,23 @@ function stopArray() {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 舱位墙：面板色 = 实时温度（60/75 分档），活动灯 = /proc/diskstats 真实 IO -->
+    <div v-else class="wg">
+      <div class="wg-h">
+        <u-icon name="drive" />
+        <h3>{{ t('硬盘舱位') }}</h3>
+        <span class="x">{{
+          t('面板色 = 温度（{a} °C 偏高 · {b} °C 过热）· 灯 = 真实 IO · 点击翻面看 SMART 摘要', {
+            a: 60,
+            b: 75,
+          })
+        }}</span>
+      </div>
+      <div class="wg-b">
+        <u-disk-bays :disks="bays" />
       </div>
     </div>
 
@@ -401,3 +454,31 @@ function stopArray() {
     </div>
   </section>
 </template>
+
+<style scoped>
+.seg {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--bd2);
+  border-radius: 6px;
+
+  button {
+    height: 28px;
+    padding: 0 12px;
+    font-size: 13px;
+    color: var(--tx2);
+    background: transparent;
+    border: none;
+    transition: all var(--t) var(--ease);
+
+    &.on {
+      color: #fff;
+      background: var(--acc);
+    }
+
+    &:hover:not(.on) {
+      color: var(--acc);
+    }
+  }
+}
+</style>

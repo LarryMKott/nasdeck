@@ -43,6 +43,45 @@
  * @property {number|null} dram_w
  */
 
+/** 单盘实时 IO 速率（/proc/diskstats 差分；RAID 虚拟盘等拿不到的盘缺席）
+ * @typedef {object} DiskIoDevice
+ * @property {number} read_iops
+ * @property {number} write_iops
+ * @property {number} read_kbps
+ * @property {number} write_kbps
+ * @property {number} util_pct 设备忙时占比 0-100
+ */
+
+/** 进程榜条目（仅名称+pid+占用，端口页同款隐私口径）
+ * @typedef {object} TopProcess
+ * @property {number} pid
+ * @property {string} name
+ * @property {number|null} [percent] CPU 榜：平滑后 CPU%；内存榜 null
+ * @property {number|null} [rss_mb] 内存榜：驻存 MB；CPU 榜 null
+ * @property {number|null} [mem_percent] 内存榜：占物理内存百分比；CPU 榜 null
+ */
+
+/** 进程风暴榜 Top 8（花活二期 K，5s 采样两轮均值去抖）
+ * @typedef {object} TopProcs
+ * @property {TopProcess[]} cpu
+ * @property {TopProcess[]} mem
+ */
+
+/** 体检单项（score null = 缺数据，status 恒 warn）
+ * @typedef {object} CheckupItem
+ * @property {'oracle'|'capacity'|'raid'|'temp'|'alerts'|'ports'} key
+ * @property {number|null} score 0-100
+ * @property {'ok'|'warn'|'bad'} status
+ * @property {string} detail
+ */
+
+/** 一键体检（花活二期 N：六维聚合）
+ * @typedef {object} CheckupResponse
+ * @property {CheckupItem[]} items
+ * @property {number|null} score 加权总分
+ * @property {'ok'|'warn'|'bad'|null} [grade]
+ */
+
 /** 实时快照（WS 1s 推送 / GET /monitor/realtime 2s 轮询降级）
  * @typedef {object} RealtimeSnapshot
  * @property {string} ts
@@ -65,6 +104,8 @@
  * @property {PowerRealtime|null} [power]
  * @property {Record<string, NetIface>} net
  * @property {Record<string, number>} disk_io 键为 read_kbps/write_kbps
+ * @property {Record<string, DiskIoDevice>|null} [disk_io_devices] 每盘 IO（/proc/diskstats 差分；非 Linux/无数据 null）
+ * @property {TopProcs|null} [top_procs] 进程风暴榜（首轮采样前 null）
  * @property {number} process_count
  * @property {number} uptime_s
  */
