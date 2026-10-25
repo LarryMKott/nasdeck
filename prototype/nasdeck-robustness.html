@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nasdeck 健壮性功能原型（2026-10-25）</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#141518; --sf:#1D1E21; --sf2:#242529; --sf3:#2C2D32;
+  --bd:#323338; --bd2:#3E4046;
+  --tx0:#F0F0F2; --tx1:#C4C5CA; --tx2:#8B8D95; --tx3:#5B5D65;
+  --acc:#F15A2C; --acc-h:#FF6E3F; --accbg:rgba(241,90,44,.13);
+  --ok:#3FB68B; --okbg:rgba(63,182,139,.13);
+  --warn:#ECA43C; --warnbg:rgba(236,164,60,.13);
+  --bad:#E5484D; --badbg:rgba(229,72,77,.15);
+  --info:#5B9CF6; --infobg:rgba(91,156,246,.13);
+  --grid:rgba(255,255,255,.07); --axis:#7A7D86;
+  --tt:#222327; --ttbd:#3A3B41; --shadow:0 10px 32px rgba(0,0,0,.5);
+  --r:8px; --r-s:5px;
+  --t:170ms; --ease:cubic-bezier(.32,.72,.24,1);
+}
+html,body{min-height:100%}
+body{font-family:Inter,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;
+  font-size:14px;line-height:1.6;color:var(--tx0);background:var(--bg);margin:0}
+*{box-sizing:border-box}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--tx2)}
+.small{font-size:12px}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 24px 80px}
+
+/* 顶部说明 */
+.proto-note{background:var(--infobg);border:1px solid rgba(91,156,246,.35);border-radius:var(--r);
+  padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--tx1)}
+.proto-note b{color:var(--info)}
+
+/* 页签 */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--bd);margin-bottom:20px;overflow-x:auto}
+.tabs button{padding:10px 16px;color:var(--tx2);border-bottom:2px solid transparent;white-space:nowrap;font-weight:600}
+.tabs button.on{color:var(--acc);border-bottom-color:var(--acc)}
+.tabs button:hover{color:var(--tx0)}
+.panel{display:none}
+.panel.on{display:block;animation:fade var(--t) var(--ease)}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+h2{font-size:15px;letter-spacing:.4px;margin:0 0 4px}
+h2 .tag{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--acc);border:1px solid var(--acc);
+  border-radius:3px;padding:1px 6px;vertical-align:2px;margin-left:8px}
+.lead{color:var(--tx2);font-size:13px;margin:0 0 18px}
+
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:16px 18px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:13px;letter-spacing:.5px;color:var(--tx1)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:960px){.grid2,.grid3{grid-template-columns:1fr}}
+
+/* 状态灯/徽标 */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px rgba(63,182,139,.6)}
+.dot.warn{background:var(--warn);box-shadow:0 0 8px rgba(236,164,60,.6)}
+.dot.bad{background:var(--bad);box-shadow:0 0 8px rgba(229,72,77,.6)}
+.badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;border-radius:3px;padding:1px 7px}
+.badge.ok{background:var(--okbg);color:var(--ok)}
+.badge.warn{background:var(--warnbg);color:var(--warn)}
+.badge.bad{background:var(--badbg);color:var(--bad)}
+.badge.info{background:var(--infobg);color:var(--info)}
+.badge.demo{background:var(--purpbg,rgba(160,119,232,.15));color:#A077E8;border:1px dashed #A077E8}
+
+/* 风扇控区卡 */
+.zone{border:1px solid var(--bd);border-radius:var(--r);background:var(--sf2);padding:14px 16px}
+.zone-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.zone-name{font-weight:700;font-size:14px}
+.zone-rotor{font-size:20px;color:var(--tx3);transition:transform .4s}
+.zone.spin .zone-rotor{color:var(--acc);animation:spin 1.2s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.statbar{border-radius:var(--r-s);padding:8px 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+.statbar.ok{background:var(--okbg);color:var(--ok)}
+.statbar.warn{background:var(--warnbg);color:var(--warn)}
+.statbar.bad{background:var(--badbg);color:var(--bad)}
+.big{font-size:26px;font-weight:800}
+.pwmbar{height:6px;background:var(--sf3);border-radius:3px;overflow:hidden;margin:6px 0}
+.pwmbar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc-d),var(--acc));transition:width .5s}
+
+/* 表 */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--tx2);font-size:11px;letter-spacing:.8px;text-transform:uppercase;
+  border-bottom:1px solid var(--bd);padding:6px 10px}
+td{border-bottom:1px solid var(--grid);padding:8px 10px;color:var(--tx1)}
+tr:last-child td{border-bottom:none}
+
+/* 自检清单 */
+.check{display:flex;gap:12px;align-items:flex-start;padding:10px 12px;border:1px solid var(--bd);
+  border-radius:var(--r-s);margin-bottom:8px;background:var(--sf2)}
+.check .c-main{flex:1}
+.check .c-name{font-weight:600}
+.check .c-detail{color:var(--tx2);font-size:12px;margin-top:2px}
+.check .c-hint{font-size:12px;margin-top:6px;padding:6px 10px;border-radius:var(--r-s);background:var(--infobg);color:var(--info)}
+.check.fail{border-color:rgba(229,72,77,.4)}
+.check.warn{border-color:rgba(236,164,60,.4)}
+
+/* 按钮 */
+.btn{border:1px solid var(--bd2);background:var(--sf3);border-radius:var(--r-s);padding:6px 14px;font-size:13px;font-weight:600}
+.btn:hover{border-color:var(--acc);color:var(--acc-h)}
+.btn.danger{border-color:rgba(229,72,77,.5);color:var(--bad)}
+.btn.mini{padding:2px 10px;font-size:12px}
+
+/* 渠道卡 */
+.chan{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;
+  border:1px solid var(--bd);border-radius:var(--r-s);background:var(--sf2);margin-bottom:8px}
+.chan .c-name{font-weight:600}
+
+/* toast */
+#toasts{position:fixed;top:16px;right:16px;z-index:99;display:flex;flex-direction:column;gap:8px;max-width:360px}
+.toast{background:var(--tt);border:1px solid var(--ttbd);border-left:3px solid var(--info);
+  border-radius:var(--r-s);padding:10px 14px;box-shadow:var(--shadow);font-size:13px;
+  animation:toastIn .25s var(--ease)}
+.toast.ok{border-left-color:var(--ok)}
+.toast.bad{border-left-color:var(--bad)}
+.toast.warn{border-left-color:var(--warn)}
+@keyframes toastIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+
+/* 演示横幅 */
+.demo-banner{background:var(--warnbg);border:1px solid rgba(236,164,60,.45);color:var(--warn);
+  border-radius:var(--r);padding:10px 16px;margin-bottom:14px;font-size:13px;display:flex;justify-content:space-between;align-items:center}
+.demo-banner .num{font-weight:800}
+
+/* SVG 图表 */
+.chart-box{position:relative}
+.chart-gap-band{fill:rgba(236,164,60,.14);stroke:rgba(236,164,60,.5);stroke-dasharray:4 3}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--tx2);margin-top:6px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:3px}
+</style>
+</head>
+<body>
+<div id="toasts"></div>
+<div class="wrap">
+
+  <div class="proto-note">
+    <b>原型说明</b>　本页是《<b>docs/健壮性功能原型设计-2026-10-25.md</b>》的可交互稿：覆盖风扇控区健康（A）、系统自检页（E）、
+    通知可靠性（C）、前端真实性（D：演示横幅 / 全局 toast / 缺口标注）四组界面。所有数据为 mock，按钮可点、状态可切换，
+    用于评审交互行为而非视觉终稿。设计令牌与 nasdeck-unraid.html 一致。
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="on" data-p="p1">① 风扇控区健康 A1/A2/A5</button>
+    <button data-p="p2">② 系统自检页 E1/E2</button>
+    <button data-p="p3">③ 通知可靠性 C1/C2</button>
+    <button data-p="p4">④ 前端真实性 D2/D4/D6</button>
+    <button data-p="p5">⑤ 历史缺口标注 B3</button>
+  </div>
+
+  <!-- ================= ① 风扇 ================= -->
+  <section class="panel on" id="p1">
+    <h2>风扇 · 控区健康闭环<span class="tag">模块 A</span></h2>
+    <p class="lead">failsafe 状态从 WS fans 事件直达 UI：hold 倒计时 → full_speed 红条；写入/交还失败给出恢复入口；临界全速即时 toast。可点按钮模拟状态迁移。</p>
+
+    <div class="grid2">
+      <div class="zone spin" id="zone1">
+        <div class="zone-head">
+          <span class="zone-name">CPU 风扇 <span class="muted small">hwmon2 · pwm1 · nct6798</span></span>
+          <span class="zone-rotor">✳</span>
+        </div>
+        <div class="big num" id="rpm1">1,842 <span class="muted small">RPM</span></div>
+        <div class="pwmbar"><i id="pwm1" style="width:42%"></i></div>
+        <div class="statbar ok" id="stat1"><span><span class="dot ok"></span><b id="stat1t">调速中</b> · curve @ 62℃</span><span class="num" id="pwm1t">42%</span></div>
+      </div>
+
+      <div class="zone" id="zone2">
+        <div class="zone-head">
+          <span class="zone-name">机箱前扇 <span class="muted small">hwmon0 · pwm2 · nct6798</span></span>
+          <span class="zone-rotor">✳</span>
+        </div>
+        <div class="big num" id="rpm2">2,150 <span class="muted small">RPM</span></div>
+        <div class="pwmbar"><i id="pwm2" style="width:100%"></i></div>
+        <div class="statbar bad" id="stat2">
+          <span><span class="dot bad"></span><b>失联保护全速</b> · <span id="reason2">sensor unavailable</span></span>
+          <span class="num">100%</span>
+        </div>
+        <div class="small muted" style="margin-top:6px">连续失联 3/3 tick（15s）→ 按最坏情况全速。恢复后自动回曲线。</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>状态迁移演示（点击模拟）</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="toSensorLost()">模拟传感器失联</button>
+        <button class="btn" onclick="toCritical()">模拟 CPU 91℃（临界全速 A5）</button>
+        <button class="btn" onclick="toRestoreFail()">模拟交还内核失败（A2）</button>
+        <button class="btn" onclick="toNormal()">恢复正常</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>最近调速异常 <span class="muted small">（GET /control/fans/events · 环形缓冲 20 条）</span></h3>
+      <table>
+        <tr><th>时间</th><th>控区</th><th>状态</th><th>原因</th></tr>
+        <tr><td class="num">14:02:15</td><td>机箱前扇</td><td><span class="badge bad">full_speed</span></td><td>sensor unavailable（streak 3）</td></tr>
+        <tr><td class="num">14:02:10</td><td>机箱前扇</td><td><span class="badge warn">hold</span></td><td>sensor unavailable（streak 2）</td></tr>
+        <tr><td class="num">13:58:05</td><td>CPU 风扇</td><td><span class="badge bad">write_failed</span></td><td>pwm write failed（通道只读）</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= ② 自检 ================= -->
+  <section class="panel" id="p2">
+    <h2>系统自检 · SelfCheckView<span class="tag">模块 E</span></h2>
+    <p class="lead">把散落的"失败不可见"收敛成一个清单页：数据管线 / 风扇 / 鉴权链 / 采集工具 / 通知五组检查，每项带修复建议。GET /system/diagnostics 单端点聚合。</p>
+
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+      <div><span class="dot ok"></span><b>8 项正常</b>　<span class="dot warn"></span><b>2 项告警</b>　<span class="dot bad"></span><b>2 项异常</b></div>
+      <button class="btn" onclick="toast('ok','自检完成：8 正常 / 2 告警 / 2 异常')">重新检查</button>
+    </div>
+
+    <div class="card"><h3>数据管线</h3>
+      <div class="check fail"><span class="dot bad"></span><div class="c-main">
+        <div class="c-name">采集落库断流</div>
+        <div class="c-detail">ingest worker 已重启 2 次，最近一次写入 74s 前（阈值 30s）；队列 581/600</div>
+        <div class="c-hint">建议：查看后端日志 grep ingest-writer；若为磁盘 IO 瓶颈，考虑将 DB 迁至系统盘</div></div></div>
+      <div class="check"><span class="dot ok"></span><div class="c-main">
+        <div class="c-name">降采样滞后</div><div class="c-detail">最近运行 3 分钟前，已完结未聚合桶 0 个</div></div></div>
+      <div class="check warn"><span class="dot warn"></span><div class="c-main">
+        <div class="c-name">schema 重建记录</div>
+        <div class="c-detail">2026-10-24 03:12 曾因列缺失整库重建，备份于 nasdeck.db.bak.20261024-0312</div>
+        <div class="c-hint">历史数据从重建时刻起重新积累；如需恢复旧历史，备份文件保留 30 天</div></div></div>
+    </div>
+
+    <div class="card"><h3>风扇</h3>
+      <div class="check fail"><span class="dot bad"></span><div class="c-main">
+        <div class="c-name">交还内核失败的控区</div>
+        <div class="c-detail">「机箱前扇」pwm_enable 写入失败，通道滞留手动模式</div>
+        <div class="c-hint">建议：风扇页该控区卡上的「重试交还」按钮；若持续失败检查驱动是否支持 pwm_enable=2</div></div></div>
+      <div class="check"><span class="dot ok"></span><div class="c-main">
+        <div class="c-name">FCS 接管状态文件</div><div class="c-detail">完整，与 systemctl 状态一致（未接管）</div></div></div>
+    </div>
+
+    <div class="card"><h3>鉴权链</h3>
+      <div class="check warn"><span class="dot warn"></span><div class="c-main">
+        <div class="c-name">代理密钥缺失</div>
+        <div class="c-detail">NASDECK_TRIM_AUTH=true 但 PROXY_TOKEN 未设置——admin 判定退回信任网关身份头</div>
+        <div class="c-hint">建议：在应用环境变量设置 NASDECK_PROXY_TOKEN 后重启（自托管直连形态可忽略）</div></div></div>
+      <div class="check"><span class="dot ok"></span><div class="c-main">
+        <div class="c-name">升级镜像一致性</div><div class="c-detail">ui/port 与权威副本一致；ui/proxy_token 与权威副本一致</div></div></div>
+    </div>
+
+    <div class="card"><h3>采集工具 / 通知</h3>
+      <div class="check"><span class="dot ok"></span><div class="c-main"><div class="c-name">smartctl / mdadm / docker CLI</div>
+        <div class="c-detail">全部在位；storcli64 仅 x86 包随附（本机 aarch64，硬 RAID 区段已降级）</div></div></div>
+      <div class="check warn"><span class="dot warn"></span><div class="c-main">
+        <div class="c-name">Bark 渠道发送失败</div>
+        <div class="c-detail">最近 3 次发送失败：timeout（10s）；重试 2/3</div>
+        <div class="c-hint">建议：自动化页测试按钮验证；检查自建 server 可达性</div></div></div>
+    </div>
+  </section>
+
+  <!-- ================= ③ 通知 ================= -->
+  <section class="panel" id="p3">
+    <h2>自动化 · 通知可靠性<span class="tag">模块 C</span></h2>
+    <p class="lead">渠道卡显示真实健康状态；测试按钮返回分类原因（不再只有"失败"）；队列重试与溢出都可见。</p>
+
+    <div class="card"><h3>通知渠道</h3>
+      <div class="chan">
+        <div><span class="c-name">Telegram</span> <span class="badge ok">正常</span>
+          <div class="small muted">上次发送 2 分钟前 · 成功</div></div>
+        <button class="btn mini" onclick="toast('ok','测试通知已送达（Telegram）')">测试</button>
+      </div>
+      <div class="chan">
+        <div><span class="c-name">Bark（自建）</span> <span class="badge warn">重试中 2/3</span>
+          <div class="small muted">最近错误：timeout（10s） · 指数退避中</div></div>
+        <button class="btn mini" onclick="toast('warn','测试失败：timeout —— server 10s 无响应，请检查自建 server 可达性')">测试</button>
+      </div>
+      <div class="chan">
+        <div><span class="c-name">Webhook → 内网</span> <span class="badge bad">被拒绝</span>
+          <div class="small muted">ssrf_rejected：目标 192.168.1.4 属内网段，出网护栏拦截</div></div>
+        <button class="btn mini danger" onclick="toast('bad','测试失败：ssrf_rejected —— URL 指向内网/保留地址，不允许')">测试</button>
+      </div>
+      <div class="chan">
+        <div><span class="c-name">邮件 SMTP</span> <span class="badge bad">认证失败 ×5</span>
+          <div class="small muted">auth_failed：535 用户名或密码错误</div></div>
+        <button class="btn mini danger" onclick="toast('bad','测试失败：auth_failed —— SMTP 拒绝登录（535）')">测试</button>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h3>规则隔离（C1）</h3>
+        <table>
+          <tr><th>规则</th><th>最近评估</th><th>通知</th></tr>
+          <tr><td>CPU 温度 &gt; 85℃</td><td><span class="badge ok">正常</span></td><td>—</td></tr>
+          <tr><td>数据盘温度 &gt; 60℃</td><td><span class="badge ok">正常</span></td><td>—</td></tr>
+          <tr><td>内存占用 &gt; 90%</td><td><span class="badge warn">评估异常</span></td><td><span class="muted small">跳过，未影响其他规则</span></td></tr>
+        </table>
+        <div class="small muted" style="margin-top:8px">单规则评估异常只跳过自身（P1-14 修复后语义），整轮告警不再中断。</div>
+      </div>
+      <div class="card"><h3>发送队列（C1）</h3>
+        <div class="big num">14 <span class="muted small">待发送</span></div>
+        <div class="pwmbar"><i style="width:7%"></i></div>
+        <div class="small muted">水位 14/200 · 溢出策略：丢弃并产生本地告警事件（不静默）</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ④ 前端真实性 ================= -->
+  <section class="panel" id="p4">
+    <h2>前端真实性 · 演示模式 / 反馈 / 确认<span class="tag">模块 D</span></h2>
+    <p class="lead">四件事：写操作全局 toast（D2）、后端不可达时全局演示横幅 + DEMO 徽标（D4）、告警级别真实化（D6）、高危操作确认补齐（D6）。</p>
+
+    <div class="demo-banner">
+      <span>⚠ <b>演示数据</b> —— 后端不可达，以下数字不是真实硬件状态（连接失败：127.0.0.1:9800 拒绝）</span>
+      <span><button class="btn mini" onclick="this.closest('.demo-banner').style.opacity=.5">本次会话不再提示</button></span>
+    </div>
+
+    <div class="grid3">
+      <div class="card" style="position:relative"><span class="badge demo" style="position:absolute;top:10px;right:12px">DEMO</span>
+        <h3>Dash · 总览</h3>
+        <div class="big num">37% <span class="muted small">CPU</span></div>
+        <div class="small muted">mock 快照 · 2 条演示告警已在铃铛隐藏（初始值去 mock）</div></div>
+      <div class="card"><h3>Toast 演示（D2）</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" onclick="toast('ok','告警规则已保存')()">保存成功</button>
+          <button class="btn danger" onclick="toast('bad','保存失败：该操作需要管理员账号')()">保存失败</button>
+          <button class="btn" onclick="toast('warn','长自检已提交：sda · 约 4 小时（后台运行，可在硬盘页查看进度）')">长自检确认后</button>
+        </div></div>
+      <div class="card"><h3>告警级别真实化（D6）</h3>
+        <table>
+          <tr><th>告警</th><th>级别</th></tr>
+          <tr><td>数据盘温度 71℃</td><td><span class="badge bad">CRITICAL</span></td></tr>
+          <tr><td>内存 91%</td><td><span class="badge warn">WARN</span></td></tr>
+        </table>
+        <div class="small muted" style="margin-top:6px">此前全部硬编码 WARN；现在用后端 severity。</div></div>
+    </div>
+
+    <div class="card" style="margin-top:14px"><h3>高危操作确认补齐（D6）</h3>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn danger" onclick="toast('warn','已确认：风扇接管开启 —— 原生温控将停用，全部风扇改按曲线驱动')">开启风扇接管（现需确认）</button>
+        <button class="btn danger" onclick="toast('warn','已确认：sda 长自检约 4 小时，期间盘不休眠')">sda 长自检（现需确认）</button>
+        <span class="muted small">→ 均走 UPop 二次确认，此处直接演示确认后的 toast</span>
+      </div></div>
+  </section>
+
+  <!-- ================= ⑤ 缺口标注 ================= -->
+  <section class="panel" id="p5">
+    <h2>历史趋势 · 数据缺口标注<span class="tag">模块 B3</span></h2>
+    <p class="lead">采集断流后图表不再"假装连续"：缺口画虚线灰带，区间统计标注缺口占比。/monitor/history 响应带 gaps 数组。</p>
+
+    <div class="card">
+      <h3>CPU · 近 60 分钟 <span class="badge warn">缺口 6.7%</span></h3>
+      <div class="chart-box">
+        <svg viewBox="0 0 900 200" width="100%" height="200" preserveAspectRatio="none">
+          <!-- 网格 -->
+          <g stroke="var(--grid)"><line x1="0" y1="50" x2="900" y2="50"/><line x1="0" y1="100" x2="900" y2="100"/><line x1="0" y1="150" x2="900" y2="150"/></g>
+          <!-- 缺口带：22:18-22:42 断流 -->
+          <rect class="chart-gap-band" x="340" y="8" width="180" height="168"></rect>
+          <text x="430" y="190" fill="var(--warn)" font-size="11" text-anchor="middle">数据缺口 24 分钟（采集断流）</text>
+          <!-- 折线：左段实线，缺口后重起 -->
+          <polyline fill="none" stroke="var(--acc)" stroke-width="2"
+            points="0,120 40,112 80,118 120,104 160,110 200,96 240,102 280,90 320,98 340,94"/>
+          <polyline fill="none" stroke="var(--acc)" stroke-width="2" stroke-dasharray="5 4" opacity=".55"
+            points="340,94 380,110 430,105 520,88"/>
+          <polyline fill="none" stroke="var(--acc)" stroke-width="2"
+            points="520,88 560,92 600,80 640,86 680,74 720,82 760,70 800,78 840,66 880,72"/>
+          <circle cx="340" cy="94" r="3" fill="var(--warn)"/><circle cx="520" cy="88" r="3" fill="var(--warn)"/>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--acc)"></i>实测数据</span>
+        <span><i style="background:rgba(236,164,60,.6)"></i>缺口区间（虚线插值仅供连续性，统计已剔除）</span>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h3>区间统计（含缺口口径）</h3>
+        <table>
+          <tr><th>指标</th><th>值</th><th>口径</th></tr>
+          <tr><td>均值</td><td class="num">38.2%</td><td>剔除缺口</td></tr>
+          <tr><td>峰值</td><td class="num">67.4%</td><td>实测点</td></tr>
+          <tr><td>缺口</td><td class="num" style="color:var(--warn)">4.0 分钟 / 60（6.7%）</td><td>22:18–22:42</td></tr>
+        </table>
+      </div>
+      <div class="card"><h3>契约变化</h3>
+        <pre style="margin:0;font-size:12px;color:var(--tx1);white-space:pre-wrap">GET /monitor/history 响应新增：
+"gaps": [["2026-10-25T22:18:00", "2026-10-25T22:42:00"]]
+相邻点间隔 &gt; 2×粒度即断口，上限 50 段。</pre></div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* 页签切换 */
+const tabs = document.getElementById('tabs');
+tabs.addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === btn.dataset.p));
+});
+
+/* 全局 toast（D2 组件原型） */
+function toast(kind, msg){
+  const box = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast ' + kind;
+  el.textContent = msg;
+  box.appendChild(el);
+  while (box.children.length > 3) box.firstChild.remove();
+  setTimeout(() => { el.style.opacity = 0; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 320); }, 3500);
+}
+
+/* ① 风扇状态迁移演示 */
+const zone1 = document.getElementById('zone1');
+function setZone1(state, text, pct, rpm, color){
+  const bar = document.getElementById('stat1');
+  document.getElementById('stat1t').textContent = text;
+  bar.className = 'statbar ' + color;
+  document.getElementById('pwm1').style.width = pct + '%';
+  document.getElementById('pwm1t').textContent = pct + '%';
+  document.getElementById('rpm1').innerHTML = rpm + ' <span class="muted small">RPM</span>';
+  zone1.classList.toggle('spin', state !== 'fail');
+}
+function toSensorLost(){
+  setZone1('fail', '失联保护全速 · sensor unavailable', 100, 2650, 'bad');
+  toast('bad','「CPU 风扇」传感器失联 15s，已按最坏情况强制全速');
+}
+function toCritical(){
+  setZone1('crit', '临界温度全速 · 91℃ ≥ 85℃', 100, 2710, 'bad');
+  toast('bad','CPU 91℃ 已超临界（85℃），控区「CPU 风扇」强制全速');
+}
+function toRestoreFail(){
+  setZone1('fail', '交还内核失败 · 通道滞留手动', 42, 1842, 'warn');
+  toast('warn','交还内核失败：pwm_enable 写入被拒（可在风扇页重试）');
+}
+function toNormal(){
+  setZone1('ok', '调速中 · curve @ 62℃', 42, 1842, 'ok');
+  toast('ok','传感器恢复，回到曲线调速');
+}
+</script>
+</body>
+</html>
