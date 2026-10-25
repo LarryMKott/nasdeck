@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import platform
 
 from app.core.config import APP_ROOT
@@ -31,8 +32,17 @@ def load_state() -> None:
     """启动时从落盘状态对账（幂等）：崩溃/升级重启后 taken_over 依旧如实。"""
     try:
         data = json.loads(_STATE_FILE.read_text("utf-8"))
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return  # 无状态文件：从未接管过（或开发机）
+    except (OSError, ValueError):
+        # 状态文件存在但损坏（写一半崩溃/断电，旧 P1-05 静默路径）：按最坏情况
+        # 对账——谎报"未接管"会让原生 FCS 实际仍 disabled 而无人管理风扇
+        _state["taken_over"] = True
+        _state["enabled_config"] = True
+        logger.warning(
+            "FCS 状态文件损坏，按已接管对账：原生 %s 若实际在运行请手动 release 核对", UNIT
+        )
+        return
     _state["taken_over"] = bool(data.get("taken_over"))
     _state["enabled_config"] = bool(data.get("enabled_config"))
     if _state["taken_over"]:
@@ -42,7 +52,11 @@ def load_state() -> None:
 def _persist_state() -> None:
     try:
         _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _STATE_FILE.write_text(json.dumps(_state), "utf-8")
+        # tmp + os.replace 原子替换：write_text 写一半崩溃会留下半截 JSON，
+        # 重启后走 load_state 的损坏对账分支（旧 P1-05）
+        tmp = _STATE_FILE.with_name(_STATE_FILE.name + ".tmp")
+        tmp.write_text(json.dumps(_state), "utf-8")
+        os.replace(tmp, _STATE_FILE)
     except OSError as exc:
         logger.warning("FCS 接管状态落盘失败: %s", exc)
 

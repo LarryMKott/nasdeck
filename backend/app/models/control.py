@@ -22,6 +22,10 @@ class FanZone(Base, TimestampMixin):
     curve_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     sensor_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # 绑定到具体 hwmon 实例（/sys/class/hwmon/hwmonN）：同名芯片多实例时
+    # 仅按名字+通道号会绑到第一个匹配，想控的风扇没被控（评审 N5/A4）；
+    # NULL = 旧数据/单实例，回退按名字定位
+    chip_path: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class FanCurve(Base, TimestampMixin):

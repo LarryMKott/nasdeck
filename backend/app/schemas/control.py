@@ -28,6 +28,9 @@ class FanZoneIn(BaseModel):
     curve_id: int | None = None
     enabled: bool = True
     sensor_key: str | None = None
+    # 绑定具体 hwmon 实例（/sys/class/hwmon/hwmonN）：同名芯片消歧；驱动层
+    # 校验必须落在 hwmon 根目录内，非法路径回退按名字定位
+    chip_path: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
     def check_curve_mode(self) -> FanZoneIn:
@@ -44,6 +47,7 @@ class FanZoneUpdate(BaseModel):
     curve_id: int | None = None
     enabled: bool | None = None
     sensor_key: str | None = None
+    chip_path: str | None = Field(default=None, max_length=128)
 
 
 class FanZoneItem(BaseModel):
@@ -57,6 +61,7 @@ class FanZoneItem(BaseModel):
     curve_id: int | None
     enabled: bool
     sensor_key: str | None
+    chip_path: str | None = None
     current_pwm_pct: float | None
     current_rpm: int | None
     sensor_temp_c: float | None

@@ -59,8 +59,8 @@ async def list_zones(db: AsyncSession) -> list[dict]:
     default_temp = max((t["celsius"] for t in cpu_items), default=None)
     zones = []
     for zone in result.scalars():
-        raw_pwm = hwmon_driver.read_pwm(zone.hwmon_name, zone.pwm_channel)
-        rpm = hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel) if zone.fan_channel else None
+        raw_pwm = hwmon_driver.read_pwm(zone.hwmon_name, zone.pwm_channel, zone.chip_path)
+        rpm = hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel, zone.chip_path) if zone.fan_channel else None
         sensor_temp = temps.get(zone.sensor_key) if zone.sensor_key else default_temp
         zones.append(
             {
@@ -74,6 +74,7 @@ async def list_zones(db: AsyncSession) -> list[dict]:
                 "curve_id": zone.curve_id,
                 "enabled": zone.enabled,
                 "sensor_key": zone.sensor_key,
+                "chip_path": zone.chip_path,
                 "current_pwm_pct": round(raw_pwm / 255 * 100, 1) if raw_pwm is not None else None,
                 "current_rpm": rpm,
                 "sensor_temp_c": sensor_temp,
@@ -142,7 +143,7 @@ async def update_zone(db: AsyncSession, zone_id: int, patch: dict) -> dict:
 def _restore_auto_logged(zone: FanZone) -> bool:
     """交还内核并检查结果：enable 写失败时风扇滞留手动+最后占空比，必须留痕
     （此前 4 处调用方全忽略返回值，失败零日志，评审 2026-10-25 P1-5）。"""
-    ok = hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel)
+    ok = hwmon_driver.restore_auto(zone.hwmon_name, zone.pwm_channel, zone.chip_path)
     if not ok:
         logger.warning(
             "控区 %s(%s) 交还内核自动温控失败（%s pwm%s enable 写入失败），"
@@ -267,19 +268,19 @@ async def _drive_zone(
         else:
             # 当前占空比（0-255 原始值 → 0-100 pct）：迟滞与斜率限制的基准，
             # 不传则曲线引擎每 tick 可无阻尼跳变（审查 2026-09-30 P1）
-            raw = hwmon_driver.read_pwm(zone.hwmon_name, zone.pwm_channel)
+            raw = hwmon_driver.read_pwm(zone.hwmon_name, zone.pwm_channel, zone.chip_path)
             current_pct = raw / 255 * 100 if raw is not None else None
             target = curve_engine.target_pwm(
                 curve.points, sensor_temp, curve.hysteresis_c, int(curve.ramp_per_tick), current_pct
             )
-    ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, target)
+    ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, target, zone.chip_path)
     entry = {
         "zone_id": zone.id,
         "name": zone.name,
         "loop": zone.loop,
         "mode": zone.mode,
         "target_pwm_pct": target,
-        "current_rpm": hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel) if zone.fan_channel else None,
+        "current_rpm": hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel, zone.chip_path) if zone.fan_channel else None,
     }
     if sensor_temp is not None:
         entry["sensor_temp_c"] = sensor_temp
@@ -308,7 +309,7 @@ async def _failsafe_on_sensor_lost(zone: FanZone, reason: str = "sensor unavaila
             "streak": streak,
         }
     _record_event(zone.id, zone.name, f"{reason}（streak {streak}）→ 按最坏情况全速", "full_speed")
-    ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, 100.0)
+    ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, 100.0, zone.chip_path)
     entry = {
         "zone_id": zone.id,
         "name": zone.name,

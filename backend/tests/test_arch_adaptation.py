@@ -108,7 +108,7 @@ def test_write_pwm_refuses_readonly_channel(tmp_path: Path, monkeypatch):
     pwm = tmp_path / "pwm1"
     pwm.write_text("128", encoding="ascii")
     pwm.chmod(0o444)
-    monkeypatch.setattr(hwmon_driver, "find_channel", lambda _n, _c: pwm)
+    monkeypatch.setattr(hwmon_driver, "find_channel", lambda _n, _c, _cp=None: pwm)
     assert hwmon_driver.write_pwm("soc_thermal", 1, 50) is False
     assert pwm.read_text(encoding="ascii") == "128"
 

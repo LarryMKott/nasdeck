@@ -28,7 +28,7 @@ def restore_calls(monkeypatch):
     """开发机无 hwmon：拦截 restore_auto 记录调用，验证归还时机。"""
     calls = []
 
-    def _fake(hwmon_name, pwm_channel):
+    def _fake(hwmon_name, pwm_channel, chip_path=None):
         calls.append((hwmon_name, pwm_channel))
         return True
 
@@ -205,7 +205,7 @@ async def test_restore_auto_failure_is_logged_and_surfaced(db, monkeypatch, capl
     db.add(_zone(name="z"))
     await db.flush()
 
-    def _fail(hwmon_name, pwm_channel):
+    def _fail(hwmon_name, pwm_channel, chip_path=None):
         return False
 
     monkeypatch.setattr(fan_manager.hwmon_driver, "restore_auto", _fail)
@@ -270,10 +270,72 @@ async def test_retry_restore_endpoint_semantics(db, monkeypatch):
     await db.flush()
 
     calls = []
-    monkeypatch.setattr(fan_manager.hwmon_driver, "restore_auto", lambda n, c: calls.append(n) or True)
+    monkeypatch.setattr(fan_manager.hwmon_driver, "restore_auto", lambda n, c, cp=None: calls.append(n) or True)
     result = await fan_manager.retry_restore(db, 1)
     assert result == {"id": 1, "restored": True} and calls == ["no_such_chip"]
 
-    monkeypatch.setattr(fan_manager.hwmon_driver, "restore_auto", lambda n, c: False)
+    monkeypatch.setattr(fan_manager.hwmon_driver, "restore_auto", lambda n, c, cp=None: False)
     result = await fan_manager.retry_restore(db, 1)
     assert result == {"id": 1, "restored": False}
+
+
+# ------------------------------------------------------------ A3/A4（2026-10-25 原型）
+
+
+async def test_fcs_corrupt_state_treated_as_taken_over(tmp_path, monkeypatch, caplog):
+    """状态文件损坏按最坏情况对账：谎报未接管会让原生 FCS 实际 disabled 无人管理。"""
+    import logging as _logging
+
+    from app.services.control import fcs_safe_takeover as fcs
+
+    state_file = tmp_path / "fcs_state.json"
+    state_file.write_text("{half-written json", encoding="utf-8")
+    monkeypatch.setattr(fcs, "_STATE_FILE", state_file)
+    fcs._state.update(taken_over=False, enabled_config=False)
+
+    with caplog.at_level(_logging.WARNING):
+        fcs.load_state()
+    assert fcs._state["taken_over"] is True
+    assert any("损坏" in r.message for r in caplog.records)
+
+
+def test_fcs_persist_is_atomic_and_clean(tmp_path, monkeypatch):
+    from app.services.control import fcs_safe_takeover as fcs
+
+    monkeypatch.setattr(fcs, "_STATE_FILE", tmp_path / "fcs_state.json")
+    fcs._state.update(taken_over=True, enabled_config=True)
+    fcs._persist_state()
+    import json
+
+    assert json.loads((tmp_path / "fcs_state.json").read_text("utf-8"))["taken_over"] is True
+    assert not list(tmp_path.glob("*.tmp"))  # 原子替换后无残留临时文件
+
+
+def test_chip_path_disambiguates_same_name_chips(tmp_path, monkeypatch):
+    """同名 chip 双实例：chip_path 绑定到指定实例，不再取第一个匹配（A4）。"""
+    from app.services.control import hwmon_driver as drv
+
+    chip1 = tmp_path / "hwmon1"
+    chip2 = tmp_path / "hwmon2"
+    for chip in (chip1, chip2):
+        chip.mkdir()
+        (chip / "name").write_text("nct6798", encoding="utf-8")
+        (chip / "pwm1").write_text("128", encoding="utf-8")
+    monkeypatch.setattr(drv, "HWMON_ROOT", tmp_path)
+
+    # 按 chip_path 绑定 chip2；chip1 的 pwm 优先级更高但不应被选中
+    found = drv.find_channel("nct6798", 1, str(chip2))
+    assert found is not None and found.parent == chip2
+    # chip_path 缺失：回退按名字取第一个
+    fallback = drv.find_channel("nct6798", 1)
+    assert fallback is not None and fallback.parent == chip1
+
+
+def test_chip_path_outside_hwmon_rejected():
+    """chip_path 经 API 可配：必须落在 hwmon 根内，防任意路径写入。"""
+    from app.services.control import hwmon_driver as drv
+
+    assert drv._safe_chip_dir("/etc") is None
+    assert drv._safe_chip_dir("/sys/class/hwmon/../../etc") is None
+    assert drv._safe_chip_dir("relative/hwmon1") is None
+    assert drv._safe_chip_dir(None) is None
