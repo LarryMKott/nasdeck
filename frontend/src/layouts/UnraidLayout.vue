@@ -3,7 +3,7 @@
  * UNRAID 风格主布局：顶部横向页签导航（分组）+ 居中单列内容。
  * 左上角菜单按钮切换「完整样式 ↔ 纯图标」页签；右上角搜索/通知/主题/用户。
  */
-import { nextTick, onBeforeUnmount, ref, computed } from 'vue';
+import { nextTick, onBeforeUnmount, ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '@/stores/modules/app';
 import { useUserStore } from '@/stores/modules/user';
@@ -40,6 +40,18 @@ function toggleIconsMode() {
   iconsMode.value = !iconsMode.value;
   localStorage.setItem(NAV_ICONS_KEY, iconsMode.value ? '1' : '0');
 }
+
+/** 移动端（≤900px）汉堡菜单：页签收进下拉面板。
+ *  显隐全部由 CSS 媒体查询驱动（单一事实源），JS 只管开合状态与
+ *  路由跳转后收起——不依赖 matchMedia/innerWidth，与 CSS 断点天然同步 */
+const mobileMenuOpen = ref(false);
+
+watch(
+  () => route.path,
+  () => {
+    mobileMenuOpen.value = false;
+  }
+);
 
 /** 页签搜索：过滤页签，回车跳首个命中 */
 const searchText = ref('');
@@ -112,8 +124,17 @@ const themeMeta = computed(() => {
     <u-toast />
 
     <div class="nav">
+      <!-- 移动端汉堡（≤900px 显隐由 CSS 驱动）：点开页签下拉面板 -->
       <button
-        class="iconbtn"
+        class="iconbtn mb-btn"
+        :title="mobileMenuOpen ? '收起菜单' : '打开菜单'"
+        @click="mobileMenuOpen = !mobileMenuOpen"
+      >
+        <u-icon :name="mobileMenuOpen ? 'close' : 'menu'" />
+      </button>
+
+      <button
+        class="iconbtn icons-toggle"
         :title="iconsMode ? '页签：纯图标（点击切换完整样式）' : '页签：完整样式（点击切换纯图标）'"
         @click="toggleIconsMode"
       >
@@ -186,6 +207,29 @@ const themeMeta = computed(() => {
         </u-dropdown>
       </div>
     </div>
+
+    <!-- 移动端页签面板（≤900px 显隐由 CSS 驱动）：汉堡开合，遮罩点击/路由跳转收起 -->
+    <template v-if="mobileMenuOpen">
+      <div class="mb-mask" @click="mobileMenuOpen = false" />
+      <div class="mb-menu">
+        <template v-for="(group, gi) in filteredGroups" :key="gi">
+          <div v-if="gi" class="mb-sep" />
+          <button
+            v-for="item in group.items"
+            :key="item.path"
+            class="mb-i"
+            :class="{ on: route.path === item.path }"
+            @click="router.push(item.path)"
+          >
+            <u-icon :name="item.icon" />
+            <span class="t">{{ item.title }}</span>
+            <span v-if="item.badge" class="b" :class="{ hot: item.badgeHot }">{{
+              item.badge
+            }}</span>
+          </button>
+        </template>
+      </div>
+    </template>
 
     <!-- 通知下拉 -->
     <div ref="bellPopRef" class="popmenu nd-bell-pop" :class="{ show: bellOpen }">

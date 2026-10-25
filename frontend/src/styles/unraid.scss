@@ -2185,10 +2185,101 @@
     display: none;
   }
 
-  // ---- 6. 响应式（<900px 隐藏搜索；<700px 栅格纵排 + 表格转卡片） ----
+  // ---- 移动端页签面板（≤900px）：桌面横向页签收进汉堡下拉面板。
+  //      此前窄屏只是硬挤横排（README 响应式声称的交互未实现）；
+  //      汉堡按钮桌面隐藏、页签/图标模式切换按钮移动端隐藏由 CSS 驱动，JS 只管开合
+  .mb-btn,
+  .mb-mask,
+  .mb-menu {
+    display: none;
+  }
+
   @media (width <= 900px) {
     .search {
       display: none;
+    }
+
+    .icons-toggle {
+      display: none;
+    }
+
+    .tabs {
+      display: none;
+    }
+
+    .mb-btn {
+      display: inline-flex;
+    }
+
+    .mb-mask {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      display: block;
+      background: rgb(0 0 0 / 55%);
+    }
+
+    .mb-menu {
+      position: fixed;
+      top: 60px;
+      right: 10px;
+      left: 10px;
+      z-index: 95;
+      display: block;
+      max-height: calc(100vh - 80px);
+      padding: 8px;
+      overflow-y: auto;
+      background: var(--sf);
+      border: 1px solid var(--bd2);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+
+      .mb-sep {
+        height: 1px;
+        margin: 6px 10px;
+        background: var(--bd);
+      }
+
+      .mb-i {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        width: 100%;
+        padding: 11px 12px;
+        font-size: 14px;
+        color: var(--tx1);
+        text-align: left;
+        border-radius: 6px;
+
+        .ico {
+          flex: none;
+          width: 18px;
+          height: 18px;
+        }
+
+        .t {
+          flex: 1;
+        }
+
+        .b {
+          padding: 0 7px;
+          font-size: 11px;
+          font-weight: 700;
+          color: var(--acc);
+          background: var(--accbg);
+          border-radius: 3px;
+
+          &.hot {
+            color: var(--bad);
+            background: var(--badbg);
+          }
+        }
+
+        &.on {
+          color: var(--acc);
+          background: var(--accbg);
+        }
+      }
     }
   }
 
