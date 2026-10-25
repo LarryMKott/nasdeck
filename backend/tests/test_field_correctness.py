@@ -53,7 +53,8 @@ def test_disk_health_cached_with_temps(monkeypatch):
     monkeypatch.setattr(temperature, "glob", SimpleNamespace(glob=lambda p: ["/dev/sda", "/dev/sdb"]))
     monkeypatch.setattr(temperature.shutil, "which", lambda x: "/usr/sbin/smartctl")
     monkeypatch.setattr(temperature.platform, "system", lambda: "Linux")
-    temperature._disk_cache.update(ts=0.0, items=[], health={})
+    # ts 远过期：monotonic 在新 runner（uptime<60s）上可能小于 TTL，ts=0.0 会 TTL 早退
+    temperature._disk_cache.update(ts=-1e12, items=[], health={})
 
     health = asyncio.run(temperature.disk_health())
     # 临时诊断（CI 与本地结果不一致排查）：断言失败时 dump patch 生效状态与缓存

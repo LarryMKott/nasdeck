@@ -65,7 +65,8 @@ def test_smart_disk_temps_parse_and_skip_failed(monkeypatch):
     monkeypatch.setattr(temperature, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(temperature, "glob", SimpleNamespace(glob=fake_glob))
     monkeypatch.setattr(temperature.shutil, "which", lambda x: "/usr/sbin/smartctl")
-    temperature._disk_cache.update(ts=0.0, items=[], health={}, temps={})
+    # ts 远过期：monotonic 在新 runner（uptime<60s）上可能小于 TTL，ts=0.0 会 TTL 早退
+    temperature._disk_cache.update(ts=-1e12, items=[], health={}, temps={})
     items = asyncio.run(temperature._smart_disk_temps())
     # NVMe 温度条目不上屏（hwmon 直读已覆盖 zone=nvme），只保留 SATA 盘条目。
     # 曾在 CI 间歇性空表（同代码相邻 run 一红一绿）：失败时 dump patch 生效现场
@@ -94,7 +95,8 @@ def test_smart_disk_temps_cached(monkeypatch):
     monkeypatch.setattr(temperature, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(temperature, "glob", SimpleNamespace(glob=fake_glob))
     monkeypatch.setattr(temperature.shutil, "which", lambda x: "/usr/sbin/smartctl")
-    temperature._disk_cache.update(ts=0.0, items=[], health={}, temps={})
+    # ts 远过期：monotonic 在新 runner（uptime<60s）上可能小于 TTL，ts=0.0 会 TTL 早退
+    temperature._disk_cache.update(ts=-1e12, items=[], health={}, temps={})
     asyncio.run(temperature._smart_disk_temps())
     asyncio.run(temperature._smart_disk_temps())
     assert len(calls) == 1, (  # 60s 缓存内只探测一次
