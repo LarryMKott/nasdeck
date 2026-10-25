@@ -1,12 +1,14 @@
 <script setup>
 /** 硬盘 SMART：健康状态表 + 在线自检下拉 + 进行中自检进度（后端 + 演示回退） */
-import { computed, reactive } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
+import { toast } from '../composables/useToast';
 import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UDropdown from '../components/UDropdown.vue';
+import UPop from '../components/UPop.vue';
 
 defineOptions({ name: 'NasDisks' });
 
@@ -15,7 +17,13 @@ const identity = useIdentityStore();
 identity.ensure();
 
 // 初始值用空骨架（mock 只在 live:false 整页演示时由适配层回退），避免首帧闪现假自检
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchDisks, {
+const {
+  data: d,
+  live,
+  refresh,
+  lastUpdated,
+  refreshing,
+} = useViewData(nasData.fetchDisks, {
   list: [],
   selftest: null,
 });
@@ -23,19 +31,32 @@ const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchDisks, 
 /** 每行独立的自检菜单开合状态 */
 const menuOpen = reactive({});
 
-/** 发起自检（POST /storage/self-tests），演示模式下仅收起菜单 */
-async function runSelftest(row, type = 'short') {
+/** 长时自检待确认弹层（long 约 4 小时、conveyance 也在分钟级重负载） */
+const pendingTest = ref(null); // { row, type }
+
+function askSelftest(row, type = 'short') {
   menuOpen[row.slot] = false;
   if (!identity.canWrite) return;
   if (!live.value || !row.device) return;
+  if (type === 'short') {
+    runSelftest(row, type);
+    return;
+  }
+  pendingTest.value = { row, type };
+}
+
+async function runSelftest(row, type = 'short') {
+  pendingTest.value = null;
   try {
     await apiData('/api/v1/storage/self-tests', {
       method: 'POST',
       body: { device: row.device, type },
     });
+    toast('ok', `自检已提交：${row.device} · ${type === 'long' ? '长自检（约 4 小时）' : type}`);
     await refresh();
-  } catch {
-    /* 互斥 1005 等错误静默，状态由刷新体现 */
+  } catch (e) {
+    // 互斥 1005 等错误如实提示（此前静默，用户不知道没提交上）
+    toast('bad', `自检提交失败：${e?.message || '未知错误'}`);
   }
 }
 
@@ -48,7 +69,14 @@ const headerTag = computed(() => {
 
 <template>
   <section>
-    <u-page-header title="硬盘 SMART" sub="健康状态 · 自检" :tag="headerTag" :updated="lastUpdated" />
+    <u-page-header
+      :refreshing="refreshing"
+      title="硬盘 SMART"
+      sub="健康状态 · 自检"
+      :tag="headerTag"
+      :updated="lastUpdated"
+      @refresh="refresh"
+    />
 
     <!-- 桌面表格 -->
     <div class="wg m-hide">
@@ -93,13 +121,13 @@ const headerTag = computed(() => {
                       </svg>
                     </button>
                   </template>
-                  <button @click="runSelftest(disk, 'short')">
+                  <button @click="askSelftest(disk, 'short')">
                     <u-icon name="pulse" />短自检（B · 约 2 分钟）
                   </button>
-                  <button @click="runSelftest(disk, 'long')">
+                  <button @click="askSelftest(disk, 'long')">
                     <u-icon name="clock" />长自检（C · 约 4 小时）
                   </button>
-                  <button @click="runSelftest(disk, 'conveyance')">
+                  <button @click="askSelftest(disk, 'conveyance')">
                     <u-icon name="refresh" />短修复（A · 离线）
                   </button>
                 </u-dropdown>
@@ -129,13 +157,13 @@ const headerTag = computed(() => {
               <template #trigger>
                 <button class="btn sm">自检 ▾</button>
               </template>
-              <button @click="runSelftest(disk, 'short')">
+              <button @click="askSelftest(disk, 'short')">
                 <u-icon name="pulse" />短自检（B · 约 2 分钟）
               </button>
-              <button @click="runSelftest(disk, 'long')">
+              <button @click="askSelftest(disk, 'long')">
                 <u-icon name="clock" />长自检（C · 约 4 小时）
               </button>
-              <button @click="runSelftest(disk, 'conveyance')">
+              <button @click="askSelftest(disk, 'conveyance')">
                 <u-icon name="refresh" />短修复（A · 离线）
               </button>
             </u-dropdown>
@@ -161,5 +189,22 @@ const headerTag = computed(() => {
         </div>
       </div>
     </div>
+
+    <!-- 长时自检确认（原型 D6：4 小时重负载误触代价高） -->
+    <u-pop
+      :model-value="!!pendingTest"
+      ok-text="开始自检"
+      cancel-text="取消"
+      danger
+      @update:model-value="(v) => !v && (pendingTest = null)"
+      @confirm="pendingTest && runSelftest(pendingTest.row, pendingTest.type)"
+    >
+      <template #trigger><span /></template>
+      确认对 {{ pendingTest?.row?.device }} 发起{{
+        pendingTest?.type === 'long'
+          ? '长自检（约 4 小时，期间该盘不休眠）'
+          : '传送带自检（分钟级重负载）'
+      }}？
+    </u-pop>
   </section>
 </template>

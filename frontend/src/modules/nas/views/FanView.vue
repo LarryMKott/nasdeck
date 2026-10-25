@@ -1,9 +1,20 @@
 <script setup>
 /** 风扇控制：接管总开关 + 手动调速卡 + 曲线编辑器 + 温控规则（后端 + 演示回退） */
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue';
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
 import { apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
+import { useRealtimeStore } from '../stores/realtime';
+import { toast } from '../composables/useToast';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
 import UPop from '../components/UPop.vue';
@@ -17,14 +28,24 @@ const identity = useIdentityStore();
 identity.ensure();
 
 // 初始空骨架；mock 仅由适配层在后端不可达时整页演示回退
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchFans, {
+const {
+  data: d,
+  live,
+  refresh,
+  lastUpdated,
+  refreshing,
+} = useViewData(nasData.fetchFans, {
   takeover: false,
   cards: [],
   channels: [],
+  fanEvents: [],
   curveDefault: [],
   curveMeta: null,
   curveId: null,
 });
+
+/** WS fans 事件（每 5s 调速输出）：控区健康条 + 临界全速即时提示的数据源 */
+const realtime = useRealtimeStore();
 
 /** 硬件检测：未建风区的 pwm 通道列表，一键创建只读风区（mode=auto 不干预转速） */
 const addingKey = ref('');
@@ -51,9 +72,10 @@ async function addZone(ch) {
         enabled: true,
       },
     });
+    toast('ok', `风区已添加：${ch.chip} · pwm${ch.pwm_channel}（只读监控）`);
     await refresh();
-  } catch {
-    /* 通道冲突/校验失败静默，列表刷新后以实际状态为准 */
+  } catch (e) {
+    toast('bad', `添加风区失败：${e?.message || '通道校验未通过'}`);
   } finally {
     addingKey.value = '';
   }
@@ -63,12 +85,15 @@ async function addZone(ch) {
  * 让 UI 显示「已接管」而实际 BIOS 仍在控速——风扇场景这是有后果的撒谎） */
 const takeover = computed(() => d.value.takeover ?? false);
 const takeoverPopOpen = ref(false);
+const takeoverOnPopOpen = ref(false); // 开启同样高风险：接管瞬间按曲线重算占空比
 
 async function takeoverOn() {
+  takeoverOnPopOpen.value = false;
   try {
     await apiData('/api/v1/control/fcs/takeover', { method: 'POST' });
-  } catch {
-    /* 失败态由 refresh 体现：开关保持真实状态 */
+    toast('warn', '风扇接管已开启：原生温控停用，全部风扇改按曲线驱动');
+  } catch (e) {
+    toast('bad', `接管失败：${e?.message || '详见系统自检'}`);
   }
   await refresh();
 }
@@ -76,9 +101,9 @@ async function takeoverOn() {
 function toggleTakeover() {
   if (!identity.canWrite) return;
   if (takeover.value) {
-    takeoverPopOpen.value = true; // 开 → 关需二次确认
+    takeoverPopOpen.value = true; // 关（交还 BIOS）确认
   } else {
-    takeoverOn();
+    takeoverOnPopOpen.value = true; // 开（停用原生 FCS）确认
   }
 }
 
@@ -148,8 +173,9 @@ async function confirmDelete(fan) {
   if (!identity.canWrite) return;
   try {
     await apiData(`/api/v1/control/fans/${fan.id}`, { method: 'DELETE' });
-  } catch {
-    /* 静默，列表刷新以实际为准 */
+    toast('ok', `风区已删除：${fan.name}（通道已交还主板）`);
+  } catch (e) {
+    toast('bad', `删除失败：${e?.message || '未知错误'}`);
   }
   await refresh();
 }
@@ -157,6 +183,67 @@ async function confirmDelete(fan) {
 /** 转子驱动转速：优先传感器读数；无转速计通道按占空比估算（仅视觉，约 35%≈930RPM） */
 function visualRpm(fan) {
   return fan.rpm > 0 ? fan.rpm : Math.round(fan.duty * 26.5);
+}
+
+/** 控区健康条（原型 A1）：WS 每轮调速输出 → ok/hold/full_speed/错误/临界 */
+function zoneStatus(fan) {
+  const out = (realtime.fanOutputs || []).find((o) => o.zone_id === fan.id);
+  if (!out) return fan.pwm ? { cls: 'ok', text: '调速中' } : { cls: 'ok', text: 'auto · 主板控速' };
+  if (out.failsafe === 'full_speed')
+    return { cls: 'bad', text: `失联保护全速 · ${out.error || ''}` };
+  if (out.failsafe === 'hold')
+    return { cls: 'warn', text: `失联保持（${out.streak ?? '?'}/3）· ${out.error || ''}` };
+  if (out.critical)
+    return { cls: 'bad', text: `临界全速 ${Math.round(out.sensor_temp_c ?? '?')}℃` };
+  if (out.error) return { cls: 'bad', text: out.error };
+  const src =
+    out.mode === 'fixed'
+      ? `定速 ${Math.round(out.target_pwm_pct)}%`
+      : `曲线 ${Math.round(out.target_pwm_pct)}%`;
+  return {
+    cls: 'ok',
+    text: `调速中 · ${src}${out.sensor_temp_c != null ? ` @ ${Math.round(out.sensor_temp_c)}℃` : ''}`,
+  };
+}
+
+/** 交还内核失败的控区名（事件缓冲）：健康条旁出「重试交还」按钮 */
+function restoreFailed(fan) {
+  return (d.value.fanEvents || []).some(
+    (e) => e.failsafe === 'restore_failed' && e.name === fan.name
+  );
+}
+
+async function retryRestore(fan) {
+  try {
+    const r = await apiData(`/api/v1/control/fans/${fan.id}/restore-auto`, { method: 'POST' });
+    if (r?.restored) toast('ok', `已交还内核自动温控：${fan.name}`);
+    else toast('warn', `交还仍失败：${fan.name}（检查驱动是否支持 pwm_enable=2）`);
+  } catch (e) {
+    toast('bad', `重试交还失败：${e?.message || '未知错误'}`);
+  }
+  await refresh();
+}
+
+/** 临界全速一次性提示（原型 A5）：按控区+温度去重，轮询重复输出只弹一次 */
+const critSeen = new Set();
+watch(
+  () => realtime.fanOutputs,
+  (outs) => {
+    for (const o of outs || []) {
+      if (!o.critical) continue;
+      const key = `${o.zone_id}:${o.sensor_temp_c}`;
+      if (critSeen.has(key)) continue;
+      critSeen.add(key);
+      toast('bad', `${Math.round(o.sensor_temp_c)}℃ 超临界（85℃），「${o.name}」强制全速`);
+    }
+  },
+  { deep: true }
+);
+
+function fmtEventTs(ts) {
+  const dt = new Date(ts * 1000);
+  const pad = (x) => String(x).padStart(2, '0');
+  return `${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
 }
 
 /** 曲线编辑器（后端有曲线时回填，保存走 PUT /control/curves/{id}；缺省模板由适配层提供） */
@@ -246,9 +333,10 @@ async function saveCurve() {
       });
     }
     curveSaved.value = true;
+    toast('ok', '温控规则已保存');
     refresh();
-  } catch {
-    /* 校验失败（1002）静默，气泡读数可自查 */
+  } catch (e) {
+    toast('bad', `保存失败：${e?.message || '曲线校验未通过（温度须严格递增）'}`);
   } finally {
     savingCurve.value = false;
   }
@@ -274,10 +362,18 @@ function stopPoll() {
   }
 }
 
-onMounted(startPoll);
-onBeforeUnmount(stopPoll);
-onActivated(startPoll);
-onDeactivated(stopPoll);
+function startAll() {
+  startPoll();
+  realtime.acquire(); // 控区健康条/临界提示依赖 WS fans 事件
+}
+function stopAll() {
+  stopPoll();
+  realtime.release();
+}
+onMounted(startAll);
+onBeforeUnmount(stopAll);
+onActivated(startAll);
+onDeactivated(stopAll);
 
 const headerTag = computed(() =>
   takeover.value
@@ -289,10 +385,12 @@ const headerTag = computed(() =>
 <template>
   <section>
     <u-page-header
+      :refreshing="refreshing"
       title="风扇控制"
       sub="接管 · 手动调速 · 温控规则 · 曲线编辑"
       :tag="headerTag"
       :updated="lastUpdated"
+      @refresh="refresh"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
@@ -336,6 +434,19 @@ const headerTag = computed(() =>
               </button>
             </template>
             确认停用风扇接管？将交还主板 BIOS 控制（FCS 恢复）。
+          </u-pop>
+          <u-pop
+            v-model="takeoverOnPopOpen"
+            ok-text="开启接管"
+            cancel-text="取消"
+            danger
+            @confirm="takeoverOn"
+          >
+            <template #trigger>
+              <span />
+            </template>
+            确认开启风扇接管？将停止原生 pwm-fancontrol，全部风扇改由 nasdeck
+            曲线驱动（接管瞬间按曲线重算占空比，声音可能突变）。
           </u-pop>
         </div>
       </div>
@@ -459,6 +570,17 @@ const headerTag = computed(() =>
             <span class="big num">{{ fan.rpm }}<small> RPM</small></span>
             <span class="num">占空比 {{ fan.duty }}%</span>
           </div>
+          <div class="zstat" :class="zoneStatus(fan).cls">
+            <span class="dot" />{{ zoneStatus(fan).text }}
+            <button
+              v-if="identity.canWrite && restoreFailed(fan)"
+              class="btn sm"
+              style="margin-left: auto"
+              @click="retryRestore(fan)"
+            >
+              重试交还
+            </button>
+          </div>
           <input
             v-if="identity.canWrite"
             v-model.number="fan.duty"
@@ -534,6 +656,43 @@ const headerTag = computed(() =>
             }}
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- 最近调速异常（环形缓冲 20 条，原型 A1） -->
+    <div v-if="(d.fanEvents || []).length" class="wg" style="margin-bottom: 0">
+      <div class="wg-h">
+        <u-icon name="shield" />
+        <h3>最近调速异常</h3>
+      </div>
+      <div class="wg-b" style="padding-top: 0">
+        <table class="u">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>控区</th>
+              <th>状态</th>
+              <th>原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(e, i) in d.fanEvents" :key="i">
+              <td class="num">{{ fmtEventTs(e.ts) }}</td>
+              <td>{{ e.name }}</td>
+              <td>
+                <span
+                  class="st"
+                  :class="
+                    e.failsafe === 'full_speed' || e.failsafe === 'restore_failed' ? 'warn' : ''
+                  "
+                >
+                  <span class="dot" />{{ e.failsafe || 'error' }}
+                </span>
+              </td>
+              <td class="muted">{{ e.error }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>

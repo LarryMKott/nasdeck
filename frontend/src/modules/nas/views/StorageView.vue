@@ -1,11 +1,10 @@
 <script setup>
 /** 存储卷：Array Operation 卡 + 阵列设备表 + 卷/数据卷 + 拓扑树（后端 + 演示回退） */
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { useViewData } from '../composables/useViewData';
 import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
-import UPop from '../components/UPop.vue';
 // unplugin 只扫 src/components：nas 组件须显式 import（此前 u-icon 未导入，图标从未渲染）
 import UIcon from '../components/UIcon.vue';
 
@@ -16,12 +15,15 @@ const identity = useIdentityStore();
 identity.ensure();
 
 // 初始值用空骨架，避免首帧向非管理员闪现演示阵列操作卡；mock 仅由适配层在 live:false 整页回退
-const { data: s, lastUpdated } = useViewData(nasData.fetchStorage, nasData.emptyStorage());
+const {
+  data: s,
+  lastUpdated,
+  refresh,
+  refreshing,
+} = useViewData(nasData.fetchStorage, nasData.emptyStorage());
 
-const stopConfirmOpen = ref(false);
 /** 手动「停止阵列」后的本地覆盖（联调阶段不动后端状态） */
-const stoppedOverride = ref(null);
-const arrayRunning = computed(() => stoppedOverride.value ?? s.value.array?.running ?? false);
+const arrayRunning = computed(() => s.value.array?.running ?? false);
 
 /** 移动端卡片展示的代表性设备（正常/警告/缓存各一） */
 const mobileCards = computed(() =>
@@ -86,49 +88,33 @@ function partSub(p) {
     .filter(Boolean)
     .join(' · ');
 }
-
-function stopArray() {
-  stoppedOverride.value = false;
-}
 </script>
 
 <template>
   <section>
     <u-page-header
+      :refreshing="refreshing"
       title="存储卷"
       sub="阵列设备 · 卷"
       :tag="{ type: arrayRunning ? 'ok' : 'warn', text: arrayRunning ? '运行中' : '无阵列' }"
       :updated="lastUpdated"
+      @refresh="refresh"
     />
 
-    <!-- 阵列操作卡：写操作入口仅管理员可见（后端仍有最终校验） -->
-    <div v-if="identity.canWrite && s.array" class="wg">
+    <!-- 阵列状态卡（只读）：启停/校验是高危 mdadm 操作，面板不代执（此前按钮为
+         无后端的假入口）；状态如实呈现，管理入口指向系统工具（原型 D3-甲） -->
+    <div v-if="s.array" class="wg">
       <div class="wg-b opcard" style="padding: 15px 16px">
         <span class="odot" :class="{ off: !arrayRunning }" />
         <div class="ot">
-          <b>{{ arrayRunning ? '阵列运行中' : '阵列已停止' }}</b>
+          <b>{{ arrayRunning ? '阵列运行中' : '阵列无活动' }}</b>
           <small class="num"
             >{{ s.array.name }} · {{ s.array.level }} · {{ s.array.totalText }} ·
             {{ s.array.membersText }} · {{ s.array.activityText }}</small
           >
         </div>
-        <div class="oa">
-          <button class="btn"><u-icon name="refresh" />校验 Parity</button>
-          <button class="btn go" :disabled="arrayRunning"><u-icon name="play" />启动阵列</button>
-          <u-pop
-            v-model="stopConfirmOpen"
-            ok-text="停止阵列"
-            cancel-text="取消"
-            danger
-            @confirm="stopArray"
-          >
-            <template #trigger>
-              <button class="btn stop" :disabled="!arrayRunning">
-                <u-icon name="power" />停止阵列
-              </button>
-            </template>
-            确认停止阵列？将卸载所有卷并停止 {{ s.array.name }}。
-          </u-pop>
+        <div class="oa muted" style="font-size: 12px">
+          启停 / Parity 校验请使用系统存储管理工具（面板只读呈现阵列状态）
         </div>
       </div>
     </div>
