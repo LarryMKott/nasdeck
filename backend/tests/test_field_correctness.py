@@ -13,6 +13,9 @@ from app.services.storage.smart import _health_of
 
 def test_real_net_names_filters_synthetic_and_bridged(monkeypatch):
     # veth/docker/网桥内部口/被桥接物理口剔除；br- 前缀的真实网桥本身保留（求和靠它）
+    # 冻结 5s 缓存：冷进程下 _refresh_bridge_members 会用真实 sysfs（非 Linux 为空）
+    # 覆盖 monkeypatch 值——此前用例只在同进程有先前调用焐热缓存时才通过（顺序脆弱）
+    monkeypatch.setitem(system_resources._bridge_members, "ts", __import__("time").monotonic())
     monkeypatch.setitem(system_resources._bridge_members, "set", frozenset({"eth0"}))
     names = ["lo", "eth0", "br0", "vethabc123", "docker0", "br-1a2b3c", "virbr0", "eth0-ovs", "ovs-system"]
     assert system_resources._real_net_names(names) == ["br0"]
