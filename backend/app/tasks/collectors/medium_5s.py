@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 async def medium_tick() -> None:
     try:
-        items = await temperature.temperatures()
+        try:
+            items = await temperature.temperatures()
+        except Exception:  # noqa: BLE001 采集异常不吞掉调速：按全传感器失联推进 failsafe
+            logger.warning("温度采集异常，本轮调速按全传感器失联处理", exc_info=True)
+            items = []
         realtime_cache.set("temperatures", items, ttl=15)
         if items:
             logger.debug(
@@ -25,9 +29,10 @@ async def medium_tick() -> None:
                 ",".join(sorted({t["chip"] for t in items})),
                 temperature.max_celsius(items) or 0.0,
             )
-        # 风扇调速输出 + 告警评估同事务，一次 commit 一次 fsync（真机跳秒修复的另一环）
+        # 风扇调速输出 + 告警评估同事务，一次 commit 一次 fsync（真机跳秒修复的另一环）；
+        # 温度结果直接传入调速（此前 apply_tick 内二次采集：每 5s 双遍全扫描）
         async with session_factory() as db:
-            outputs = await fan_manager.apply_tick(db)
+            outputs = await fan_manager.apply_tick(db, items)
 
             # 告警评估上下文
             snap = realtime_cache.get("realtime") or {}

@@ -29,6 +29,13 @@ class FanZoneIn(BaseModel):
     enabled: bool = True
     sensor_key: str | None = None
 
+    @model_validator(mode="after")
+    def check_curve_mode(self) -> FanZoneIn:
+        # curve 模式无曲线：调速 tick 每轮 "curve missing"，PWM 静默冻结（评审 P1-4）
+        if self.mode == "curve" and self.curve_id is None:
+            raise ValueError("curve 模式必须指定 curve_id")
+        return self
+
 
 class FanZoneUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)

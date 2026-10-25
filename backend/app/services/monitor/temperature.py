@@ -23,9 +23,10 @@ from app.utils.async_cmd import run_cmd
 
 _ZONE_HINTS = {
     # ARM SoC 的 hwmon 命名差异大：soc_thermal / cpu-thermal / cluster/big/little 都要认
+    # （分隔符在 _zone_for 里统一归一为下划线，连字符形态一并覆盖，评审 2026-10-25 N7）
     "cpu": (
         "coretemp", "k10temp", "zenpower", "cpu_thermal", "acpitz",
-        "soc_thermal", "cpu-thermal", "big0", "little0", "cluster", "soc0",
+        "soc_thermal", "big0", "little0", "cluster", "soc0",
     ),
     "nvme": ("nvme",),
     "disk": ("drivetemp",),
@@ -39,10 +40,11 @@ _disk_cache: dict = {"ts": 0.0, "items": [], "health": {}, "temps": {}}
 
 
 def _zone_for(chip: str, label: str | None) -> str:
-    text = f"{chip} {label or ''}".lower()
+    # 连字符/下划线归一：Rockchip 等板子两种写法都出现（soc-thermal / soc_thermal）
+    text = f"{chip} {label or ''}".lower().replace("-", "_")
     for zone, hints in _ZONE_HINTS.items():
         if any(h in text for h in hints):
-            return "board" if zone == "board" and "pch" not in text and "acpitz" not in text else zone
+            return zone
     return "other"
 
 
