@@ -8,7 +8,7 @@ import UPageHeader from '../components/UPageHeader.vue';
 
 defineOptions({ name: 'NasAbout' });
 
-const { data: d, live } = useViewData(nasData.fetchAbout, mockAbout);
+const { data: d, live, refresh, refreshing } = useViewData(nasData.fetchAbout, mockAbout);
 const headerTag = computed(() =>
   live.value ? { type: 'ok', text: '后端已连接' } : { type: 'acc', text: '演示数据' }
 );
@@ -16,7 +16,13 @@ const headerTag = computed(() =>
 
 <template>
   <section>
-    <u-page-header title="关于 nasdeck" sub="版本 · 更新 · 构建信息" :tag="headerTag" />
+    <u-page-header
+      :refreshing="refreshing"
+      title="关于 nasdeck"
+      sub="版本 · 更新 · 构建信息"
+      :tag="headerTag"
+      @refresh="refresh"
+    />
 
     <div class="grid" style="margin-bottom: 0">
       <div class="wg t6">
@@ -50,13 +56,9 @@ const headerTag = computed(() =>
               ><span class="small num">{{ d.version }}</span>
             </div>
             <div class="kvrow kvline">
-              <span class="muted small">最新版本</span>
-              <span class="small st"><span class="dot" />{{ d.version }}（已是最新）</span>
+              <span class="muted small">更新渠道</span>
+              <span class="small muted">飞牛应用中心（手动安装 fpk 升级，面板不代检更新）</span>
             </div>
-          </div>
-          <div class="chips" style="margin-top: 12px">
-            <button class="btn sm pri">检查更新</button>
-            <button class="btn sm">更新日志</button>
           </div>
         </div>
       </div>

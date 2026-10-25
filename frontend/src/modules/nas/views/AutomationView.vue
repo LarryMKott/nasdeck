@@ -3,6 +3,7 @@
 import { computed, ref } from 'vue';
 import { apiBase, apiData } from '../api/client';
 import { useViewData } from '../composables/useViewData';
+import { toast } from '../composables/useToast';
 import { useIdentityStore } from '../stores/identity';
 import * as nasData from '../api/data';
 import UPageHeader from '../components/UPageHeader.vue';
@@ -20,7 +21,13 @@ identity.ensure();
 const activeTab = ref('t1');
 
 // 初始空骨架；mock 仅由适配层在后端不可达时整页演示回退
-const { data: d, live, lastUpdated } = useViewData(nasData.fetchAutomation, {
+const {
+  data: d,
+  live,
+  lastUpdated,
+  refresh,
+  refreshing,
+} = useViewData(nasData.fetchAutomation, {
   activeAlerts: [],
   recentEvents: [],
   channels: [],
@@ -78,25 +85,37 @@ async function saveRule() {
       },
     });
     ruleSaved.value = true;
-  } catch {
-    /* 2000 校验失败静默，按钮态回落体现 */
+    toast('ok', '告警规则已保存');
+  } catch (e) {
+    toast('bad', `保存失败：${e?.message || '参数校验未通过'}`);
   } finally {
     ruleSaving.value = false;
   }
 }
 
-/** 发送测试通知：POST /alert/channels/{id}/test（需已配置通知渠道） */
+/** 发送测试通知：POST /alert/channels/{id}/test——失败带分类原因（原型 C2） */
 const testState = ref(''); // '' | 'sending' | 'ok' | 'fail'
+const testFailReason = ref('');
 async function sendTestNotice() {
   if (!identity.canWrite || testState.value === 'sending') return;
   const channel = d.value.channels?.[0];
   if (!channel) return;
   testState.value = 'sending';
+  testFailReason.value = '';
   try {
     const result = await apiData(`/api/v1/alert/channels/${channel.id}/test`, { method: 'POST' });
-    testState.value = result?.success ? 'ok' : 'fail';
-  } catch {
+    if (result?.success) {
+      testState.value = 'ok';
+      toast('ok', `测试通知已送达（${channel.type}）`);
+    } else {
+      testState.value = 'fail';
+      testFailReason.value = result?.detail || result?.reason || '未知原因';
+      toast('bad', `测试失败：${result?.reason ?? ''} —— ${testFailReason.value}`);
+    }
+  } catch (e) {
     testState.value = 'fail';
+    testFailReason.value = e?.message || '请求失败';
+    toast('bad', `测试失败：${testFailReason.value}`);
   }
 }
 
@@ -123,10 +142,12 @@ const headerTag = computed(() => ({
 <template>
   <section>
     <u-page-header
+      :refreshing="refreshing"
       title="控制与自动化"
       sub="告警 · 通知 · 报告"
       :tag="headerTag"
       :updated="lastUpdated"
+      @refresh="refresh"
     />
 
     <div class="wg">
@@ -147,7 +168,9 @@ const headerTag = computed(() => ({
             class="alertrow"
             :style="i === alerts.length - 1 ? 'margin-bottom: 0' : ''"
           >
-            <span class="lvl warn">WARN</span>
+            <span class="lvl" :class="a.level === 'bad' ? 'bad' : 'warn'">{{
+              a.level === 'bad' ? 'CRITICAL' : 'WARN'
+            }}</span>
             <span class="txt">{{ a.text }}</span>
             <span class="tm num">{{ a.time }}</span>
             <button class="btn sm" @click="$router.push(a.jump.path)">{{ a.jump.action }}</button>
@@ -192,6 +215,13 @@ const headerTag = computed(() => ({
                 }}
               </button>
               <span v-else class="small muted">尚未配置通知渠道，保存规则后到渠道配置添加</span>
+              <span
+                v-if="testState === 'fail' && testFailReason"
+                class="small"
+                style="color: var(--bad, #e5484d)"
+              >
+                {{ testFailReason }}
+              </span>
             </span>
           </div>
           <button
@@ -260,12 +290,7 @@ const headerTag = computed(() => ({
         </div>
       </div>
       <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px">
-        <u-pop
-          ok-text="清空"
-          cancel-text="取消"
-          danger
-          @confirm="logsCleared = true"
-        >
+        <u-pop ok-text="清空" cancel-text="取消" danger @confirm="logsCleared = true">
           <template #trigger>
             <button class="btn sm">清空显示</button>
           </template>

@@ -22,13 +22,27 @@ const fallback = {
   diskSeries: [{ name: '读', color: colors.acc, data: walk(60, 11, 86, 26, 5, 220) }],
 };
 
-const { data: charts, live, lastUpdated } = useViewData(nasData.fetchSystemCharts, fallback);
+const {
+  data: charts,
+  live,
+  lastUpdated,
+  refresh,
+  refreshing,
+} = useViewData(nasData.fetchSystemCharts, fallback);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
   text: live.value ? '正常' : '演示数据',
 }));
 const autoRefresh = ref(true);
+/** 「1s」关=冻结实时磁贴（此前开关是装饰）；关闭瞬间定格当前快照 */
+const frozenSnap = ref(null);
+watch(autoRefresh, (on) => {
+  if (!on) frozenSnap.value = realtime.snapshot;
+});
+const snapNow = computed(() =>
+  autoRefresh.value ? realtime.snapshot : (frozenSnap.value ?? realtime.snapshot)
+);
 
 /** 实时磁贴：WS/轮询快照直接驱动内存与磁盘 IO 卡头 */
 const realtime = useRealtimeStore();
@@ -36,24 +50,24 @@ onMounted(() => realtime.acquire());
 onBeforeUnmount(() => realtime.release());
 
 const memText = computed(() => {
-  const snap = realtime.snapshot;
-  if (!snap) return '41% · 26.2/64 GB';
+  const snap = snapNow.value;
+  if (!snap) return '— · —';
   return `${snap.mem_percent}% · ${(snap.mem_used_mb / 1024).toFixed(1)}/${(snap.mem_total_mb / 1024).toFixed(0)} GB`;
 });
-const memPercent = computed(() => realtime.snapshot?.mem_percent ?? 41);
+const memPercent = computed(() => snapNow.value?.mem_percent ?? 0);
 const diskText = computed(() => {
-  const io = realtime.snapshot?.disk_io;
-  if (!io) return '读 86 · 写 42 MB/s';
+  const io = snapNow.value?.disk_io;
+  if (!io) return '读 — · 写 —';
   return `读 ${nasData.throughputText(io.read_kbps ?? 0)} · 写 ${nasData.throughputText(io.write_kbps ?? 0)}`;
 });
 
 /** CPU 卡头：实时使用率替代写死的 23% */
 const cpuText = computed(() => {
-  const v = realtime.snapshot?.cpu_percent;
+  const v = snapNow.value?.cpu_percent;
   return v == null ? '— % · 60s 窗口' : `${Math.round(v * 10) / 10}% · 60s 窗口`;
 });
 const cpuMeterPct = computed(() => {
-  const v = realtime.snapshot?.cpu_percent;
+  const v = snapNow.value?.cpu_percent;
   return v == null ? 0 : Math.min(100, Math.max(0, v));
 });
 
@@ -94,10 +108,12 @@ const dramW = computed(() => {
 <template>
   <section>
     <u-page-header
+      :refreshing="refreshing"
       title="系统资源"
       sub="CPU · 内存 · 网络 · 磁盘 IO · GPU"
       :tag="headerTag"
       :updated="lastUpdated"
+      @refresh="refresh"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">

@@ -14,7 +14,13 @@ import FanRotor from '../components/FanRotor.vue';
 defineOptions({ name: 'NasDash' });
 
 // 初始空骨架（磁贴显示「—」而非演示值）；mock 仅由适配层在后端不可达时整页回退
-const { data: d, live, lastUpdated } = useViewData(nasData.fetchDashboard, nasData.emptyDashboard());
+const {
+  data: d,
+  live,
+  lastUpdated,
+  refresh,
+  refreshing,
+} = useViewData(nasData.fetchDashboard, nasData.emptyDashboard());
 const { data: alerts } = useViewData(nasData.fetchActiveAlerts, []);
 
 /** WS 实时快照合并（仅更新磁贴数字，图表/序列仍走加载时数据） */
@@ -25,6 +31,7 @@ watch(
   () => realtime.snapshot,
   (snap) => {
     if (!snap || !live.value) return;
+    if (!autoRefresh.value) return; // 「自动」关=冻结磁贴（此前开关是装饰，关掉数据照跳）
     d.value.cpu.percent = Math.round(snap.cpu_percent * 10) / 10;
     nasData.applyCpuRealtime(d.value.cpu, snap);
     nasData.applyMemRealtime(d.value.mem, snap);
@@ -124,10 +131,12 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
 <template>
   <section>
     <u-page-header
+      :refreshing="refreshing"
       title="总览"
       sub="系统 · 阵列 · 风扇 · 服务"
       :tag="headerTag"
       :updated="lastUpdated"
+      @refresh="refresh"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
@@ -471,7 +480,9 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
         <div class="wg-h">
           <u-icon name="drive" />
           <h3>硬盘温度</h3>
-          <span class="x">{{ d.diskTemps.length ? `${d.diskTemps.length} 盘 · 按阈值着色` : '无温度数据源' }}</span>
+          <span class="x">{{
+            d.diskTemps.length ? `${d.diskTemps.length} 盘 · 按阈值着色` : '无温度数据源'
+          }}</span>
         </div>
         <div class="wg-b">
           <div v-if="d.diskTemps.length" class="temps">
@@ -570,7 +581,9 @@ const gpuSparkData = computed(() => gpuHistory.value.map((p) => p.percent));
           class="alertrow"
           :style="i === alerts.length - 1 ? 'margin-bottom: 0' : ''"
         >
-          <span class="lvl warn">WARN</span>
+          <span class="lvl" :class="a.level === 'bad' ? 'bad' : 'warn'">{{
+            a.level === 'bad' ? 'CRITICAL' : 'WARN'
+          }}</span>
           <span class="txt">{{ a.text }}</span>
           <span class="tm num">{{ a.time }}</span>
           <button class="btn sm" @click="$router.push(a.jump.path)">{{ a.jump.action }}</button>
