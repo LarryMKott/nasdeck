@@ -6,7 +6,10 @@
 # 落盘 ${TRIM_PKGVAR}/port），由 ui/index.cgi 在本机反代（fnpackup 同款）。不走统一网关——
 # 飞牛会周期性清空第三方 gateway 入口导致 404（真机实测，详见 2026-08-14 网关看门狗的
 # 教训，改 cgi 反代后已删）。端口仅绑回环不对外暴露，面板经飞牛登录态 + 分级鉴权保护；
+
 # manifest 按 CGI 规范省略 service_port（checkport=false），端口占用由 install_callback 预检。
+# TRIM_PKGVAR 空值护栏（四个 callback 均有，main 此前缺失：空值下 DB 会落到根 /nasdeck.db）
+: "${TRIM_PKGVAR:=/usr/local/apps/@appdata/com.dashboard.nasdeck}"
 PID_FILE="${TRIM_PKGVAR}/app.pid"
 SERVER_DIR="${TRIM_APPDEST}/server"
 LOG_FILE="${TRIM_PKGVAR}/app.log"
