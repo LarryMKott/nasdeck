@@ -36,8 +36,13 @@ async def smart_report(device: str) -> dict:
         # 但休眠时 smartctl 仍输出可解析的 JSON 头，走到这里即非休眠
         raise ExternalToolError(f"smartctl failed for {device}: {err.strip()[:200]}")
 
-    # -n standby 下 rc==2 且 JSON 可解析 = 盘在休眠（未执行 SMART 查询）
-    standby = rc == 2
+    # -n standby 下 rc==2 的语义既含"低功耗模式"也含"设备打开失败"：仅凭 rc 会把
+    # 热拔/节点消失的故障盘标成"休眠"（评审 E 域 P2-G）——结合 smartctl messages
+    # 里的 LOW POWER 字样判定，无法确认休眠的按失败路径走
+    _msgs = " ".join(m.get("string", "") for m in data.get("smartctl", {}).get("messages", []))
+    standby = rc == 2 and "LOW POWER" in _msgs.upper()
+    if rc == 2 and not standby and not data.get("model_name"):
+        raise ExternalToolError(f"smartctl rc=2 for {device}（非休眠）: {err.strip()[:160] or _msgs[:160]}")
     report = {
         "device": device,
         "model": data.get("model_name"),

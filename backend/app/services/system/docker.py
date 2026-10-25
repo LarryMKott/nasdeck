@@ -33,15 +33,18 @@ async def list_containers() -> dict:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
-    except (FileNotFoundError, TimeoutError):
+    except FileNotFoundError:
+        return {"available": False, "reason": "docker CLI 不在位（未安装或不在 PATH）", "containers": []}
+    except TimeoutError:
         # 超时须回收子进程：daemon 卡顿时每次刷新泄漏一个 docker 进程
         if proc is not None:
             with contextlib.suppress(Exception):
                 proc.kill()
                 await proc.wait()
-        return {"available": False, "reason": "docker CLI 不可用", "containers": []}
+        return {"available": False, "reason": "docker ps 超时（daemon 无响应）", "containers": []}
     containers = []
-    for line in stdout.decode().splitlines():
+    # 容器名/标签混入非 UTF-8 字节时 replace 降级该行，不再让整个接口 500
+    for line in stdout.decode(errors="replace").splitlines():
         if not line.strip():
             continue
         try:

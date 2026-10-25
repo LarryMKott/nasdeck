@@ -15,6 +15,17 @@ from app.core.exceptions import StateConflictError
 _DURATION_MIN = {"short": 2, "long": 240, "conveyance": 5}
 _tests: dict[str, dict] = {}
 _task: dict[str, asyncio.Task] = {}
+_TESTS_MAX = 64  # 设备名键空间无界（sd[a-z]+ 任意长）：超限淘汰最早的已完成项
+
+
+def _evict_stale() -> None:
+    """状态/任务 dict 淘汰已完成旧项：认证调用方可无限制造新 key 撑内存。"""
+    if len(_tests) <= _TESTS_MAX:
+        return
+    finished = [k for k, v in _tests.items() if v.get("status") not in ("running", "pending")]
+    for k in finished[: len(_tests) - _TESTS_MAX]:
+        _tests.pop(k, None)
+        _task.pop(k, None)
 
 
 def _now() -> str:
@@ -48,6 +59,7 @@ def start_test(device: str, test_type: str, runner, probe=None) -> dict:
         "error": None,
     }
     _tests[device] = state
+    _evict_stale()
 
     async def _run() -> None:
         total = _DURATION_MIN.get(test_type, 2) * 60

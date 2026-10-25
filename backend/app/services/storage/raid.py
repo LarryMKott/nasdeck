@@ -70,7 +70,8 @@ async def raid_status() -> dict:
                         "write_policy": vd.get("write_policy", ""),
                         "read_policy": vd.get("read_policy", ""),
                         "read_cache": vd.get("read_cache", ""),
-                        "size_human": vd.get("size", ""),
+                        # VD 容量文本与 PD 侧同口径走十进制换算：storcli 原文的 "TB" 实为 TiB（评审 P2-b）
+                        "size_human": storcli.size_to_decimal(vd.get("size", "")) if vd.get("size") else "",
                     },
                 }
             )

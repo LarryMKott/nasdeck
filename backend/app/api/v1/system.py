@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
 from app.core.config import settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import InvalidParamsError, NotFoundError
 from app.models.system import KillWhitelist, SystemSetting
 from app.schemas.system import (
     DockerResponse,
@@ -206,8 +206,22 @@ async def get_settings(db: AsyncSession = DbDep) -> dict:
     return {row.key: {"value": row.value, "description": row.description} for row in result.scalars()}
 
 
+_SETTING_KEY_RE = __import__("re").compile(r"^[a-z0-9_]{1,64}$")
+_SETTING_VALUE_MAX = 8 * 1024  # 序列化后上限：自由 KV 无限膨胀会撑大单文件 DB
+
+
 @router.put("/settings/{key}")
 async def put_setting(key: str, body: SettingPut, db: AsyncSession = DbDep) -> dict:
+    if not _SETTING_KEY_RE.match(key):
+        raise InvalidParamsError(f"非法设置键 {key!r}：仅允许小写字母/数字/下划线，≤64 字符")
+    import json as _json
+
+    try:
+        size = len(_json.dumps(body.value, ensure_ascii=False))
+    except (TypeError, ValueError):
+        size = len(str(body.value))
+    if size > _SETTING_VALUE_MAX:
+        raise InvalidParamsError(f"设置值过大（{size} 字节 > {_SETTING_VALUE_MAX}）")
     row = await db.get(SystemSetting, key)
     if row:
         row.value, row.description = body.value, body.description or row.description

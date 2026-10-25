@@ -10,7 +10,8 @@ class AlertRuleIn(BaseModel):
     name: str = Field(min_length=1, max_length=64, pattern=r"^[^\r\n]+$")
     metric: str = Field(pattern="^(cpu_percent|mem_percent|temp_max|disk_temp|disk_failed|raid_degraded)$")
     comparator: str = Field(pattern="^(>|<|>=|<=|==)$")
-    threshold: float
+    # 禁 NaN/Inf：NaN 使任何比较恒 False，规则静默永不触发
+    threshold: float = Field(allow_inf_nan=False)
     duration_ticks: int = Field(default=1, ge=1, le=1440)
     severity: str = Field(default="warning", pattern="^(info|warning|critical)$")
     channel_ids: list[int] = []
