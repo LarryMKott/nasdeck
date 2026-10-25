@@ -242,3 +242,38 @@ async def test_update_zone_cannot_switch_to_curve_without_curve_id(db):
 
     with pytest.raises(InvalidParamsError):
         await fan_manager.update_zone(db, 1, {"mode": "curve"})
+
+
+async def test_drive_zone_marks_critical_and_records_events(db):
+    """临界全速带 critical 标记（前端弹提示）；事件环形缓冲留痕（A1/A5）。"""
+    fan_manager._events.clear()
+    db.add(_zone(mode="fixed", fixed_pwm=20, sensor_key="t"))
+    await db.flush()
+
+    entry = await fan_manager._drive_zone(db, await _first_zone(db), {"t": 91.0}, None)
+    assert entry["critical"] is True and entry["target_pwm_pct"] == 100.0
+    events = fan_manager.recent_events()
+    assert events and events[0]["failsafe"] == "critical"
+    assert "91" in events[0]["error"]
+
+
+async def test_recent_events_ring_buffer_max_20():
+    fan_manager._events.clear()
+    for i in range(30):
+        fan_manager._events.append({"ts": float(i), "zone_id": 1, "name": "z", "error": f"e{i}", "failsafe": None})
+    events = fan_manager.recent_events()
+    assert len(events) == 20 and events[0]["error"] == "e29"  # 最新在前
+
+
+async def test_retry_restore_endpoint_semantics(db, monkeypatch):
+    db.add(_zone(name="z"))
+    await db.flush()
+
+    calls = []
+    monkeypatch.setattr(fan_manager.hwmon_driver, "restore_auto", lambda n, c: calls.append(n) or True)
+    result = await fan_manager.retry_restore(db, 1)
+    assert result == {"id": 1, "restored": True} and calls == ["no_such_chip"]
+
+    monkeypatch.setattr(fan_manager.hwmon_driver, "restore_auto", lambda n, c: False)
+    result = await fan_manager.retry_restore(db, 1)
+    assert result == {"id": 1, "restored": False}

@@ -8,6 +8,8 @@ failsafe 约定：本模块是原生 FCS 被接管后唯一的风扇管理方，
 from __future__ import annotations
 
 import logging
+import time
+from collections import deque
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +25,30 @@ logger = logging.getLogger(__name__)
 FAILSAFE_AFTER_TICKS = 3  # 传感器连续失联达到该 tick 数（约 15s）后强制全速
 CRITICAL_TEMP_C = 85.0  # 临界温度：无视曲线/迟滞/斜率，无条件全速
 _sensor_fail_streak: dict[int, int] = {}
+
+# 调速异常/兜底事件环形缓冲（GET /control/fans/events 消费，UI"最近调速异常"）：
+# failsafe 状态随 WS fans 事件只对在线连接可见，历史回看靠这里
+_events: deque = deque(maxlen=20)
+
+
+def _record_event(zone_id: int, name: str, error: str, failsafe: str | None = None) -> None:
+    _events.append(
+        {"ts": time.time(), "zone_id": zone_id, "name": name, "error": error, "failsafe": failsafe}
+    )
+
+
+def recent_events() -> list[dict]:
+    """最近 20 条调速事件（新→旧）。"""
+    return [
+        {
+            "ts": e["ts"],
+            "zone_id": e["zone_id"],
+            "name": e["name"],
+            "error": e["error"],
+            "failsafe": e["failsafe"],
+        }
+        for e in reversed(_events)
+    ]
 
 
 async def list_zones(db: AsyncSession) -> list[dict]:
@@ -123,7 +149,20 @@ def _restore_auto_logged(zone: FanZone) -> bool:
             "通道可能滞留手动模式与最后占空比",
             zone.id, zone.name, zone.hwmon_name, zone.pwm_channel,
         )
+        _record_event(zone.id, zone.name, "交还内核失败（pwm_enable 写入失败）", "restore_failed")
     return ok
+
+
+async def retry_restore(db: AsyncSession, zone_id: int) -> dict:
+    """手动重试交还内核（A2）：update/delete 之外的补救入口，失败可见可重试。"""
+    result = await db.execute(select(FanZone).where(FanZone.id == zone_id))
+    zone = result.scalar_one_or_none()
+    if not zone:
+        raise NotFoundError(f"fan zone {zone_id} not found")
+    ok = _restore_auto_logged(zone)
+    if ok:
+        _sensor_fail_streak.pop(zone.id, None)
+    return {"id": zone.id, "restored": ok}
 
 
 async def delete_zone(db: AsyncSession, zone_id: int) -> None:
@@ -184,6 +223,7 @@ async def apply_tick(db: AsyncSession, temp_items: list[dict] | None = None) -> 
             outputs.append(await _drive_zone(db, zone, temps, cpu_default))
         except Exception as exc:  # noqa: BLE001 单控区故障不拖垮整轮调速与告警评估
             logger.warning("控区 %s(%s) 调速异常: %s", zone.id, zone.name, exc)
+            _record_event(zone.id, zone.name, str(exc)[:150], "tick_error")
             outputs.append({"zone_id": zone.id, "name": zone.name, "mode": zone.mode, "error": str(exc)[:150]})
     return outputs
 
@@ -205,12 +245,13 @@ def _sensor_temp_for(zone: FanZone, temps: dict[str, float | None], cpu_default:
 async def _drive_zone(
     db: AsyncSession, zone: FanZone, temps: dict[str, float | None], cpu_default: float | None = None
 ) -> dict:
+    critical = False
     if zone.mode == "fixed":
         target = float(zone.fixed_pwm)
         # fixed 也要临界保护：手动定速不读温度的时代，85℃ 低占空比照跑（旧 P1-03）
         sensor_temp = _sensor_temp_for(zone, temps, cpu_default)
         if sensor_temp is not None and sensor_temp >= CRITICAL_TEMP_C:
-            target = 100.0
+            target, critical = 100.0, True
     else:
         curve = await _find_curve(db, zone.curve_id) if zone.curve_id else None
         if curve is None:
@@ -222,7 +263,7 @@ async def _drive_zone(
             return await _failsafe_on_sensor_lost(zone)
         _sensor_fail_streak.pop(zone.id, None)
         if sensor_temp >= CRITICAL_TEMP_C:
-            target = 100.0  # 临界温度无条件全速
+            target, critical = 100.0, True  # 临界温度无条件全速
         else:
             # 当前占空比（0-255 原始值 → 0-100 pct）：迟滞与斜率限制的基准，
             # 不传则曲线引擎每 tick 可无阻尼跳变（审查 2026-09-30 P1）
@@ -242,8 +283,13 @@ async def _drive_zone(
     }
     if sensor_temp is not None:
         entry["sensor_temp_c"] = sensor_temp
+    if critical:
+        entry["critical"] = True  # 前端据此弹一次性提示（A5）
     if not ok:
         entry["error"] = "pwm write failed"
+        _record_event(zone.id, zone.name, "pwm write failed（通道只读/消失）")
+    if critical:
+        _record_event(zone.id, zone.name, f"临界温度 {sensor_temp}℃ 强制全速", "critical")
     return entry
 
 
@@ -252,6 +298,7 @@ async def _failsafe_on_sensor_lost(zone: FanZone, reason: str = "sensor unavaila
     streak = _sensor_fail_streak.get(zone.id, 0) + 1
     _sensor_fail_streak[zone.id] = streak
     if streak < FAILSAFE_AFTER_TICKS:
+        _record_event(zone.id, zone.name, f"{reason}（streak {streak}）", "hold")
         return {
             "zone_id": zone.id,
             "name": zone.name,
@@ -260,6 +307,7 @@ async def _failsafe_on_sensor_lost(zone: FanZone, reason: str = "sensor unavaila
             "failsafe": "hold",
             "streak": streak,
         }
+    _record_event(zone.id, zone.name, f"{reason}（streak {streak}）→ 按最坏情况全速", "full_speed")
     ok = hwmon_driver.write_pwm(zone.hwmon_name, zone.pwm_channel, 100.0)
     entry = {
         "zone_id": zone.id,

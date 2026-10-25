@@ -51,6 +51,18 @@ async def delete_fan(zone_id: int, db: AsyncSession = DbDep) -> dict:
     return {"id": zone_id, "deleted": True}
 
 
+@router.get("/fans/events")
+async def fan_events() -> list[dict]:
+    """最近调速异常/兜底事件（环形缓冲 20 条，新→旧）。"""
+    return fan_manager.recent_events()
+
+
+@router.post("/fans/{zone_id}/restore-auto")
+async def restore_fan(zone_id: int, db: AsyncSession = DbDep) -> dict:
+    """手动重试交还内核自动温控（交还失败后的补救入口）。"""
+    return await fan_manager.retry_restore(db, zone_id)
+
+
 async def _curve_or_404(db: AsyncSession, curve_id: int) -> FanCurve:
     result = await db.execute(select(FanCurve).where(FanCurve.id == curve_id))
     curve = result.scalar_one_or_none()
