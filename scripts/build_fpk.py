@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import re
 import shutil
 import struct
 import subprocess
@@ -141,12 +142,41 @@ def assert_no_x86_claims(path: Path) -> None:
 
 # ---------------------------------------------------------------- 前端构建
 
+def _fpk_public_path() -> str:
+    """从 frontend/.env.fpk 读 FPK 部署形态的资源前缀（vite base 的唯一事实源）。"""
+    for line in (ROOT / "frontend" / ".env.fpk").read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("VITE_PUBLIC_PATH="):
+            return line.split("=", 1)[1].strip().rstrip("/")
+    die("frontend/.env.fpk 缺少 VITE_PUBLIC_PATH，无法校验 dist 构建模式")
+
+
+def assert_fpk_dist(dist: Path) -> None:
+    """dist 必须是 `--mode fpk` 产物。
+
+    误用默认 production 模式（base='/'、API 前缀 /prod-api）的产物装到 fnOS
+    上资源路径全错即白屏；此前只查 index.html 存在，错误会静默进包。
+    """
+    base = _fpk_public_path()
+    html = (dist / "index.html").read_text(encoding="utf-8")
+    assets = [r for r in re.findall(r'(?:src|href)="(/[^"]+)"', html) if "/assets/" in r]
+    if not assets:
+        die("dist/index.html 无绝对路径 asset 引用，产物异常，拒绝打包")
+    bad = [r for r in assets if not r.startswith(base + "/")]
+    if bad:
+        die(
+            f"前端 dist 不是 --mode fpk 产物：asset 前缀应为 {base}/，实测 {bad[0]}。\n"
+            "请用 `pnpm build --mode fpk` 重新构建后再打包"
+        )
+
+
 def build_frontend(skip: bool) -> Path:
     dist = ROOT / "frontend" / "dist"
     if skip:
         if not (dist / "index.html").exists():
             die("--skip-frontend 但 frontend/dist/index.html 不存在，请先完整构建")
-        log("跳过前端构建，复用现有 dist（注意必须是 --mode fpk 的产物）")
+        log("跳过前端构建，复用现有 dist")
+        assert_fpk_dist(dist)
         return dist
     log("构建前端（vite build --mode fpk，base= cgi 反代前缀）...")
     proc = subprocess.run(
@@ -164,6 +194,7 @@ def build_frontend(skip: bool) -> Path:
         die("前端构建失败")
     if not (dist / "index.html").exists():
         die("前端构建后 dist/index.html 仍不存在")
+    assert_fpk_dist(dist)
     return dist
 
 

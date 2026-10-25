@@ -11,7 +11,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch
+
+permissions:
+  contents: read:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -51,10 +54,11 @@ jobs:
         run: pnpm lint
 
       # 前端必须在 CI 从源码重建：避免「改了 frontend/src 忘了重新构建就提交」
-      # 导致 fpk 带过期前端
+      # 导致 fpk 带过期前端。--mode fpk：FPK 部署形态的 base 与 API 前缀（/cgi/...），
+      # 默认 production 模式的 /prod-api + base '/' 进包会白屏
       - name: Build frontend
         working-directory: frontend
-        run: pnpm build
+        run: pnpm build --mode fpk
 
       - name: Upload frontend dist
         uses: actions/upload-artifact@v4

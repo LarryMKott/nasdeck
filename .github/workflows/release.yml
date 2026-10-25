@@ -73,7 +73,7 @@ jobs:
       # 双附件必须带校验和：用户下载后能自证包没被截断/篡改
       - name: Generate sha256sums
         run: |
-          cd build/fpk && sha256sum nasdeck_*_x86-*.fpk nasdeck_*_arm-*.fpk > sha256sums.txt && cat sha256sums.txt
+          cd build/fpk && sha256sum nasdeck_*-fnpack-*.fpk > sha256sums.txt && cat sha256sums.txt
 
       # 发布说明取 fpk/manifest 的 changelog 中当前版本对应段落
       # （格式：`changelog = ver1: 说明; ver2: 说明; …`，整行连发会带出全部历史版本）
