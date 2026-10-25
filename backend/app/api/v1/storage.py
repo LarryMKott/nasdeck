@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from fastapi import APIRouter
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +23,7 @@ from app.services.storage import disk_name, self_test, smart
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
 from app.utils.async_cmd import run_cmd
-from app.utils.validators import validate_device_name
+from app.utils.validators import smart_health_key, validate_device_name
 
 router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[ApiKeyDep, TrimAuthDep])
 
@@ -39,16 +37,11 @@ async def _disk_items(db: AsyncSession) -> list[DiskItem]:
     items = []
     for d in disks:
         d["alias"] = aliases.get(d.get("serial") or "")
-        key = _smart_key(d.get("device") or "")
+        key = smart_health_key(d.get("device") or "")
         d["health"] = health_map.get(key, "unknown")
         d["temp_c"] = temps.get(key)
         items.append(DiskItem(**d))
     return items
-
-
-def _smart_key(device: str) -> str:
-    """lsblk 盘名 → SMART 探测键：sda 原样；nvme0n1 回退控制器名 nvme0 匹配。"""
-    return re.sub(r"n\d+$", "", device) if device.startswith("nvme") else device
 
 
 @router.get("/disks", response_model=list[DiskItem])

@@ -89,9 +89,18 @@ def _bucket_key(ts: str, bucket_minutes: int) -> str | None:
 
 
 async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: int, since: str) -> None:
-    """按时间桶聚合（cpu/内存/网络均值，温度取最大）——SQLite 端做轻量聚合。"""
+    """按时间桶聚合（cpu/内存/网络/gpu 均值，温度取最大）——SQLite 端做轻量聚合。
+
+    只聚合已完结桶：聚合对象是仍在写入的近期窗口（raw→1m 取近 2h，1m→10m 取
+    近 7d，每 5min 跑一轮），当前未完结桶若照写会被 `key in have` 永久冻结——
+    10m 桶平均只含窗口前段数据，历史系统性失真（评审 2026-10-25 P1-2）。
+    残余偏差：1m→10m 的 func.avg 是对 1m 等权平均（avg-of-avg），修正需 count
+    列加权，当前 schema 无该列，接受该二阶误差。
+    """
     from sqlalchemy import func
 
+    now_epoch = calendar.timegm(datetime.now(UTC).timetuple())
+    bucket_secs = bucket_minutes * 60
     result = await db.execute(
         select(MetricPoint.ts)
         .where(MetricPoint.granularity == from_g, MetricPoint.ts >= since)
@@ -112,13 +121,16 @@ async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: i
     have = {r[0] for r in existing.all()}
 
     for key, members in buckets.items():
+        key_epoch = calendar.timegm(datetime.strptime(key, "%Y-%m-%dT%H:%M:%S").timetuple())
+        if key_epoch + bucket_secs > now_epoch:
+            continue  # 桶未完结：下一轮（至多 bucket_minutes 后）再聚合，数据完整
         if key in have:
             continue
         rows = (
             await db.execute(
                 select(
                     func.avg(MetricPoint.cpu), func.avg(MetricPoint.mem_mb), func.avg(MetricPoint.net_kbps),
-                    func.max(MetricPoint.temp_max), func.max(MetricPoint.gpu),
+                    func.max(MetricPoint.temp_max), func.avg(MetricPoint.gpu),
                     func.avg(MetricPoint.disk_read_kbps), func.avg(MetricPoint.disk_write_kbps),
                 ).where(MetricPoint.granularity == from_g, MetricPoint.ts.in_(members))
             )

@@ -77,11 +77,17 @@ def _mem_info() -> dict:
         info = _read_meminfo() if get_policy().memory == "meminfo" else None
         if info is None:
             vm, sm = psutil.virtual_memory(), psutil.swap_memory()
+
+            def _kb(bytes_value: int | None) -> int | None:
+                # psutil 的 buffers/cached 是字节，须折 kB 与 meminfo 口径对齐——
+                # 此前原样混入 kB dict，psutil 退路上 buffers_mb 虚高 1024 倍（评审 P1-3）
+                return bytes_value // 1024 if bytes_value is not None else None
+
             info = {
                 "MemTotal": vm.total // 1024,
                 "MemAvailable": vm.available // 1024,
-                "Buffers": getattr(vm, "buffers", None),
-                "Cached": getattr(vm, "cached", None),
+                "Buffers": _kb(getattr(vm, "buffers", None)),
+                "Cached": _kb(getattr(vm, "cached", None)),
                 "SwapTotal": sm.total // 1024,
                 "SwapFree": sm.free // 1024,
             }

@@ -15,6 +15,7 @@ from app.services.monitor import temperature
 from app.services.monitor.cache import realtime_cache
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
+from app.utils.validators import smart_health_key
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,11 @@ async def slow_tick() -> None:
 
         # 磁盘健康计数与阵列降级数 → 缓存（告警引擎消费）。
         # health 来自 SMART 扫描（temperature.disk_health，与盘温同一轮 60s 缓存）：
-        # list_disks(lsblk) 本身不带健康字段，旧实现 get("health") 恒 None → 指标恒 0
+        # list_disks(lsblk) 本身不带健康字段，旧实现 get("health") 恒 None → 指标恒 0；
+        # 键口径统一走 smart_health_key（nvme0n1 → nvme0），否则 NVMe 故障盘恒不告警
         disks = await volume_service.list_disks()
         health_map = await temperature.disk_health()
-        failed = sum(1 for d in disks if health_map.get(d.get("device")) == "failing")
+        failed = sum(1 for d in disks if health_map.get(smart_health_key(d.get("device") or "")) == "failing")
         raid = await raid_service.raid_status()
         degraded = sum(1 for v in raid["software_raid"] + raid["hardware_raid"] if not v["healthy"])
         realtime_cache.set("disk_failed", failed, ttl=120)

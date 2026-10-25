@@ -12,6 +12,7 @@ from app.services.monitor import history as history_service
 from app.services.monitor import system_resources, temperature
 from app.services.monitor.cache import realtime_cache
 from app.services.storage import volumes as volume_service
+from app.utils.validators import smart_health_key
 
 router = APIRouter(prefix="/monitor", tags=["monitor"], dependencies=[ApiKeyDep, TrimAuthDep])
 
@@ -57,13 +58,13 @@ async def summary(db: AsyncSession = DbDep) -> dict:
         realtime_cache.set("temperatures", temps, ttl=15)  # 回写与 realtime/temperatures 分支对齐，并发请求不重复扫描
     disks = await volume_service.list_disks()
     # 磁盘健康来自 SMART 扫描缓存（slow_tick 维护）；缓存未热时按 unknown 计，
-    # 不回退 unknown 之外的猜测值
+    # 不回退 unknown 之外的猜测值。键口径与探测一致（nvme0n1 → nvme0，评审 P1-1：
+    # 此前直接用 lsblk 名查询，NVMe 恒 unknown）
     health_map = realtime_cache.get("disk_health") or {}
     counts = {"passed": 0, "warning": 0, "failing": 0, "unknown": 0}
     for disk in disks:
-        counts[health_map.get(disk.get("device"), "unknown")] = (
-            counts.get(health_map.get(disk.get("device"), "unknown"), 0) + 1
-        )
+        category = health_map.get(smart_health_key(disk.get("device") or ""), "unknown")
+        counts[category] = counts.get(category, 0) + 1
     return {
         "cpu_percent": snap["cpu_percent"],
         "mem_percent": snap["mem_percent"],

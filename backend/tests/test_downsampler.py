@@ -103,6 +103,37 @@ async def test_aggregate_1m_to_10m_boundaries(db):
     ]
 
 
+async def test_aggregate_skips_incomplete_current_bucket(db):
+    """未完结桶不得首见即写：10m 桶在窗口开始后首个 tick 落库会被 key-in-have
+    永久冻结，只含前 ~25% 数据（评审 2026-10-25 P1-2）。"""
+    now = datetime.now(UTC)
+    # 当前 10m 桶内的 4 个 1m 点（桶起点至今，注定不完整）
+    bucket_start = now.replace(minute=now.minute // 10 * 10, second=0, microsecond=0)
+    for i in range(4):
+        db.add(MetricPoint(ts=_iso(bucket_start + timedelta(minutes=i)), granularity="1m", cpu=80.0))
+    # 上一个（已完结）10m 桶的 1 个点
+    prev = bucket_start - timedelta(minutes=10)
+    db.add(MetricPoint(ts=_iso(prev), granularity="1m", cpu=20.0))
+    await db.flush()
+
+    await downsampler._aggregate(db, "1m", "10m", 10, _iso(now - timedelta(hours=1)))
+
+    rows = (await db.execute(select(MetricPoint.ts).where(MetricPoint.granularity == "10m"))).scalars().all()
+    assert rows == [_iso(prev)]  # 只有已完结桶落库；当前桶等下一轮
+
+
+async def test_aggregate_gpu_takes_avg_not_max(db):
+    """gpu 降采样与查询端 gpu_avg 语义一致：取均值而非峰值（评审 N6）。"""
+    for ts, gpu in [("2026-10-01T12:00:00", 10.0), ("2026-10-01T12:00:30", 50.0)]:
+        db.add(MetricPoint(ts=ts, granularity="raw", gpu=gpu))
+    await db.flush()
+
+    await downsampler._aggregate(db, "raw", "1m", 1, "2026-10-01T00:00:00")
+
+    point = (await db.execute(select(MetricPoint).where(MetricPoint.granularity == "1m"))).scalar_one()
+    assert point.gpu == 30.0  # avg；max 语义会得 50.0
+
+
 async def test_purge_legacy_aggregates_runs_once(monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as conn:
