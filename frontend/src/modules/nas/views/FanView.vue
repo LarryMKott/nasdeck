@@ -189,12 +189,15 @@ function visualRpm(fan) {
 function zoneStatus(fan) {
   const out = (realtime.fanOutputs || []).find((o) => o.zone_id === fan.id);
   if (!out) return fan.pwm ? { cls: 'ok', text: '调速中' } : { cls: 'ok', text: 'auto · 主板控速' };
-  if (out.failsafe === 'full_speed')
+  if (out.failsafe === 'full_speed') {
     return { cls: 'bad', text: `失联保护全速 · ${out.error || ''}` };
-  if (out.failsafe === 'hold')
+  }
+  if (out.failsafe === 'hold') {
     return { cls: 'warn', text: `失联保持（${out.streak ?? '?'}/3）· ${out.error || ''}` };
-  if (out.critical)
+  }
+  if (out.critical) {
     return { cls: 'bad', text: `临界全速 ${Math.round(out.sensor_temp_c ?? '?')}℃` };
+  }
   if (out.error) return { cls: 'bad', text: out.error };
   const src =
     out.mode === 'fixed'
