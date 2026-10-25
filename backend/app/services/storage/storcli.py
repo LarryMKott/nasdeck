@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import re
 import threading
 import time
@@ -20,6 +21,10 @@ import time
 _TTL = 15
 _cache: dict = {"ts": 0.0, "data": None}
 _lock = threading.Lock()
+# single-flight：过期重采集期间的并发请求共享同一个 Future，不再排队等锁
+# （_collect_uncached 最多 5 次 subprocess、最坏 ~110s，此前锁内执行会把
+# to_thread 线程池的并发 worker 全部挂起——评审 2026-10-25 P1-10）
+_inflight: "concurrent.futures.Future[dict] | None" = None
 
 _KNOWN_VENDORS = (
     "ST", "WD", "WDC", "TOSHIBA", "HGST", "HUH", "HUS", "INTEL", "KINGSTON",
@@ -285,9 +290,21 @@ def collect(run) -> dict:
     run(args: list[str], timeout: float) -> str：storcli 文本输出执行器。
     返回 {ok, mode(mega|hba|none|mega_error), model, note, controller{...}, drives[], virtual_drives[], hotspares[]}。
     """
-    with _lock:
+    global _inflight
+    with _lock:  # 锁只护缓存与 in-flight 登记的读写，采集本身在锁外
         if time.monotonic() - _cache["ts"] < _TTL and _cache["data"] is not None:
             return _cache["data"]
+        fut = _inflight
+        leader = fut is None
+        if leader:
+            fut = concurrent.futures.Future()
+            _inflight = fut
+    if not leader:
+        try:
+            return fut.result(timeout=150)
+        except Exception:  # noqa: BLE001 领头者异常/超时：自己串行重试一轮
+            return collect(run)
+    try:
         try:
             data = _collect_uncached(run)
         except Exception as exc:  # noqa: BLE001 storcli 缺失/失败统一降级
@@ -296,8 +313,17 @@ def collect(run) -> dict:
                 "note": f"storcli 不可用: {exc}",
                 "controller": None, "drives": [], "virtual_drives": [], "hotspares": [],
             }
-        _cache.update(ts=time.monotonic(), data=data)
+        with _lock:
+            _cache.update(ts=time.monotonic(), data=data)
+            _inflight = None
+        fut.set_result(data)
         return data
+    except BaseException as exc:  # 保证跟随者不无限等待
+        fut.set_exception(exc)
+        with _lock:
+            if _inflight is fut:
+                _inflight = None
+        raise
 
 
 def _collect_uncached(run) -> dict:

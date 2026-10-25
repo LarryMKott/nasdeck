@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -68,6 +70,88 @@ async def test_proxy_token_is_root_defense(monkeypatch):
     with pytest.raises(PermissionDeniedError):
         await require_trim_auth(_Req({**admin, "X-Nasdeck-Proxy": "wrong"}, method="POST"))
     await require_trim_auth(_Req({**admin, "X-Nasdeck-Proxy": "s3cret"}, method="POST"))
+
+
+# ---------------- WS 鉴权与连接韧性（评审 2026-10-25 P1-01 / P1-9） ----------------
+
+
+def _ws_settings(monkeypatch, trim: bool, token: str = ""):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "trim_auth", trim, raising=False)
+    monkeypatch.setattr(settings, "proxy_token", token, raising=False)
+    monkeypatch.setattr(settings, "api_key", "", raising=False)
+    return settings
+
+
+def _ws_app():
+    """裸 WS app：不带 main 的 lifespan（调度器/ingest 与 TestClient portal 互扰）。"""
+    from fastapi import FastAPI
+
+    from app.api.ws.realtime import router as ws_router
+
+    app = FastAPI()
+    app.include_router(ws_router)
+    return app
+
+
+@contextlib.contextmanager
+def _ws_session(tc, **kw):
+    """WS 会话上下文：退出时吞掉 teardown 噪声。
+
+    本机（Windows + 当前 starlette 组合）WebSocketTestSession.__exit__ 偶发
+    CancelledError，新旧 handler 均可复现（与被测行为无关）；断言全部在
+    会话体内完成，退出噪声不掩盖真实失败。
+    """
+    session = tc.websocket_connect(**kw)
+    session.__enter__()
+    try:
+        yield session
+    finally:
+        try:
+            session.__exit__(None, None, None)
+        except Exception:  # noqa: BLE001 环境噪声，见 docstring
+            pass
+
+
+def test_ws_trim_form_requires_proxy_token(monkeypatch):
+    """trim 形态下伪造 userid 头不足以直连：须持代理共享密钥（与 REST 同口径）。"""
+    from fastapi.testclient import TestClient
+
+    _ws_settings(monkeypatch, trim=True, token="s3cret")
+    with TestClient(_ws_app()) as tc:
+        # 只有 userid、无密钥 → 1008 拒绝（握手即失败）
+        session = tc.websocket_connect("/api/v1/ws/realtime", headers={"x-trim-userid": "1000"})
+        with pytest.raises(Exception):
+            session.__enter__()
+        # 密钥 + userid → 握手通过且 ping/pong 正常（连接先补发 realtime 帧，读到 pong 为止）
+        with _ws_session(
+            tc, url="/api/v1/ws/realtime", headers={"x-trim-userid": "1000", "x-nasdeck-proxy": "s3cret"}
+        ) as ws:
+            ws.send_text("ping")
+            for _ in range(50):
+                if ws.receive_json() == {"type": "pong"}:
+                    break
+            else:
+                pytest.fail("未收到 pong")
+
+
+def test_ws_binary_frame_does_not_kill_handler(monkeypatch):
+    """二进制帧曾被 receive_text 的 KeyError 杀死 recv 任务 → handler 永久挂起泄漏。"""
+    from fastapi.testclient import TestClient
+
+    _ws_settings(monkeypatch, trim=False, token="")
+    with TestClient(_ws_app()) as tc:
+        with _ws_session(tc, url="/api/v1/ws/realtime") as ws:
+            ws.send_bytes(b"\x00\x01binary-noise")
+            ws.send_text("ping")
+            # 二进制帧被忽略后连接仍活：pong 能回到（期间可能先到 realtime 推送帧）
+            for _ in range(50):
+                msg = ws.receive_json()
+                if msg == {"type": "pong"}:
+                    break
+            else:
+                pytest.fail("二进制帧后未收到 pong：handler 已死")
 
 
 # ---------------- 告警引擎：连击计数 / 触发 / 去重 / 恢复 ----------------

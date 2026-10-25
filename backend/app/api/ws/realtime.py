@@ -1,8 +1,10 @@
 """WebSocket 实时推送（契约 §4）：realtime 1s / fans 5s / alert 事件 / pong。
 
 鉴权与 REST 对齐（REST 各路由挂 ApiKeyDep/TrimAuthDep，本端点此前完全裸奔）：
-- trim 形态：要求 index.cgi 转发的 X-Trim-Userid 身份头；
-- api_key 形态：握手须带 ?api_key= 或 X-API-Key 头；
+- trim 形态：要求 index.cgi 转发的 X-Trim-Userid 身份头，且代理共享密钥
+  X-Nasdeck-Proxy 与 REST 同口径 compare_digest 校验（此前仅查 userid 存在，
+  本机进程伪造头即可直连拉全量实时数据——评审 2026-10-25 P1-01）；
+- api_key 形态：握手须带 ?api_key= 或 X-API-Key 头（compare_digest，防时序侧信道）；
 - 无鉴权形态：校验 Origin 与 Host 同源（浏览器跨站可不受 CORS 约束发起 WS），
   绑定回环时不校验（开发机 vite 代理 changeOrigin 会改写 Host）。
 非浏览器客户端不发 Origin，允许直连（运维脚本场景）。
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
 from urllib.parse import urlsplit
@@ -48,11 +51,16 @@ def _host_header_name(ws: WebSocket) -> str:
 
 def _ws_authorized(ws: WebSocket) -> bool:
     if settings.trim_auth:
-        # 飞牛形态：无 X-Trim-Userid 身份头的连接直接拒（防本机进程绕过直连拉数据）
+        # 代理共享密钥根防线：与 REST 侧 require_trim_auth 同口径（密钥未配置时
+        # 退化为仅查 userid，启动日志已有显式 warning）
+        if settings.proxy_token and not hmac.compare_digest(
+            ws.headers.get("x-nasdeck-proxy", ""), settings.proxy_token
+        ):
+            return False
         return bool(ws.headers.get("x-trim-userid", "").strip())
     if settings.api_key:
         supplied = ws.query_params.get("api_key") or ws.headers.get("x-api-key", "")
-        return bool(supplied) and supplied == settings.api_key
+        return bool(supplied) and hmac.compare_digest(supplied, settings.api_key)
     if _loopback_bind():
         return True
     origin = ws.headers.get("origin")
@@ -72,6 +80,17 @@ async def realtime_ws(ws: WebSocket) -> None:
         return
     await ws.accept()
     stop = asyncio.Event()
+
+    async def _guarded(name: str, coro_fn) -> None:
+        # push/recv 任务异常不得静默死亡：置位 stop 让整个 handler 收尾，
+        # 否则连接变"僵尸推送"或 handler 永久挂起泄漏（评审 P1-9）
+        try:
+            await coro_fn()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("WS %s 任务异常退出，关闭连接", name, exc_info=True)
+            stop.set()
 
     async def push_realtime() -> None:
         # 连接建立即补发一条（缓存存在时），之后每 1s；同秒快照共享同一份序列化文本
@@ -105,21 +124,33 @@ async def realtime_ws(ws: WebSocket) -> None:
             await asyncio.sleep(5)
 
     async def recv() -> None:
+        # 按消息类型分派：receive_text 遇二进制帧抛 KeyError 且不在常规捕获内，
+        # 曾致 handler 永久挂起泄漏连接（评审 P1-9）
         try:
             while True:
-                message = await ws.receive_text()
-                if message == "ping":
+                message = await ws.receive()
+                if message["type"] == "websocket.disconnect":
+                    break
+                if message.get("text") == "ping":
                     await ws.send_json({"type": "pong"})
-        except (WebSocketDisconnect, RuntimeError):
+        except (WebSocketDisconnect, RuntimeError, KeyError):
+            pass
+        finally:
             stop.set()
 
-    tasks = [asyncio.create_task(coro()) for coro in (push_realtime, push_fans_and_alerts, recv)]
+    tasks = [
+        asyncio.create_task(_guarded(name, coro))
+        for name, coro in (("push_realtime", push_realtime), ("push_fans", push_fans_and_alerts), ("recv", recv))
+    ]
     try:
         await stop.wait()
     finally:
         stop.set()
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, BaseException) and not isinstance(res, asyncio.CancelledError):
+                logger.warning("WS 任务收尾异常: %r", res)
         with contextlib.suppress(Exception):
             await ws.close()
