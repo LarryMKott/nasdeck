@@ -12,14 +12,13 @@ import shutil
 import time
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db import ingest
 from app.models.system import SystemSetting
 from app.services.alert import engine as alert_engine
-from app.services.control import fcs_safe_takeover, fan_manager
+from app.services.control import fan_manager, fcs_safe_takeover
 from app.services.monitor.cache import realtime_cache
 from app.tasks import downsampler
 
@@ -154,7 +153,9 @@ def _check_tools() -> list[dict]:
     storcli = settings.storcli_cmd
     storcli_ok = shutil.which(storcli) is not None or (settings.storcli_path and shutil.which(settings.storcli_path))
     items.append(_item("tool_storcli", "ok" if storcli_ok else "warn",
-                       "在位（硬 RAID 可用）" if storcli_ok else f"不可用（{storcli}；硬 RAID 区段降级，ARM 包不含属正常）"))
+                       "在位（硬 RAID 可用）"
+                       if storcli_ok
+                       else f"不可用（{storcli}；硬 RAID 区段降级，ARM 包不含属正常）"))
     return items
 
 

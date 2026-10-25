@@ -132,7 +132,7 @@ async def _smart_disk_scan() -> None:
             elif passed is False:
                 health[name] = "failing"
             current = (data.get("temperature") or {}).get("current")
-            if isinstance(current, (int, float)):
+            if isinstance(current, (int | float)):
                 temps[name] = round(float(current), 1)
                 if name.startswith("nvme"):
                     continue  # NVMe 温度已由 hwmon 直读条目上屏（zone nvme），不重复列

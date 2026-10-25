@@ -280,7 +280,9 @@ async def _drive_zone(
         "loop": zone.loop,
         "mode": zone.mode,
         "target_pwm_pct": target,
-        "current_rpm": hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel, zone.chip_path) if zone.fan_channel else None,
+        "current_rpm": (
+            hwmon_driver.read_rpm(zone.hwmon_name, zone.fan_channel, zone.chip_path) if zone.fan_channel else None
+        ),
     }
     if sensor_temp is not None:
         entry["sensor_temp_c"] = sensor_temp

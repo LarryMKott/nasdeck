@@ -261,10 +261,11 @@ def test_disk_items_health_and_temp_backfilled(monkeypatch):
             "partitions": [],
         },
     ]
-    monkeypatch.setattr(storage_api.volume_service, "list_disks", _fake_run_cmd(disks))
-    monkeypatch.setattr(storage_api.disk_name, "get_alias_map", _alias_map)
-    monkeypatch.setattr(storage_api.temperature, "disk_health", _health_map)
-    monkeypatch.setattr(storage_api.temperature, "disk_temps", _temps_map)
+    # 富化收敛到 services/storage/enrich 后，桩打在服务层依赖上
+    monkeypatch.setattr(storage_api.disk_enrich.volume_service, "list_disks", _fake_run_cmd(disks))
+    monkeypatch.setattr(storage_api.disk_enrich.disk_name, "get_alias_map", _alias_map)
+    monkeypatch.setattr(storage_api.disk_enrich.temperature, "disk_health", _health_map)
+    monkeypatch.setattr(storage_api.disk_enrich.temperature, "disk_temps", _temps_map)
     items = asyncio.run(storage_api._disk_items(None))
     assert items[0].health == "passed"
     assert items[0].temp_c == 36.0

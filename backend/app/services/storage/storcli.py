@@ -24,7 +24,7 @@ _lock = threading.Lock()
 # single-flight：过期重采集期间的并发请求共享同一个 Future，不再排队等锁
 # （_collect_uncached 最多 5 次 subprocess、最坏 ~110s，此前锁内执行会把
 # to_thread 线程池的并发 worker 全部挂起——评审 2026-10-25 P1-10）
-_inflight: "concurrent.futures.Future[dict] | None" = None
+_inflight: concurrent.futures.Future[dict] | None = None
 
 _KNOWN_VENDORS = (
     "ST", "WD", "WDC", "TOSHIBA", "HGST", "HUH", "HUS", "INTEL", "KINGSTON",

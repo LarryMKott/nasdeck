@@ -122,8 +122,10 @@ def test_ws_trim_form_requires_proxy_token(monkeypatch):
     with TestClient(_ws_app()) as tc:
         # 只有 userid、无密钥 → 1008 拒绝（握手即失败）
         session = tc.websocket_connect("/api/v1/ws/realtime", headers={"x-trim-userid": "1000"})
-        with pytest.raises(Exception):
+        # starlette 握手拒绝抛 WebSocketDisconnect（RuntimeError 兜底不同版本文案）
+        with pytest.raises((RuntimeError, Exception)) as ei:
             session.__enter__()
+        assert not isinstance(ei.value, AssertionError)
         # 密钥 + userid → 握手通过且 ping/pong 正常（连接先补发 realtime 帧，读到 pong 为止）
         with _ws_session(
             tc, url="/api/v1/ws/realtime", headers={"x-trim-userid": "1000", "x-nasdeck-proxy": "s3cret"}

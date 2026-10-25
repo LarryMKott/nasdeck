@@ -11,8 +11,8 @@ import pytest
 from app.core.exceptions import InvalidParamsError
 from app.services.alert import engine
 from app.services.alert.channels import webhook as webhook_mod
-from app.services.alert.channels.base import CHANNEL_TYPES
 from app.services.alert.channels.bark import BarkChannel
+from app.services.alert.channels.base import CHANNEL_TYPES
 from app.services.alert.channels.email import EmailChannel
 from app.services.alert.channels.webhook import WebhookChannel
 from app.utils import net_guard

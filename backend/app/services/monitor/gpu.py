@@ -129,13 +129,13 @@ def _engine_busy(obj: dict, prefix: str) -> float | None:
     busies = [
         e.get("busy")
         for name, e in engines.items()
-        if name.startswith(prefix) and isinstance(e, dict) and isinstance(e.get("busy"), (int, float))
+        if name.startswith(prefix) and isinstance(e, dict) and isinstance(e.get("busy"), (int | float))
     ]
     return round(float(max(busies)), 1) if busies else None
 
 
 def _frame_num(value) -> float | None:
-    return round(float(value), 1) if isinstance(value, (int, float)) else None
+    return round(float(value), 1) if isinstance(value, (int | float)) else None
 
 
 def _intel_busy(obj: dict) -> float | None:
@@ -149,7 +149,7 @@ def _intel_busy(obj: dict) -> float | None:
     busy = _engine_busy(obj, "Render/3D")
     if busy is None:
         busies = [e.get("busy") for e in engines.values() if isinstance(e, dict)]
-        busies = [b for b in busies if isinstance(b, (int, float))]
+        busies = [b for b in busies if isinstance(b, (int | float))]
         busy = max(busies) if busies else None
     return round(float(busy), 1) if busy is not None else None
 

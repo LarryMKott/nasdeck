@@ -243,7 +243,10 @@ async def _drain() -> None:
         if item["attempts"] < _RETRY_MAX:
             # 重入队到尾部：被后续条目隔开，天然形成重试间隔（原型 C1）
             _pending.append(item)
-            logger.info("通知发送失败（%s）channel=%s(%s)，第 %d 次重试入队", error, item["channel_type"], cid, item["attempts"])
+            logger.info(
+                "通知发送失败（%s）channel=%s(%s)，第 %d 次重试入队",
+                error, item["channel_type"], cid, item["attempts"],
+            )
             continue
         health["send_failures"] += 1
         health["last_error"] = error

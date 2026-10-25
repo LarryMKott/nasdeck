@@ -6,8 +6,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ApiKeyDep, TrimAuthDep
+from app.api.deps import ApiKeyDep, DbDep, TrimAuthDep
 from app.services.report import diagnostic, html_generator
 from app.utils.validators import validate_report_filename
 
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/report", tags=["report"], dependencies=[ApiKeyDep, T
 
 
 @router.post("/health")
-async def generate_health(redact: bool = Query(default=True)) -> dict:
+async def generate_health(redact: bool = Query(default=True), db: AsyncSession = DbDep) -> dict:
     from app.services.monitor import temperature
     from app.services.monitor.cache import realtime_cache
     from app.services.storage import enrich as disk_enrich

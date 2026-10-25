@@ -234,8 +234,8 @@ async def test_drain_retries_then_records_channel_health(monkeypatch):
 
 def test_queue_overflow_counts_drop(monkeypatch):
     """队列上限 200：溢出丢弃并在渠道健康 overflow_dropped 留痕。"""
-    from app.services.alert import engine as alert_engine_mod
     from app.models.alert import AlertChannel
+    from app.services.alert import engine as alert_engine_mod
 
     alert_engine_mod._pending.clear()
     alert_engine_mod._channel_health.clear()

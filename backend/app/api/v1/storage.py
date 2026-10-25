@@ -20,7 +20,6 @@ from app.schemas.storage import (
     SmartReport,
     VolumeItem,
 )
-from app.services.monitor import temperature
 from app.services.storage import disk_name, self_test, smart
 from app.services.storage import enrich as disk_enrich
 from app.services.storage import raid as raid_service

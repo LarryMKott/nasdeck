@@ -62,7 +62,9 @@ async def downsample_tick() -> None:
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("downsample 异常: %s", exc)
-        _stats.update(last_run_ts=time.time(), last_run_s=round(time.monotonic() - started, 3), last_error=str(exc)[:200])
+        _stats.update(
+            last_run_ts=time.time(), last_run_s=round(time.monotonic() - started, 3), last_error=str(exc)[:200]
+        )
 
 
 async def _prune_hardware_items(db: AsyncSession) -> None:

@@ -139,7 +139,7 @@ async def test_curve_missing_goes_failsafe_not_freeze(db):
     db.add(_zone(curve_id=999))
     await db.flush()
 
-    for i in range(1, fan_manager.FAILSAFE_AFTER_TICKS):
+    for _ in range(1, fan_manager.FAILSAFE_AFTER_TICKS):
         entry = await fan_manager._drive_zone(db, await _first_zone(db), {})
         assert entry["failsafe"] == "hold" and entry["error"] == "curve missing"
 
@@ -225,7 +225,10 @@ async def test_create_zone_rejects_readonly_channel(db, monkeypatch):
     from app.core.exceptions import InvalidParamsError
 
     with pytest.raises(InvalidParamsError):
-        await fan_manager.create_zone(db, {"name": "z", "loop": "cpu", "hwmon_name": "fan0", "pwm_channel": 1, "mode": "curve", "curve_id": None})
+        await fan_manager.create_zone(
+            db,
+            {"name": "z", "loop": "cpu", "hwmon_name": "fan0", "pwm_channel": 1, "mode": "curve", "curve_id": None},
+        )
     # 未知芯片（测试环境/延迟枚举）不拦
     zid = await fan_manager.create_zone(
         db, {"name": "z2", "loop": "cpu", "hwmon_name": "no_such_chip", "pwm_channel": 2, "mode": "fixed"}

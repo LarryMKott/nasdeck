@@ -79,7 +79,6 @@ async def test_stale_rebuild_backs_up_and_marks(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_rebuild_switch_off_refuses_to_start(tmp_path, monkeypatch):
     """NASDECK_DB_ALLOW_REBUILD=false：检测到旧结构拒绝重建并中止。"""
-    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     import app.db.init_db as init_db_mod
     from app.core.config import settings
