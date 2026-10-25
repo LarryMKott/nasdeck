@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import calendar
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select
@@ -25,14 +26,23 @@ logger = logging.getLogger(__name__)
 # （raw_keep_minutes）起重新积累。标记落 system_settings，避免每次重启重复清除。
 _MIGRATION_KEY = "downsample_v2_migrated"
 
+# 管道健康指标（/system/diagnostics 消费）：滞后 = now-last_run_ts 超过 3 个周期
+_stats: dict = {"last_run_ts": 0.0, "last_run_s": 0.0, "buckets_written": 0, "last_error": None}
+
+
+def stats() -> dict:
+    return dict(_stats)
+
 
 async def downsample_tick() -> None:
+    started = time.monotonic()
     try:
+        written = 0
         async with session_factory() as db:
             cutoff = _iso_minutes_ago(settings.raw_keep_minutes)
-            await _aggregate(db, "raw", "1m", 1, cutoff)
+            written += await _aggregate(db, "raw", "1m", 1, cutoff)
             await db.execute(delete(MetricPoint).where(MetricPoint.granularity == "raw", MetricPoint.ts < cutoff))
-            await _aggregate(db, "1m", "10m", 10, _iso_minutes_ago(7 * 24 * 60))
+            written += await _aggregate(db, "1m", "10m", 10, _iso_minutes_ago(7 * 24 * 60))
             await db.execute(
                 delete(MetricPoint).where(
                     MetricPoint.granularity == "1m", MetricPoint.ts < _iso_minutes_ago(30 * 24 * 60)
@@ -46,8 +56,13 @@ async def downsample_tick() -> None:
             )
             await _prune_hardware_items(db)
             await db.commit()
+        _stats.update(
+            last_run_ts=time.time(), last_run_s=round(time.monotonic() - started, 3),
+            buckets_written=written, last_error=None,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("downsample 异常: %s", exc)
+        _stats.update(last_run_ts=time.time(), last_run_s=round(time.monotonic() - started, 3), last_error=str(exc)[:200])
 
 
 async def _prune_hardware_items(db: AsyncSession) -> None:
@@ -88,7 +103,7 @@ def _bucket_key(ts: str, bucket_minutes: int) -> str | None:
     return datetime.fromtimestamp(epoch, UTC).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: int, since: str) -> None:
+async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: int, since: str) -> int:
     """按时间桶聚合（cpu/内存/网络/gpu 均值，温度取最大）——SQLite 端做轻量聚合。
 
     只聚合已完结桶：聚合对象是仍在写入的近期窗口（raw→1m 取近 2h，1m→10m 取
@@ -108,7 +123,7 @@ async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: i
     )
     tss = [r[0] for r in result.all()]
     if not tss:
-        return
+        return 0
     buckets: dict[str, list[str]] = {}
     for ts in tss:
         key = _bucket_key(ts, bucket_minutes)
@@ -119,6 +134,7 @@ async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: i
         select(MetricPoint.ts).where(MetricPoint.granularity == to_g, MetricPoint.ts.in_(list(buckets)))
     )
     have = {r[0] for r in existing.all()}
+    written = 0
 
     for key, members in buckets.items():
         key_epoch = calendar.timegm(datetime.strptime(key, "%Y-%m-%dT%H:%M:%S").timetuple())
@@ -135,6 +151,7 @@ async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: i
                 ).where(MetricPoint.granularity == from_g, MetricPoint.ts.in_(members))
             )
         ).one()
+        written += 1
         db.add(
             MetricPoint(
                 ts=key,
@@ -149,3 +166,4 @@ async def _aggregate(db: AsyncSession, from_g: str, to_g: str, bucket_minutes: i
             )
         )
     await db.flush()
+    return written

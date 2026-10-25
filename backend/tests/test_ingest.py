@@ -82,3 +82,40 @@ async def test_queue_full_drops_not_blocks(monkeypatch):
     for i in range(10):  # 超 2 条容量：多余的丢，submit 不抛不阻塞
         ingest.submit("metrics", {"ts": f"2030-02-01T00:00:{i:02d}", "granularity": "raw", "cpu": 1.0})
     assert ingest._queue.qsize() == 2
+
+
+async def test_worker_self_heals_and_counts_restarts(monkeypatch):
+    """worker 意外死亡：done_callback 记数并安排退避重建（评审 2026-10-25 N8/B1）。"""
+    ingest._reset_for_test()
+    real_run = ingest._run
+    calls = {"n": 0}
+
+    async def _flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("worker explode")
+        await real_run()  # 重建后转正常运行，验证自愈闭环稳定
+
+    monkeypatch.setattr(ingest, "_run", _flaky)
+    # 退避改为 0，重建立即发生
+    monkeypatch.setattr(ingest, "_RESTART_BACKOFF", (0,))
+    ingest.start()
+    await asyncio.sleep(0.3)  # 等 done_callback + call_later(0) 重建
+
+    assert ingest.stats()["worker_restarts"] == 1
+    assert ingest.stats()["worker_running"] is True
+    assert "worker explode" in (ingest.stats()["last_error"] or "")
+    await ingest.stop()
+
+
+async def test_stats_reports_queue_and_drops(monkeypatch):
+    monkeypatch.setattr(ingest, "_QUEUE_MAX", 2)
+    ingest._reset_for_test()
+    ingest.start()
+    for i in range(6):
+        ingest.submit("metrics", {"ts": f"2030-02-01T01:00:{i:02d}", "granularity": "raw", "cpu": 1.0})
+    snap = ingest.stats()
+    assert snap["queue_depth"] == 2 and snap["queue_capacity"] == 2
+    assert snap["dropped_total"] == 4
+    assert snap["worker_running"] is True
+    await ingest.stop()

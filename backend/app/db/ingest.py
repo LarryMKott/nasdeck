@@ -43,6 +43,16 @@ _queue: asyncio.Queue | None = None
 _task: asyncio.Task | None = None
 _dropped_since_log = 0
 
+# 管道健康指标（/system/diagnostics 消费）：断流=last_write_ts 距今过久
+_stats: dict = {
+    "worker_restarts": 0,
+    "dropped_total": 0,
+    "last_write_ts": 0.0,  # epoch 秒；0 = 启动以来从未写成功
+    "last_error": None,
+}
+# worker 异常退出后的重建退避（秒），封顶 60s
+_RESTART_BACKOFF = (1, 5, 15, 60)
+
 
 def submit(kind: str, row: dict) -> None:
     """非阻塞投递一行采集数据；队列满丢弃（容灾，不阻塞采集调度）。"""
@@ -54,8 +64,22 @@ def submit(kind: str, row: dict) -> None:
         _dropped_since_log = 0
     except asyncio.QueueFull:
         _dropped_since_log += 1
+        _stats["dropped_total"] += 1
         if _dropped_since_log <= 1 or _dropped_since_log % 60 == 0:  # 限频防刷屏
             logger.warning("ingest 队列已满，累计丢弃 %d 行（盘写入持续过慢）", _dropped_since_log)
+
+
+def stats() -> dict:
+    """管道健康快照（自检页/诊断包消费）。"""
+    return {
+        "worker_running": _task is not None and not _task.done(),
+        "worker_restarts": _stats["worker_restarts"],
+        "queue_depth": _queue.qsize() if _queue is not None else 0,
+        "queue_capacity": _QUEUE_MAX,
+        "dropped_total": _stats["dropped_total"],
+        "last_write_ts": _stats["last_write_ts"],
+        "last_error": _stats["last_error"],
+    }
 
 
 async def _write(pending: dict[str, list[dict]]) -> None:
@@ -68,8 +92,11 @@ async def _write(pending: dict[str, list[dict]]) -> None:
                 if rows:
                     await db.execute(_stmt(kind), rows)  # executemany 批量
             await db.commit()
+        _stats["last_write_ts"] = time.time()
+        _stats["last_error"] = None
     except Exception as exc:  # noqa: BLE001 落库失败不拖垮采集
         logger.warning("ingest 批量落库失败（丢弃 %d 行）: %s", rows_total, exc)
+        _stats["last_error"] = f"{type(exc).__name__}: {exc}"[:200]
 
 
 async def _run() -> None:
@@ -90,12 +117,39 @@ async def _run() -> None:
             last_flush = time.monotonic()
 
 
+def _on_worker_done(task: asyncio.Task) -> None:
+    """worker 意外死亡自愈（评审 2026-10-25 N8）：记录 + 退避重建。
+
+    正常关停（stop 的 cancel）不触发；重建前清空旧 task 引用，
+    submit 在退避窗口内按"worker 未启动"丢弃（宁丢不堵采集）。
+    """
+    global _task
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is None:
+        return
+    _stats["worker_restarts"] += 1
+    _stats["last_error"] = f"{type(exc).__name__}: {exc}"[:200]
+    backoff = _RESTART_BACKOFF[min(_stats["worker_restarts"], len(_RESTART_BACKOFF)) - 1]
+    logger.error(
+        "ingest worker 异常退出，%ds 后自动重建（第 %d 次）: %s",
+        backoff, _stats["worker_restarts"], exc,
+    )
+    _task = None
+    try:
+        asyncio.get_running_loop().call_later(backoff, start)
+    except RuntimeError:  # 循环已关（进程退出竞态）
+        pass
+
+
 def start() -> None:
     """启动落库 worker（须在事件循环内调用，lifespan 里执行）。"""
     global _queue, _task
     if _task is None:
         _queue = asyncio.Queue(maxsize=_QUEUE_MAX)
         _task = asyncio.create_task(_run(), name="ingest-writer")
+        _task.add_done_callback(_on_worker_done)
 
 
 async def stop() -> None:
@@ -111,3 +165,4 @@ async def stop() -> None:
 def _reset_for_test() -> None:
     global _queue, _task, _dropped_since_log
     _queue, _task, _dropped_since_log = None, None, 0
+    _stats.update(worker_restarts=0, dropped_total=0, last_write_ts=0.0, last_error=None)
