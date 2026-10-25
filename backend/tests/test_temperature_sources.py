@@ -67,8 +67,12 @@ def test_smart_disk_temps_parse_and_skip_failed(monkeypatch):
     monkeypatch.setattr(temperature.shutil, "which", lambda x: "/usr/sbin/smartctl")
     temperature._disk_cache.update(ts=0.0, items=[], health={}, temps={})
     items = asyncio.run(temperature._smart_disk_temps())
-    # NVMe 温度条目不上屏（hwmon 直读已覆盖 zone=nvme），只保留 SATA 盘条目
-    assert [i["label"] for i in items] == ["sda"]
+    # NVMe 温度条目不上屏（hwmon 直读已覆盖 zone=nvme），只保留 SATA 盘条目。
+    # 曾在 CI 间歇性空表（同代码相邻 run 一红一绿）：失败时 dump patch 生效现场
+    assert [i["label"] for i in items] == ["sda"], (
+        f"which={temperature.shutil.which('smartctl')!r} glob={temperature.glob!r} "
+        f"run_cmd={temperature.run_cmd!r} cache={temperature._disk_cache!r}"
+    )
     assert items[0]["zone"] == "disk"
     assert items[0]["celsius"] == 37.0
     assert asyncio.run(temperature._smart_disk_temps()) == items  # 缓存命中，条目不变
@@ -93,4 +97,6 @@ def test_smart_disk_temps_cached(monkeypatch):
     temperature._disk_cache.update(ts=0.0, items=[], health={}, temps={})
     asyncio.run(temperature._smart_disk_temps())
     asyncio.run(temperature._smart_disk_temps())
-    assert len(calls) == 1  # 60s 缓存内只探测一次
+    assert len(calls) == 1, (  # 60s 缓存内只探测一次
+        f"calls={calls} which={temperature.shutil.which('smartctl')!r} cache={temperature._disk_cache!r}"
+    )
