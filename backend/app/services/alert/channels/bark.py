@@ -27,7 +27,7 @@ class BarkChannel(BaseChannel):
         # server 可省略（默认官方），自建 server 必须是公网 http(s)（SSRF 护栏）
         assert_public_url(config.get("server", _DEFAULT_SERVER), what="bark server")
 
-    async def send(self, config: dict, title: str, body: str) -> bool:
+    async def send(self, config: dict, title: str, body: str) -> str | None:
         server = config.get("server", _DEFAULT_SERVER).rstrip("/")
         # 路径段必须全编码：title/body 含 / ? # 时裸拼会改变路径结构或截断消息
         key = quote(str(config["device_key"]), safe="")
@@ -38,12 +38,14 @@ class BarkChannel(BaseChannel):
             assert_public_url(server, what="bark server")
         except InvalidParamsError as exc:
             logger.warning("bark 发送被 SSRF 护栏拒绝: %s", exc)
-            return False
+            return "ssrf_rejected"
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
                     f"{server}/{key}/{t}/{b}",
                 )
-                return resp.status_code == 200
+                return None if resp.status_code == 200 else "bad_response"
+        except httpx.TimeoutException:
+            return "timeout"
         except httpx.HTTPError:
-            return False
+            return "network"

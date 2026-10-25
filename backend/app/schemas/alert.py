@@ -34,6 +34,9 @@ class AlertChannelItem(BaseModel):
     type: str
     enabled: bool
     config_masked: dict
+    # 最近发送健康快照（原型 C1/C2：send_failures/last_error/last_ok_ts），
+    # 渠道创建后尚未发送过时为 None
+    health: dict | None = None
 
 
 class AlertEventItem(BaseModel):
@@ -53,3 +56,6 @@ class AlertEventItem(BaseModel):
 class ChannelTestResult(BaseModel):
     channel_id: int
     success: bool
+    # 失败错误码（ssrf_rejected/timeout/network/auth_failed/bad_response/invalid_config）
+    reason: str | None = None
+    detail: str | None = None

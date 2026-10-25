@@ -13,13 +13,15 @@ class TelegramChannel(BaseChannel):
     def required_fields(self) -> list[str]:
         return ["bot_token", "chat_id"]
 
-    async def send(self, config: dict, title: str, body: str) -> bool:
+    async def send(self, config: dict, title: str, body: str) -> str | None:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.post(
                     f"https://api.telegram.org/bot{config['bot_token']}/sendMessage",
                     json={"chat_id": config["chat_id"], "text": f"[nasdeck] {title}\n{body}"},
                 )
-                return resp.status_code == 200
+                return None if resp.status_code == 200 else "bad_response"
+        except httpx.TimeoutException:
+            return "timeout"
         except httpx.HTTPError:
-            return False
+            return "network"

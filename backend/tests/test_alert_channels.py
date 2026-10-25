@@ -75,7 +75,7 @@ def test_send_posts_json_payload(monkeypatch):
 
     _patch_transport(monkeypatch, handler)
     ok = asyncio.run(WebhookChannel().send({"url": "https://example.com/hook"}, "标题", "内容"))
-    assert ok is True
+    assert ok is None
     assert seen["url"] == "https://example.com/hook"
     assert b"nasdeck" in seen["json"] and "标题".encode() in seen["json"]
 
@@ -84,7 +84,7 @@ def test_send_posts_json_payload(monkeypatch):
 def test_send_status_handling(monkeypatch, status):
     _patch_transport(monkeypatch, lambda request: httpx.Response(status))
     ok = asyncio.run(WebhookChannel().send({"url": "https://example.com/hook"}, "t", "b"))
-    assert ok is (status < 400)
+    assert (ok is None) if status < 400 else (ok == "bad_response")
 
 
 def test_send_network_error_returns_false(monkeypatch):
@@ -93,7 +93,7 @@ def test_send_network_error_returns_false(monkeypatch):
 
     _patch_transport(monkeypatch, handler)
     ok = asyncio.run(WebhookChannel().send({"url": "https://example.com/hook"}, "t", "b"))
-    assert ok is False
+    assert ok == "network"
 
 
 # ------------------------------------------------------------ SSRF 护栏（P0-B）
@@ -130,7 +130,7 @@ def test_send_rejects_private_url_without_network(monkeypatch):
 
     _patch_transport(monkeypatch, handler)
     ok = asyncio.run(WebhookChannel().send({"url": "http://169.254.169.254/meta"}, "t", "b"))
-    assert ok is False
+    assert ok == "ssrf_rejected"
 
 
 def test_bark_validate_rejects_private_server():
@@ -157,7 +157,7 @@ def test_email_validate_rejects_bad_port():
 
 
 def test_email_send_rejects_private_host_without_smtp():
-    # port 非数字/内网 host 在连 SMTP 前被拒，send 不抛异常且返回 False
+    # port 非数字/内网 host 在连 SMTP 前被拒，send 不抛异常且返回错误码
     ok = asyncio.run(
         EmailChannel().send(
             {"host": "10.0.0.5", "port": "not-a-port", "username": "u", "password": "p", "to": "a@b.com"},
@@ -165,4 +165,4 @@ def test_email_send_rejects_private_host_without_smtp():
             "b",
         )
     )
-    assert ok is False
+    assert ok == "ssrf_rejected"

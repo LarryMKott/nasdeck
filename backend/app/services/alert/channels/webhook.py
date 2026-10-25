@@ -24,19 +24,23 @@ class WebhookChannel(BaseChannel):
         # SSRF 护栏（评审 2026-10-25 P0-B）：scheme 白名单 + 内网/保留段拒绝
         assert_public_url(config["url"], what="webhook url")
 
-    async def send(self, config: dict, title: str, body: str) -> bool:
+    async def send(self, config: dict, title: str, body: str) -> str | None:
         try:
             # 发送时复检：防保存后 DNS 被改指向内网
             assert_public_url(config["url"], what="webhook url")
         except InvalidParamsError as exc:
             logger.warning("webhook 发送被 SSRF 护栏拒绝: %s", exc)
-            return False
+            return "ssrf_rejected"
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.post(
                     config["url"],
                     json={"source": "nasdeck", "title": title, "body": body},
                 )
-                return 200 <= resp.status_code < 300
+                if 200 <= resp.status_code < 300:
+                    return None
+                return "bad_response"
+        except httpx.TimeoutException:
+            return "timeout"
         except httpx.HTTPError:
-            return False
+            return "network"

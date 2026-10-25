@@ -56,7 +56,8 @@ async def test_notify_queued_not_sent_in_tick(db):
 
     assert len(events) == 1 and events[0]["status"] == "firing"
     assert len(engine._pending) == 1
-    channel_type, config, title, _body = engine._pending[0]
+    item = engine._pending[0]
+    channel_type, config, title = item["channel_type"], item["config"], item["title"]
     assert channel_type == "webhook" and config == {"url": "http://x/hook"}
     assert "告警触发" in title
 
@@ -64,9 +65,9 @@ async def test_notify_queued_not_sent_in_tick(db):
 async def test_drain_sends_and_empties_queue(db):
     sent = []
 
-    async def fake_send(config, title, body):
+    async def fake_send(config, title, body):  # 新契约：成功返回 None
         sent.append((config, title, body))
-        return True
+        return None
 
     db.add(_rule())
     db.add(AlertChannel(id=1, name="c", type="webhook", enabled=True, config={"url": "http://x/hook"}))
@@ -187,3 +188,62 @@ def test_mask_config_masks_url_credentials():
 def test_mask_config_keeps_plain_url():
     masked = mask_config("webhook", {"url": "https://hooks.example/xyz"})
     assert masked["url"] == "https://hooks.example/xyz"
+
+
+async def test_drain_retries_then_records_channel_health(monkeypatch):
+    """发送失败重试 ≤3 次（尾部重入队），放弃后渠道健康留痕（原型 C1）。"""
+    from app.services.alert import engine as alert_engine_mod
+
+    calls = {"n": 0}
+
+    async def flaky_send(config, title, body):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return "timeout"  # 前两次失败
+        return None  # 第三次成功
+
+    impl = alert_engine_mod.channel_impl("webhook")
+    monkeypatch.setattr(impl, "send", flaky_send)
+    alert_engine_mod._pending.clear()
+    alert_engine_mod._channel_health.clear()
+    alert_engine_mod._pending.append(
+        {"channel_id": 7, "channel_type": "webhook", "config": {"url": "https://x/hook"},
+         "title": "t", "body": "b", "attempts": 0}
+    )
+    await alert_engine_mod._drain()
+    assert calls["n"] == 3
+    assert alert_engine_mod._pending == []
+    assert alert_engine_mod.channel_health()[7]["send_failures"] == 0  # 最终成功清零
+    assert alert_engine_mod.channel_health()[7]["last_ok_ts"] is not None
+
+    # 三次全失败：放弃并记入健康
+    async def always_fail(config, title, body):
+        return "auth_failed"
+
+    monkeypatch.setattr(impl, "send", always_fail)
+    alert_engine_mod._pending.clear()
+    alert_engine_mod._pending.append(
+        {"channel_id": 7, "channel_type": "webhook", "config": {"url": "https://x/hook"},
+         "title": "t", "body": "b", "attempts": 0}
+    )
+    await alert_engine_mod._drain()
+    assert alert_engine_mod._pending == []
+    health = alert_engine_mod.channel_health()[7]
+    assert health["send_failures"] == 1 and health["last_error"] == "auth_failed"
+
+
+def test_queue_overflow_counts_drop(monkeypatch):
+    """队列上限 200：溢出丢弃并在渠道健康 overflow_dropped 留痕。"""
+    from app.services.alert import engine as alert_engine_mod
+    from app.models.alert import AlertChannel
+
+    alert_engine_mod._pending.clear()
+    alert_engine_mod._channel_health.clear()
+    for _ in range(alert_engine_mod._PENDING_MAX):
+        alert_engine_mod._pending.append({"channel_id": 1, "channel_type": "webhook", "config": {},
+                                          "title": "t", "body": "b", "attempts": 0})
+    channel = AlertChannel(id=1, name="c", type="webhook", config={}, enabled=True)
+    alert_engine_mod._queue_notify({1: channel}, [1], "溢出", "b")
+    assert len(alert_engine_mod._pending) == alert_engine_mod._PENDING_MAX
+    assert alert_engine_mod.channel_health()[1]["overflow_dropped"] == 1
+    alert_engine_mod._pending.clear()

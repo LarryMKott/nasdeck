@@ -43,8 +43,12 @@ class BaseChannel(ABC):
     type: str = "base"
 
     @abstractmethod
-    async def send(self, config: dict, title: str, body: str) -> bool:
-        """发送通知，成功 True / 失败 False（不抛异常）。"""
+    async def send(self, config: dict, title: str, body: str) -> str | None:
+        """发送通知：成功返回 None，失败返回错误码（不抛异常）。
+
+        错误码（原型 C2，供 /test 端点与发送重试分类展示）：
+        ssrf_rejected / timeout / network / auth_failed / bad_response / invalid_config
+        """
 
     def validate(self, config: dict) -> None:
         required = self.required_fields()

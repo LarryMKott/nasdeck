@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -33,9 +34,28 @@ _tick_counters: dict[int, int] = {}
 # rule_id → 活跃事件 id（用于恢复）
 _firing: dict[int, int] = {}
 
-# 待发通知队列：(channel_type, config, title, body)——事务内只入队
-_pending: list[tuple[str, dict, str, str]] = []
+# 待发通知队列（事务内只入队，原型 C1）：
+# {channel_id, channel_type, config, title, body, attempts}——失败重试 ≤3 次
+# （重入队到尾部，被后续条目天然隔开形成退避），超限丢弃并在渠道健康留痕
+_PENDING_MAX = 200
+_RETRY_MAX = 3
+_pending: list[dict] = []
 _drain_task: asyncio.Task | None = None
+# 渠道健康（原型 C1/C2，UI 渠道卡与自检页消费）
+_channel_health: dict[int, dict] = {}
+
+
+def _new_health() -> dict:
+    return {"send_failures": 0, "last_error": None, "last_ok_ts": None, "last_attempt_ts": None, "overflow_dropped": 0}
+
+
+def channel_health() -> dict[int, dict]:
+    """各渠道最近发送结果快照。"""
+    return {cid: dict(h) for cid, h in _channel_health.items()}
+
+
+def pending_stats() -> dict:
+    return {"depth": len(_pending), "capacity": _PENDING_MAX}
 
 
 def channel_impl(channel_type: str):
@@ -108,44 +128,55 @@ async def evaluate_tick(db: AsyncSession, ctx: dict) -> list[dict]:
     fired_events = []
 
     for rule in rules:
-        value = metric_value(rule.metric, ctx)
-        if value is None:
-            continue
-        hit = compare(value, rule.comparator, rule.threshold)
-        count = _tick_counters.get(rule.id, 0)
-        count = count + 1 if hit else 0
-        _tick_counters[rule.id] = count
+        try:
+            fired_events.extend(await _evaluate_rule(db, rule, ctx, enabled_channels, now))
+        except Exception as exc:  # noqa: BLE001 单规则失败只跳过自身，不中断整轮（原型 C1）
+            logger.warning("规则 %s(%s) 评估异常，跳过本轮: %s", rule.id, rule.name, exc, exc_info=True)
+    return fired_events
 
-        if hit and count >= rule.duration_ticks and rule.id not in _firing:
-            message = f"{rule.name}: {rule.metric}={value} {rule.comparator} {rule.threshold}"
-            event = AlertEvent(
-                rule_id=rule.id,
-                rule_name=rule.name,
-                metric=rule.metric,
-                value=value,
-                threshold=rule.threshold,
-                severity=rule.severity,
-                status="firing",
-                message=message,
-                fired_at=now,
-            )
-            db.add(event)
-            await db.flush()
-            _firing[rule.id] = event.id
+
+async def _evaluate_rule(
+    db: AsyncSession, rule: AlertRule, ctx: dict, enabled_channels: dict[int, AlertChannel], now: str
+) -> list[dict]:
+    fired_events = []
+    value = metric_value(rule.metric, ctx)
+    if value is None:
+        return fired_events
+    hit = compare(value, rule.comparator, rule.threshold)
+    count = _tick_counters.get(rule.id, 0)
+    count = count + 1 if hit else 0
+    _tick_counters[rule.id] = count
+
+    if hit and count >= rule.duration_ticks and rule.id not in _firing:
+        message = f"{rule.name}: {rule.metric}={value} {rule.comparator} {rule.threshold}"
+        event = AlertEvent(
+            rule_id=rule.id,
+            rule_name=rule.name,
+            metric=rule.metric,
+            value=value,
+            threshold=rule.threshold,
+            severity=rule.severity,
+            status="firing",
+            message=message,
+            fired_at=now,
+        )
+        db.add(event)
+        await db.flush()
+        _firing[rule.id] = event.id
+        fired_events.append(event_dict(event))
+        _queue_notify(enabled_channels, rule.channels, title=f"告警触发 · {rule.name}", body=message)
+
+    elif not hit and rule.id in _firing:
+        event_id = _firing.pop(rule.id)
+        event = await db.get(AlertEvent, event_id)
+        if event:
+            event.status = "resolved"
+            event.resolved_at = now
             fired_events.append(event_dict(event))
-            _queue_notify(enabled_channels, rule.channels, title=f"告警触发 · {rule.name}", body=message)
-
-        elif not hit and rule.id in _firing:
-            event_id = _firing.pop(rule.id)
-            event = await db.get(AlertEvent, event_id)
-            if event:
-                event.status = "resolved"
-                event.resolved_at = now
-                fired_events.append(event_dict(event))
-                _queue_notify(
-                    enabled_channels, rule.channels,
-                    title=f"告警恢复 · {rule.name}", body=f"{rule.metric} 已回落正常",
-                )
+            _queue_notify(
+                enabled_channels, rule.channels,
+                title=f"告警恢复 · {rule.name}", body=f"{rule.metric} 已回落正常",
+            )
     return fired_events
 
 
@@ -157,14 +188,30 @@ async def _enabled_channels(db: AsyncSession) -> dict[int, AlertChannel]:
 def _queue_notify(channels: dict[int, AlertChannel], channel_ids: list[int], title: str, body: str) -> None:
     for channel_id in channel_ids or []:
         channel = channels.get(channel_id)
-        if channel:
-            _pending.append((channel.type, dict(channel.config), title, body))
+        if not channel:
+            continue
+        if len(_pending) >= _PENDING_MAX:
+            # 队列上限：慢渠道叠加抖动规则时不再无限累积；丢弃留痕于渠道健康（原型 C1）
+            h = _channel_health.setdefault(channel_id, _new_health())
+            h["overflow_dropped"] += 1
+            logger.warning("通知队列已满（%d），丢弃 channel=%s 的通知", _PENDING_MAX, channel.type)
+            continue
+        _pending.append(
+            {
+                "channel_id": channel_id,
+                "channel_type": channel.type,
+                "config": dict(channel.config),
+                "title": title,
+                "body": body,
+                "attempts": 0,
+            }
+        )
 
 
 def schedule_drain() -> None:
     """事务提交后由调用方触发：后台 task 发送待发通知。
 
-    上一批尚未发完（多渠道叠加 10-15s 超时）时直接跳过本轮入队——队列在
+    上一批尚未发完（多渠道叠加 10-15s 超时）时直接跳过本轮调度——队列在
     evaluate_tick 后持续累积，不会丢通知，只合并发送时机。
     """
     global _drain_task
@@ -177,13 +224,32 @@ def schedule_drain() -> None:
 
 async def _drain() -> None:
     while _pending:
-        channel_type, config, title, body = _pending.pop(0)
+        item = _pending.pop(0)
+        cid = item["channel_id"]
+        health = _channel_health.setdefault(cid, _new_health())
+        health["last_attempt_ts"] = time.time()
         try:
-            ok = await channel_impl(channel_type).send(config, title, body)
+            error = await channel_impl(item["channel_type"]).send(
+                item["config"], item["title"], item["body"]
+            )
         except Exception as exc:  # noqa: BLE001 通知失败不阻断引擎
-            logger.warning("通知发送失败 channel=%s: %s", channel_type, exc)
-            ok = False
-        logger.info("通知 %s channel=%s ok=%s", title, channel_type, ok)
+            logger.warning("通知发送异常 channel=%s: %s", item["channel_type"], exc)
+            error = "network"
+        if error is None:
+            health.update(send_failures=0, last_error=None, last_ok_ts=time.time())
+            logger.info("通知已发送 channel=%s(%s)", item["channel_type"], cid)
+            continue
+        item["attempts"] += 1
+        if item["attempts"] < _RETRY_MAX:
+            # 重入队到尾部：被后续条目隔开，天然形成重试间隔（原型 C1）
+            _pending.append(item)
+            logger.info("通知发送失败（%s）channel=%s(%s)，第 %d 次重试入队", error, item["channel_type"], cid, item["attempts"])
+            continue
+        health["send_failures"] += 1
+        health["last_error"] = error
+        logger.warning(
+            "通知重试 %d 次仍失败 channel=%s(%s)，已放弃（错误码 %s）", _RETRY_MAX, item["channel_type"], cid, error
+        )
 
 
 def event_dict(event: AlertEvent) -> dict:
