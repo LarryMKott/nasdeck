@@ -280,7 +280,7 @@ export async function fetchDashboard() {
   const zones = pick(fansS) ?? [];
   const mounts = pick(volsS) ?? [];
 
-  const logical = snap.cpu_per_core.length || 1;
+  const logical = snap.cpu_per_core?.length || 1;
   const cpuTemp = temps.filter((t) => t.zone === 'cpu');
   // 骨架出发只填真实数据；各数据源缺失时段保持骨架空值（「—」），不残留演示值
   const d = emptyDashboard();
@@ -534,10 +534,11 @@ export async function fetchStorage() {
 
   const mainVol =
     (vols ?? []).filter((v) => v.mount === '/' || v.mount === 'C:\\')[0] ?? (vols ?? [])[0];
+  const tb = (bytes) => (bytes != null ? `${Math.round((bytes / 1024 ** 4) * 10) / 10}` : '—');
   if (mainVol) {
     d.volume = {
       name: mainVol.mount,
-      usedText: `${Math.round((mainVol.used_bytes / 1024 ** 4) * 10) / 10} / ${Math.round((mainVol.total_bytes / 1024 ** 4) * 10) / 10} TB`,
+      usedText: `${tb(mainVol.used_bytes)} / ${tb(mainVol.total_bytes)} TB`,
       percent: mainVol.percent,
       fs: mainVol.fs_type,
       mount: mainVol.mount,
@@ -550,7 +551,7 @@ export async function fetchStorage() {
   if (dataVol) {
     d.dataVolume = {
       name: dataVol.mount,
-      usedText: `${Math.round((dataVol.used_bytes / 1024 ** 4) * 10) / 10} / ${Math.round((dataVol.total_bytes / 1024 ** 4) * 10) / 10} TB`,
+      usedText: `${tb(dataVol.used_bytes)} / ${tb(dataVol.total_bytes)} TB`,
       percent: dataVol.percent,
       fs: (dataVol.fs_type || '').toUpperCase(),
     };
@@ -629,7 +630,8 @@ export async function fetchDisks() {
     apiData('/api/v1/storage/self-tests'),
   ]);
   const disks = pick(disksS);
-  if (!disks?.length) return { data: mock.disks, live: false };
+  // null=不可达回退演示；空列表=可达的真值（0 盘不再显示 8 块假盘）
+  if (disks === null) return { data: mock.disks, live: false };
 
   const tests = pick(testsS) ?? [];
   const running = tests.find((t) => t.status === 'running');
@@ -693,10 +695,17 @@ export async function fetchHistorySeries(dim, rangeKey) {
     const avg = values.reduce((a, b) => a + b, 0) / (values.length || 1);
     const unit =
       { cpu: '%', mem: ' MB', temp: ' °C', net: ' KB/s', disk: ' KB/s', gpu: '%' }[dim] ?? '';
+    // 缺口段 → 索引区间（chart 画断层带用；ts 与行 ts 精确匹配，失配段忽略）
+    const tsIndex = new Map(rows.map((r, i) => [r.ts, i]));
+    const gapIdx = (resp.gaps ?? [])
+      .map(([a, b]) => [tsIndex.get(a), tsIndex.get(b)])
+      .filter(([a, b]) => a != null && b != null && b > a);
     return {
       data: {
         series: data,
         labels,
+        gapIdx,
+        gaps: resp.gaps ?? [],
         stats: {
           avg: `${avg.toFixed(1)}${unit}`,
           max: `${Math.max(...values).toFixed(1)}${unit}`,
@@ -754,7 +763,8 @@ export async function fetchSystemCharts() {
 
 export async function fetchTemps() {
   const items = await safe('/api/v1/monitor/temperatures');
-  if (!items?.length) return { data: mock.temps, live: false };
+  // null=不可达回退演示；空列表=无传感器的合法真值（回退 mock 会显示假温度）
+  if (items === null) return { data: mock.temps, live: false };
   const byZone = (zone) => items.filter((t) => t.zone === zone);
   const tile = (zone, icon, label) => {
     const list = byZone(zone);
@@ -794,7 +804,7 @@ export async function fetchDocker() {
         mem: c.mem_usage ?? '—',
         cpu: c.cpu_percent != null ? `${c.cpu_percent}%` : '—',
         net: '—',
-        ports: c.ports[0] ?? '—',
+        ports: c.ports?.[0] ?? '—',
         up: c.status,
       })),
       available: !!resp.available,
@@ -847,11 +857,12 @@ const DEFAULT_CURVE_TEMPLATE = [
 ];
 
 export async function fetchFans() {
-  const [zonesS, curvesS, fcsS, chansS] = await Promise.allSettled([
+  const [zonesS, curvesS, fcsS, chansS, eventsS] = await Promise.allSettled([
     apiData('/api/v1/control/fans'),
     apiData('/api/v1/control/curves'),
     apiData('/api/v1/control/fcs'),
     apiData('/api/v1/control/hwmon/channels'),
+    apiData('/api/v1/control/fans/events'),
   ]);
   const zones = pick(zonesS);
   if (zones === null) return { data: mock.fans, live: false }; // 仅后端不可达才演示回退
@@ -859,6 +870,7 @@ export async function fetchFans() {
   const curves = pick(curvesS);
   const fcs = pick(fcsS);
   const channels = pick(chansS) ?? [];
+  const fanEvents = pick(eventsS) ?? [];
   const firstCurve = (curves ?? [])[0];
   return {
     data: {
@@ -869,9 +881,19 @@ export async function fetchFans() {
         rpm: z.current_rpm ?? 0,
         duty: Math.round(z.current_pwm_pct ?? 0),
         pwm: z.mode !== 'auto',
+        mode: z.mode,
+        sensorTempC: z.sensor_temp_c,
+        chipPath: z.chip_path,
         hwmonName: z.hwmon_name,
         pwmChannel: z.pwm_channel,
         fanChannel: z.fan_channel,
+      })),
+      // 最近调速异常/兜底事件（新→旧，环形缓冲 20 条）
+      fanEvents: fanEvents.map((e) => ({
+        ts: e.ts,
+        name: e.name,
+        error: e.error,
+        failsafe: e.failsafe,
       })),
       // 未建风区的硬件通道（检测区数据源）；已建风区的通道在卡片区展示
       channels: channels.filter(

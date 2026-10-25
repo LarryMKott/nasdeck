@@ -37,6 +37,15 @@ function niceScale(rawMin, rawMax, n) {
  * @param {HTMLElement} host 宿主（需有 .chartbox 样式与 id）
  * @param {object} cfg { series:[{name,color,data,dash?,area?}], labels, height?, zoom?, tipFmt?, yTickFmt? }
  */
+/** HTML 转义：labels/系列名来自后端数据（含设备名/序列号形态字符串），
+ *  此前 innerHTML 裸插是唯一可注入 sink（评审 P1-12） */
+function esc(v) {
+  return String(v).replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+  );
+}
+
 function renderLine(host, cfg) {
   host.classList.add('chartbox');
   host.innerHTML = '';
@@ -112,9 +121,23 @@ function renderLine(host, cfg) {
       const idx = Math.round((k * (m - 1)) / (xl - 1 || 1));
       svg.push(
         `<text x="${X(idx)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--axis)">` +
-          `${cfg.labels[i0 + idx]}</text>`
+          `${esc(cfg.labels[i0 + idx])}</text>`
       );
     }
+    // 数据缺口带（原型 B3）：灰底虚线框，图表不再连线假装连续
+    (cfg.gapIdx || []).forEach(([ga, gb]) => {
+      if (gb <= i0 || ga >= i1) return;
+      const gx1 = X(Math.max(ga, i0) - i0);
+      const gx2 = X(Math.min(gb, i1) - i0);
+      if (gx2 - gx1 < 2) return;
+      svg.push(
+        `<rect x="${gx1.toFixed(1)}" y="${pt}" width="${(gx2 - gx1).toFixed(1)}" height="${ih}" ` +
+          'fill="rgba(236,164,60,.14)" stroke="rgba(236,164,60,.5)" stroke-dasharray="4 3"/>'
+      );
+      svg.push(
+        `<text x="${((gx1 + gx2) / 2).toFixed(1)}" y="${pt + ih + 10}" text-anchor="middle" font-size="9.5" fill="var(--warn)">缺口</text>`
+      );
+    });
     ds.forEach((s, si) => {
       const pts = s.data.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
       if (s.area !== false) {
@@ -182,9 +205,9 @@ function renderLine(host, cfg) {
         d.setAttribute('visibility', 'visible');
         rows +=
           `<div class="tt-r"><span class="tt-d" style="background:${ds[si].color}"></span>` +
-          `${ds[si].name}<b>${cfg.tipFmt ? cfg.tipFmt(v) : v}</b></div>`;
+          `${esc(ds[si].name)}<b>${cfg.tipFmt ? cfg.tipFmt(v) : v}</b></div>`;
       });
-      tip.innerHTML = `<div class="tt-t">${cfg.labels[i0 + i]}</div>${rows}`;
+      tip.innerHTML = `<div class="tt-t">${esc(cfg.labels[i0 + i])}</div>${rows}`;
       tip.style.display = 'block';
       const tw = tip.offsetWidth;
       tip.style.left = `${px + 12 + tw > r.width ? px - tw - 12 : px + 12}px`;

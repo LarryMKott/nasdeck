@@ -81,6 +81,12 @@ export const nasRoutes = [
         meta: { title: '控制与自动化', keepAlive: true },
       },
       {
+        path: 'selfcheck',
+        name: 'NasSelfCheck',
+        component: view('SelfCheckView'),
+        meta: { title: '系统自检', keepAlive: false },
+      },
+      {
         path: 'manual',
         name: 'NasManual',
         component: view('ManualView'),

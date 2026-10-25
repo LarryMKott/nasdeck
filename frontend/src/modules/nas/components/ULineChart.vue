@@ -18,6 +18,8 @@ const props = defineProps({
   tipFmt: { type: Function, default: undefined },
   /** y 轴刻度格式化 */
   yTickFmt: { type: Function, default: undefined },
+  /** 数据缺口索引区间 [[i1, i2], ...]（后端 gaps 换算，画断层带） */
+  gapIdx: { type: Array, default: () => [] },
 });
 
 const host = ref(null);
@@ -35,6 +37,7 @@ function draw() {
     zoom: props.zoom,
     tipFmt: props.tipFmt,
     yTickFmt: props.yTickFmt,
+    gapIdx: props.gapIdx,
   });
 }
 
@@ -50,7 +53,7 @@ onActivated(() => draw());
 onBeforeUnmount(() => observer?.disconnect());
 
 watch(
-  () => [props.series, props.labels],
+  () => [props.series, props.labels, props.gapIdx],
   () => draw(),
   { deep: true }
 );

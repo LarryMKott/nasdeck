@@ -45,6 +45,7 @@ export const navGroups = [
   {
     items: [
       { path: '/nasdeck/automation', title: '自动化', icon: 'shield' },
+      { path: '/nasdeck/selfcheck', title: '自检', icon: 'shield' },
       { path: '/nasdeck/manual', title: '手册', icon: 'book' },
       { path: '/nasdeck/about', title: '关于', icon: 'info' },
     ],

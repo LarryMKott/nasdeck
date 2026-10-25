@@ -59,7 +59,11 @@ const remoteStats = ref(null);
 const lastUpdated = ref('—');
 
 async function loadRemote() {
+  // 竞态守卫（评审 F-N2）：快速切维度/区间时慢响应晚归不再覆盖新一轮结果，
+  // 否则图表画的是上一维度曲线、标题单位按当前维度渲染
+  const token = ++loadSeq;
   const result = await nasData.fetchHistorySeries(activeDim.value, activeRange.value);
+  if (token !== loadSeq) return;
   if (result.live && result.data) {
     remote.value = result.data;
     remoteLive.value = true;
@@ -67,11 +71,14 @@ async function loadRemote() {
     remote.value = null;
     remoteLive.value = false;
   }
-  remoteStats.value = await nasData.fetchHistoryStats(activeDim.value, activeRange.value);
+  const stats = await nasData.fetchHistoryStats(activeDim.value, activeRange.value);
+  if (token !== loadSeq) return;
+  remoteStats.value = stats;
   const now = new Date();
   const pad = (x) => String(x).padStart(2, '0');
   lastUpdated.value = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
+let loadSeq = 0;
 
 function exportAs(fmt) {
   window.open(nasData.historyExportUrl(activeDim.value, activeRange.value, fmt), '_blank');
@@ -97,6 +104,16 @@ const histSeries = computed(() => [
 ]);
 
 const histLabels = computed(() => (remoteLive.value ? remote.value.labels : fallbackLabels.value));
+const histGaps = computed(() => (remoteLive.value ? (remote.value.gapIdx ?? []) : []));
+const gapPct = computed(() => {
+  if (!remoteLive.value || !remote.value.gaps?.length) return null;
+  const span = { '24h': 1440, '7d': 10080, '30d': 43200 }[activeRange.value] * 60;
+  let hole = 0;
+  for (const [a, b] of remote.value.gaps) {
+    hole += (new Date(`${b}Z`) - new Date(`${a}Z`)) / 1000;
+  }
+  return Math.min(100, Math.round((hole / span) * 1000) / 10);
+});
 
 const histStats = computed(() => {
   if (remoteLive.value && remoteStats.value) return remoteStats.value;
@@ -118,7 +135,13 @@ const fmtOpen = reactive({ md: false, html: false, csv: false });
 
 <template>
   <section>
-    <u-page-header title="历史趋势" sub="六维度历史数据回看 · 报告导出" :updated="lastUpdated">
+    <u-page-header
+      :refreshing="refreshing"
+      title="历史趋势"
+      sub="六维度历史数据回看 · 报告导出"
+      :updated="lastUpdated"
+      @refresh="refresh"
+    >
       <template #right>
         <div class="seg">
           <button
@@ -162,8 +185,16 @@ const fmtOpen = reactive({ md: false, html: false, csv: false });
           :labels="histLabels"
           :height="300"
           zoom
+          :gap-idx="histGaps"
           :tip-fmt="(v) => `${v.toFixed(1)}${DIMS[activeDim].unit}`"
         />
+        <div
+          v-if="gapPct != null && gapPct > 0"
+          class="small"
+          style="margin-top: 6px; color: var(--warn, #eca43c)"
+        >
+          区间存在数据缺口 {{ gapPct }}%（灰带处采集断流，统计已按实测点计算）
+        </div>
       </div>
     </div>
 
