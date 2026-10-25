@@ -42,8 +42,8 @@ async def history_api(
     minutes: int = Query(default=60, ge=1, le=43200),
     points: int = Query(default=200, ge=10, le=500),
 ) -> dict:
-    rows, granularity = await history_service.query_history(db, minutes, points)
-    return {"points": rows, "minutes": minutes, "granularity": granularity}
+    rows, granularity, gaps = await history_service.query_history(db, minutes, points)
+    return {"points": rows, "minutes": minutes, "granularity": granularity, "gaps": gaps}
 
 
 @router.get("/summary", response_model=Summary)
@@ -93,7 +93,7 @@ async def history_export(
     fmt: str = Query(default="csv", pattern="^(csv|markdown|html)$"),
 ) -> Response:
     """历史健康报告导出（契约 §3.1：文件流，非信封）。"""
-    rows, _granularity = await history_service.query_history(db, minutes, 500)
+    rows, _granularity, _gaps = await history_service.query_history(db, minutes, 500)
     filename, content, media_type = history_service.export_build(rows, dim, minutes, fmt)
     return Response(
         content,

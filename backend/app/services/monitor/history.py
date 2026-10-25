@@ -13,29 +13,58 @@ from app.models.metrics import MetricPoint
 
 MAX_MINUTES = 30 * 24 * 60  # 30 天
 MAX_POINTS = 500  # 单次返回点数上限（契约 §2.3）
+# 各粒度标称步长（秒）×2 = 断口判定阈值；相邻点取较粗一档（跨段接缝
+# raw↔1m 天然 ~60s，按 raw 的 2s 阈值会误报接缝为缺口）
+_GAP_STEPS = {"raw": 2.0, "1m": 120.0, "10m": 1200.0}
 
 
-async def query_history(db: AsyncSession, minutes: int, points: int) -> tuple[list[dict], str]:
-    """返回 (点列表, 主粒度)。粒度按窗口选：raw 保留期内用 raw，7 天内用 1m，更长用 10m。
+def _detect_gaps(rows: list[dict], limit: int = 50) -> list[list[str]]:
+    """相邻返回点间隔超过所属粒度 2× 标称步长即断口（采集断流/升级停机）。
+
+    图表据此画断层带而不是连线假装连续；上限 50 段防长窗口响应膨胀。
+    """
+    gaps: list[list[str]] = []
+    for prev, cur in zip(rows, rows[1:], strict=False):
+        threshold = max(
+            _GAP_STEPS.get(prev.get("granularity") or "", 2.0),
+            _GAP_STEPS.get(cur.get("granularity") or "", 2.0),
+        )
+        try:
+            delta = (
+                datetime.strptime(cur["ts"], "%Y-%m-%dT%H:%M:%S")
+                - datetime.strptime(prev["ts"], "%Y-%m-%dT%H:%M:%S")
+            ).total_seconds()
+        except (KeyError, TypeError, ValueError):
+            continue
+        if delta > threshold:
+            gaps.append([prev["ts"], cur["ts"]])
+            if len(gaps) >= limit:
+                break
+    return gaps
+
+
+async def query_history(db: AsyncSession, minutes: int, points: int) -> tuple[list[dict], str, list[list[str]]]:
+    """返回 (点列表, 主粒度, 缺口段列表)。粒度按窗口选：raw 保留期内用 raw，7 天内用 1m，更长用 10m。
 
     窗口内点数超过 points 时按时间桶平均降采样，保证任意窗口都返回铺满区间的点。
     此前实现固定取最近 N 条 raw 行，minutes 参数实际无效——24h 窗口也只覆盖最后几秒。
     窗口超过 raw 保留期时新旧两段拼接：老区段用 1m/10m（严格 < raw 起点防止与
     raw 段重叠双画），最近 raw 保留期仍用 raw——1m/10m 由 downsampler 滞后聚合，
-    单查聚合表会把最近几小时漏掉。
+    单查聚合表会把最近几小时漏掉。缺口段（gaps）由返回点间距推导，供前端标注。
     """
     minutes = min(minutes, MAX_MINUTES)
     points = max(1, min(points, MAX_POINTS))
     raw_keep = max(settings.raw_keep_minutes, 1)
     if minutes <= raw_keep:
-        return await _window(db, "raw", _iso_minutes_ago(minutes), minutes, points), "raw"
+        rows = await _window(db, "raw", _iso_minutes_ago(minutes), minutes, points)
+        return rows, "raw", _detect_gaps(rows)
     granularity = "1m" if minutes <= 7 * 24 * 60 else "10m"
     raw_since = _iso_minutes_ago(raw_keep)
     older_span = minutes - raw_keep
     older_points = max(1, round(points * older_span / minutes))
     rows = await _window(db, granularity, _iso_minutes_ago(minutes), older_span, older_points, until=raw_since)
     rows += await _window(db, "raw", raw_since, raw_keep, max(1, points - older_points))
-    return rows, granularity
+    return rows, granularity, _detect_gaps(rows)
 
 
 async def _window(

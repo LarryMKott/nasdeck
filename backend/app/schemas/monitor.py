@@ -96,6 +96,8 @@ class HistoryResponse(BaseModel):
     points: list[HistoryPoint]
     minutes: int
     granularity: str
+    # 数据缺口段 [[start, end], ...]：相邻点间隔 > 2×粒度标称步长（原型 B3）
+    gaps: list[list[str]] = []
 
 
 class DiskHealthCount(BaseModel):

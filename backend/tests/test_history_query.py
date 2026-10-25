@@ -60,7 +60,7 @@ async def test_raw_window_buckets_span_whole_window(client):
     newest = await _seed_raw(200, step_seconds=30)
     since = newest - timedelta(seconds=90 * 60)
     async with session_factory() as db:
-        points, granularity = await query_history(db, minutes=90, points=60)
+        points, granularity, _gaps = await query_history(db, minutes=90, points=60)
     assert granularity == "raw"
     assert 0 < len(points) <= 61  # 桶均分 + 首尾半桶余量
     assert _ts(points[0]) <= since + timedelta(seconds=90)  # 窗口起点有覆盖
@@ -72,7 +72,7 @@ async def test_few_points_bypass_bucketing(client):
     """点数不超 points：原样返回，不做桶聚合。"""
     await _seed_raw(30, step_seconds=1)
     async with session_factory() as db:
-        points, granularity = await query_history(db, minutes=2, points=500)
+        points, granularity, _gaps = await query_history(db, minutes=2, points=500)
     assert granularity == "raw"
     assert len(points) == 30
     assert points[0]["cpu_max"] == 7.5
@@ -83,7 +83,7 @@ async def test_bucket_values_are_averages(client):
     """桶值是均值：等值序列聚合后 cpu_avg 保持原值。"""
     await _seed_raw(120, step_seconds=1)
     async with session_factory() as db:
-        points, _ = await query_history(db, minutes=2, points=60)
+        points, _, gaps = await query_history(db, minutes=2, points=60)
     assert points
     assert all(p["cpu_avg"] == pytest.approx(7.5) for p in points)
 
@@ -103,7 +103,7 @@ async def test_long_window_unions_older_granularity_and_raw(client):
         db.add_all(MetricPoint(ts=ts, granularity="1m", cpu=3.0, mem_mb=900.0, net_kbps=50.0) for ts in older_ts)
         await db.commit()
     async with session_factory() as db:
-        points, granularity = await query_history(db, minutes=1440, points=144)
+        points, granularity, _gaps = await query_history(db, minutes=1440, points=144)
     assert granularity == "1m"
     assert len(points) > 3  # 1m 段 + raw 段都有
     tss = [_ts(p) for p in points]
@@ -117,7 +117,7 @@ async def test_long_window_unions_older_granularity_and_raw(client):
 async def test_long_window_selects_1m_granularity(client):
     """窗口超 raw 保留期（settings.raw_keep_minutes=120）：选 1m 粒度。"""
     async with session_factory() as db:
-        _, granularity = await query_history(db, minutes=121, points=144)
+        _, granularity, _gaps = await query_history(db, minutes=121, points=144)
     assert granularity == "1m"
 
 
@@ -125,7 +125,7 @@ async def test_long_window_selects_1m_granularity(client):
 async def test_week_window_selects_10m_granularity(client):
     """窗口超 7 天：选 10m 粒度。"""
     async with session_factory() as db:
-        _, granularity = await query_history(db, minutes=8 * 24 * 60, points=168)
+        _, granularity, _gaps = await query_history(db, minutes=8 * 24 * 60, points=168)
     assert granularity == "10m"
 
 
@@ -174,3 +174,29 @@ async def test_stats_long_window_without_aggregates_counts_raw_only(client):
         result = await stats(db, minutes=1440, dim="cpu")
     assert result["n"] == 5
     assert result["avg"] == pytest.approx(7.5)
+
+
+@pytest.mark.asyncio
+async def test_history_reports_data_gaps(client):
+    """缺口段上报：连续 1s 流中断 30s → gaps 含一段；连续流无缺口（原型 B3）。"""
+    await _seed_raw(60, step_seconds=1)  # 连续 60s，无缺口
+    async with session_factory() as db:
+        _, _, gaps = await query_history(db, minutes=2, points=500)
+    assert gaps == []
+
+    # 删掉中段 30 个点制造 ~30s 断口（保留首尾）
+    from sqlalchemy import delete, select
+
+    from app.models.metrics import MetricPoint
+
+    async with session_factory() as db:
+        rows = (await db.execute(select(MetricPoint.ts).order_by(MetricPoint.ts))).scalars().all()
+        mine = rows[-60:]  # 只动本用例刚铺的最近 60 行（库为 session 级共享）
+        hole = mine[15:45]
+        await db.execute(delete(MetricPoint).where(MetricPoint.ts.in_(hole)))
+        await db.commit()
+
+    async with session_factory() as db:
+        points, _, gaps = await query_history(db, minutes=2, points=500)
+    assert len(gaps) == 1 and gaps[0][0] < gaps[0][1]
+    # 缺口两侧点仍连续返回（图表画断层而非截断）
