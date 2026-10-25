@@ -1,15 +1,24 @@
 #!/bin/bash
-# 更新后回调：包文件被整体替换，从持久 var 还原监听端口镜像。
-# 权威端口在 ${TRIM_PKGVAR}/port（升级保留）；ui/port 镜像供 index.cgi 读取，
-# 丢失时此处重建，保证升级后面板仍指向自定义端口。
+# 更新后回调：包文件被整体替换，从持久 var 还原监听端口与代理密钥镜像。
+# 权威副本在 ${TRIM_PKGVAR}/port 与 ${TRIM_PKGVAR}/proxy_token（升级保留）；
+# ui/ 下的镜像供 index.cgi 读取，包目录整体替换后丢失，此处重建——
+# 漏掉 proxy_token 会让 CGI 发不出 X-Nasdeck-Proxy，后端持密强校验下
+# 升级完成即面板全量 403（评审 2026-10-25 P1-12）。
 : "${TRIM_PKGVAR:=/usr/local/apps/@appdata/com.dashboard.nasdeck}"
 
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)"
 _APP_DIR="$(cd "$_SCRIPT_DIR/.." && pwd 2>/dev/null)"
 
+mkdir -p "$_APP_DIR/ui" 2>/dev/null
+
 if [ -f "${TRIM_PKGVAR}/port" ]; then
-    mkdir -p "$_APP_DIR/ui" 2>/dev/null
     cp -f "${TRIM_PKGVAR}/port" "$_APP_DIR/ui/port" 2>/dev/null
     chmod 644 "$_APP_DIR/ui/port" 2>/dev/null
+fi
+
+if [ -s "${TRIM_PKGVAR}/proxy_token" ]; then
+    cp -f "${TRIM_PKGVAR}/proxy_token" "$_APP_DIR/ui/proxy_token" 2>/dev/null
+    # ui 镜像 644：CGI 可能以非 root 用户拉起，读不到会把全部请求挡在代理校验外
+    chmod 644 "$_APP_DIR/ui/proxy_token" 2>/dev/null
 fi
 exit 0

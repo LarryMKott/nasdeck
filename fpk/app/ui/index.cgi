@@ -7,9 +7,12 @@
 cgi_name="index.cgi"
 
 # 转发端口与 cmd/main 同源（安装向导 wizard_port 落盘）：优先读本脚本同目录的
-# ui/port 镜像（CGI 由飞牛从应用目录拉起，读自身目录最可靠），回退 @appdata
-# 权威副本，最后默认 9800。非法值一律回退，保证代理永不失联。
+# ui/port 镜像（CGI 由飞牛从应用目录拉起，读自身目录最可靠），回退 TRIM_PKGVAR
+# 权威副本（与 cmd/* 回调默认值同源），再兜底旧 /var/apps 布局（真机布局两种
+# 说法并存时都试一遍，评审 2026-10-25 P1-12）。非法值一律回退，保证代理永不失联。
+: "${TRIM_PKGVAR:=/usr/local/apps/@appdata/com.dashboard.nasdeck}"
 port_file="$(dirname "$0")/port"
+[ -r "$port_file" ] || port_file="${TRIM_PKGVAR}/port"
 [ -r "$port_file" ] || port_file="/var/apps/com.dashboard.nasdeck/var/port"
 nasdeck_port="$(head -n 1 "$port_file" 2>/dev/null | tr -d '[:space:]')"
 case "$nasdeck_port" in
@@ -46,6 +49,8 @@ curl_args=(-s --include -X "$REQUEST_METHOD")
 # 代理共享密钥（install_callback 生成，镜像到本目录）：后端凭它确认身份头只能由
 # 本脚本注入——网关是否剥离客户端自带 X-Trim-* 头无法保证，密钥不经过网关
 proxy_token_file="$(dirname "$0")/proxy_token"
+# 回退链与 port 一致：TRIM_PKGVAR 权威副本 → 旧 /var/apps 布局
+[ -r "$proxy_token_file" ] || proxy_token_file="${TRIM_PKGVAR}/proxy_token"
 [ -r "$proxy_token_file" ] || proxy_token_file="/var/apps/com.dashboard.nasdeck/var/proxy_token"
 nasdeck_proxy_token="$(head -n 1 "$proxy_token_file" 2>/dev/null | tr -d '[:space:]')"
 if [ -n "$nasdeck_proxy_token" ]; then

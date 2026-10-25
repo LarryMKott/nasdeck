@@ -50,17 +50,26 @@ async def envelope_middleware(request: Request, call_next):
 async def lifespan(app: FastAPI):
     logger = logging.getLogger("nasdeck")
     logger.info(
-        "nasdeck %s 启动 host=%s port=%s log_level=%s trim_auth=%s api_key=%s db=%s storcli=%s static=%s",
+        "nasdeck %s 启动 host=%s port=%s log_level=%s trim_auth=%s api_key=%s proxy_token=%s "
+        "db=%s storcli=%s static=%s",
         settings.app_version,
         settings.host,
         settings.port,
         settings.resolved_log_level,
         settings.trim_auth,
         "set" if settings.api_key else "unset",
+        "set" if settings.proxy_token else "unset",
         settings.db_url,
         settings.storcli_cmd,
         settings.static_dir or "-",
     )
+    if settings.trim_auth and not settings.proxy_token:
+        # 根防线静默失效位（评审 2026-10-25 P2）：空 token 时代理校验整段跳过，
+        # X-Trim-Isadmin 回到纯客户端可达头 —— 自托管直连形态才允许这样跑
+        logger.warning(
+            "NASDECK_TRIM_AUTH=true 且 NASDECK_PROXY_TOKEN 为空：代理根防线未生效，"
+            "admin 判定退回信任网关转发的身份头（仅限无网关直连形态使用）"
+        )
     await init_db()
     async with session_factory() as db:
         await alert_engine.reconcile_on_startup(db)  # 遗留 firing 事件对账
