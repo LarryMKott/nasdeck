@@ -23,15 +23,25 @@ async def generate_health_report(payload: dict, redact: bool) -> dict:
     ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"health_{ts}.html"
     html_text = _render(payload, redact)
-    (REPORT_DIR / filename).write_text(html_text, encoding="utf-8")
+    # tmp + os.replace 原子替换：写一半崩溃不留半截 HTML（下次校验白名单也不认）
+    import os
+
+    tmp = REPORT_DIR / (filename + ".tmp")
+    tmp.write_text(html_text, encoding="utf-8")
+    os.replace(tmp, REPORT_DIR / filename)
     _prune_old_reports()
     return {"filename": filename, "url": f"/api/v1/report/health/{filename}"}
 
 
 def _prune_old_reports() -> None:
     try:
+        # 同目录两类产物一起清：diagnostic zip 含全量设置快照，长期堆积扩大泄露面
         reports = sorted(
-            (p for p in REPORT_DIR.glob("health_*.html") if p.is_file()),
+            (
+                p
+                for p in list(REPORT_DIR.glob("health_*.html")) + list(REPORT_DIR.glob("diagnostic_*.zip"))
+                if p.is_file()
+            ),
             key=lambda p: p.name,
             reverse=True,
         )

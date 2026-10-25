@@ -26,11 +26,14 @@ DbDep = Depends(get_db)
 
 
 async def require_api_key(request: Request) -> None:
+    import hmac
+
     from app.core.config import settings
 
     if not settings.api_key:
         return
-    if request.headers.get("X-API-Key") != settings.api_key:
+    # compare_digest 与下方代理密钥同口径：明文 != 比较存在时序侧信道
+    if not hmac.compare_digest(request.headers.get("X-API-Key", ""), settings.api_key):
         raise PermissionDeniedError("invalid or missing X-API-Key header")
 
 

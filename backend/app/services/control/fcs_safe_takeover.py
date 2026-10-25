@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import platform
+import threading
 
 from app.core.config import APP_ROOT
 from app.utils.async_cmd import run_cmd
@@ -22,6 +23,8 @@ UNIT = "pwm-fancontrol"
 
 _STATE_FILE = APP_ROOT / "data" / "fcs_state.json"
 _state = {"taken_over": False, "enabled_config": False}
+# takeover/release 在 await run_cmd 处可交错：状态翻转与落盘须原子（评审 P2-a）
+_state_lock = threading.Lock()
 
 
 def is_fnos() -> bool:
@@ -105,9 +108,10 @@ async def takeover() -> dict:
             return {"taken_over": False, "reason": f"systemctl disable 失败 rc={rc}: {err.strip()[:150]}"}
     except Exception as exc:
         return {"taken_over": False, "reason": str(exc)[:200]}
-    _state["taken_over"] = True
-    _state["enabled_config"] = True
-    _persist_state()
+    with _state_lock:
+        _state["taken_over"] = True
+        _state["enabled_config"] = True
+        _persist_state()
     return {"taken_over": True}
 
 
@@ -123,7 +127,8 @@ async def release() -> dict:
             return {"released": False, "reason": f"systemctl enable --now 失败 rc={rc}: {err.strip()[:150]}"}
     except Exception as exc:
         return {"released": False, "reason": str(exc)[:200]}
-    _state["taken_over"] = False
-    _state["enabled_config"] = False
-    _persist_state()
+    with _state_lock:
+        _state["taken_over"] = False
+        _state["enabled_config"] = False
+        _persist_state()
     return {"released": True}

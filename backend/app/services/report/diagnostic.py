@@ -70,5 +70,9 @@ async def generate_diagnostic(redact: bool) -> dict:
             "settings.json",
             json.dumps(desensitize(json.dumps(masked_settings), redact), ensure_ascii=False, indent=2),
         )
-    (REPORT_DIR / filename).write_bytes(buffer.getvalue())
+    import os
+
+    tmp = REPORT_DIR / (filename + ".tmp")
+    tmp.write_bytes(buffer.getvalue())
+    os.replace(tmp, REPORT_DIR / filename)  # 原子替换：不留半截 zip
     return {"filename": filename, "url": f"/api/v1/report/diagnostic/{filename}"}

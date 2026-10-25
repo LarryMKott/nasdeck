@@ -34,13 +34,22 @@ async def envelope_middleware(request: Request, call_next):
     # 流式包装后的 Response 不保留 media_type 属性，从 content-type 头判断
     content_type = response.headers.get("content-type", "")
     if 200 <= response.status_code < 300 and content_type.startswith("application/json"):
-        body = b""
+        # 分块收集后一次 join：bytes += 是 O(n²) 拷贝；原响应自定义头一并保留
+        # （JSONResponse 只重算 content-type/length，此前会丢附件名等头）
+        chunks: list[bytes] = []
         async for chunk in response.body_iterator:  # type: ignore[attr-defined]
-            body += chunk
+            chunks.append(chunk)
+        body = b"".join(chunks)
         data = json.loads(body) if body else None
+        headers = {
+            k: v
+            for k, v in response.headers.items()
+            if k.lower() not in ("content-type", "content-length")
+        }
         return JSONResponse(
             {"code": 0, "message": "ok", "data": data, "timestamp": int(time.time())},
             status_code=response.status_code,
+            headers=headers,
             background=response.background,
         )
     return response
@@ -120,5 +129,6 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host=settings.host, port=settings.port, log_level="info")
+    # 日志级别接配置（向导/环境变量生效）：此前硬编码 info，DEBUG 排障开关无效
+    uvicorn.run("main:app", host=settings.host, port=settings.port, log_level=settings.resolved_log_level.lower())
 

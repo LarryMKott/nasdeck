@@ -7,6 +7,8 @@ DEBUG 级别记录每次外部工具调用的完整命令行、退出码、输�
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 import contextlib
 import logging
 import time
@@ -28,15 +30,32 @@ def _log_call(prefix: str, args: tuple[str, ...], rc: int, out: str, err: str, e
     )
 
 
+def _kill_tree(proc) -> None:
+    """超时杀进程树：POSIX killpg 整组回收，Windows 回退 kill 直接子进程。"""
+    with contextlib.suppress(Exception):
+        if sys.platform != "win32":
+            import signal
+
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        else:
+            proc.kill()
+
+
 async def run_cmd(
     *args: str, timeout: float = 15.0
 ) -> tuple[int, str, str]:
     """执行命令返回 (rc, stdout, stderr)；命令不存在抛 1003。"""
+    # POSIX 建独立进程组：超时 killpg 能连工具派生的孙进程一起回收
+    # （Windows 无进程组语义，参数不支持，跳过）
+    popen_kwargs = {}
+    if sys.platform != "win32":
+        popen_kwargs["start_new_session"] = True
     try:
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **popen_kwargs,
         )
     except (FileNotFoundError, NotADirectoryError) as exc:
         logger.debug("工具缺失 %s: %s", args[0], exc)
@@ -45,7 +64,7 @@ async def run_cmd(
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError as exc:
-        proc.kill()
+        _kill_tree(proc)
         # kill 后回收：不 wait 会留下僵尸进程表项与管道句柄，等 GC/child watcher 兜底
         with contextlib.suppress(Exception):
             await proc.wait()

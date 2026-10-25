@@ -49,6 +49,16 @@ def list_volumes() -> list[dict]:
     return sorted(volumes, key=lambda v: v["mount"])
 
 
+
+def _to_int(value) -> int | None:
+    """lsblk 字段转 int：畸形字符串返回 None 而非 ValueError 500（评审 P2-H）。"""
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
 _DISKS_CACHE_TTL = 60.0
 _disks_cache: dict = {"ts": 0.0, "data": None}
 
@@ -63,7 +73,7 @@ def _flatten_children(node: dict, out: list[dict]) -> None:
         out.append(
             {
                 "name": child.get("name", ""),
-                "size_bytes": int(raw_size) if raw_size not in (None, "") else None,
+                "size_bytes": _to_int(raw_size),
                 "fstype": child.get("fstype") or None,
                 "mountpoint": mount or None,
                 "type": child.get("type", ""),
@@ -104,7 +114,7 @@ async def list_disks() -> list[dict]:
         if dev.get("type") != "disk":
             continue
         name = dev.get("name", "")
-        size = int(dev.get("size") or 0)
+        size = _to_int(dev.get("size") or 0)
         partitions: list[dict] = []
         _flatten_children(dev, partitions)
         disks.append(
