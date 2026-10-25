@@ -56,6 +56,17 @@ async def info(request: Request) -> dict:
     }
 
 
+@router.get("/diagnostics")
+async def system_diagnostics(db: AsyncSession = DbDep) -> dict:
+    """系统自检聚合（原型 E1）：数据管线/风扇/鉴权链/采集工具/通知分组清单。
+
+    每项 {key, status(ok|warn|fail|skip), detail, hint}；自检页与诊断包共用。
+    """
+    from app.services.system import diagnostics as diagnostics_service
+
+    return await diagnostics_service.collect(db)
+
+
 @router.get("/env")
 async def env_check() -> dict:
     """运行环境自检（安装期自举结果的实时呈现，契约 §2.14 EnvCheck）。

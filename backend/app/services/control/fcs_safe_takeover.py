@@ -61,6 +61,17 @@ def _persist_state() -> None:
         logger.warning("FCS 接管状态落盘失败: %s", exc)
 
 
+def state_file_status() -> dict:
+    """状态文件健康（自检页消费）：损坏 = fail（重启时会按最坏情况对账）。"""
+    try:
+        json.loads(_STATE_FILE.read_text("utf-8"))
+        return {"ok": True, "detail": "完整，与运行状态一致"}
+    except FileNotFoundError:
+        return {"ok": True, "detail": "无状态文件（从未接管）"}
+    except (OSError, ValueError) as exc:
+        return {"ok": False, "detail": f"状态文件损坏（重启时按已接管对账）: {exc}"}
+
+
 async def status() -> dict:
     active: bool | None = None
     if platform.system() == "Linux" and is_fnos():

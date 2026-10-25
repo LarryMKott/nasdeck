@@ -54,6 +54,15 @@ async def generate_diagnostic(redact: bool) -> dict:
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("info.json", json.dumps(desensitize(json.dumps(info), redact), ensure_ascii=False, indent=2))
+        # 自检结果全量入包（原型 E3）：排障时先看这份清单
+        try:
+            from app.services.system import diagnostics as diagnostics_service
+
+            async with session_factory() as db:
+                selfcheck = await diagnostics_service.collect(db)
+        except Exception as exc:  # noqa: BLE001 自检失败不阻断诊断包生成
+            selfcheck = {"error": f"{type(exc).__name__}: {exc}"[:200]}
+        zf.writestr("selfcheck.json", json.dumps(selfcheck, ensure_ascii=False, indent=2, default=str))
         # 自由 KV 的 settings：白名单外键值整体 <redacted>，白名单内再按 key 命中
         # 打码凭据值（纵深），最后整体文本脱敏（IP/路径/序列号兜底）
         masked_settings = _settings_for_export(mask_secret_values(settings_dump, redact), redact)
