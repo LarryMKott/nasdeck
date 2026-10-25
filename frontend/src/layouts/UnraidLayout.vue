@@ -8,12 +8,14 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '@/stores/modules/app';
 import { useUserStore } from '@/stores/modules/user';
 import { usePermissionStore } from '@/stores/modules/permission';
-import { navGroups, activeAlerts as mockAlerts } from '@/modules/nas/mock';
+import { navGroups } from '@/modules/nas/mock';
 import { useViewData } from '@/modules/nas/composables/useViewData';
+import { demoMode, demoDismissed, dismissDemo } from '@/modules/nas/composables/useDemoMode';
 import { fetchActiveAlerts } from '@/modules/nas/api/data';
 import IconSprite from '@/modules/nas/components/IconSprite.vue';
 import UIcon from '@/modules/nas/components/UIcon.vue';
 import UDropdown from '@/modules/nas/components/UDropdown.vue';
+import UToast from '@/modules/nas/components/UToast.vue';
 
 defineOptions({ name: 'UnraidLayout' });
 
@@ -25,8 +27,9 @@ const appStore = useAppStore();
 const userStore = useUserStore();
 const permissionStore = usePermissionStore();
 
-/** 通知铃数据：后端 firing 事件，不可达回退演示值 */
-const { data: activeAlerts } = useViewData(fetchActiveAlerts, mockAlerts);
+/** 通知铃数据：后端 firing 事件。初始空（不闪现 mock 假告警），不可达时由
+ *  适配器回退演示值并带 live:false（铃铛角标随之显示演示标记） */
+const { data: activeAlerts } = useViewData(fetchActiveAlerts, []);
 
 const cachedViews = computed(() => permissionStore.cachedViews);
 
@@ -106,6 +109,7 @@ const themeMeta = computed(() => {
        此前绑定在 .nav 上且类名不匹配，切换从未生效 -->
   <div class="nd" :data-theme="appStore.resolvedTheme" :class="{ 'nav-icons': iconsMode }">
     <icon-sprite />
+    <u-toast />
 
     <div class="nav">
       <button
@@ -206,6 +210,11 @@ const themeMeta = computed(() => {
     </div>
 
     <main class="content">
+      <!-- 演示模式横幅（原型 D4）：适配器回退演示数据时全局可见 -->
+      <div v-if="demoMode && !demoDismissed" class="demo-banner">
+        <span>⚠ <b>演示数据</b> —— 后端不可达，以下数字不是真实硬件状态</span>
+        <button class="btn sm" @click="dismissDemo">本次会话不再提示</button>
+      </div>
       <router-view v-slot="{ Component, route: viewRoute }">
         <!-- 不用 <transition>：其 enter 流程依赖 rAF，后台节流时视图会卡在 enter-from；
              改用挂载时的纯 CSS 入场动画（nd-vin），节流环境下静态可见、优雅降级 -->

@@ -14,7 +14,13 @@ defineOptions({ name: 'NasTemps' });
 const warmAt = 45;
 const hotAt = 60;
 
-const { data: d, live, refresh, lastUpdated } = useViewData(nasData.fetchTemps, mockTemps);
+const {
+  data: d,
+  live,
+  refresh,
+  lastUpdated,
+  refreshing,
+} = useViewData(nasData.fetchTemps, mockTemps);
 
 const headerTag = computed(() => ({
   type: live.value ? 'ok' : 'acc',
@@ -70,10 +76,12 @@ onDeactivated(stopTimer);
 <template>
   <section>
     <u-page-header
+      :refreshing="refreshing"
       title="温度监控"
       sub="关键传感器速览 · 温度墙"
       :tag="headerTag"
       :updated="lastUpdated"
+      @refresh="refresh"
     >
       <template #right>
         <label class="switch" :class="{ on: autoRefresh }" @click="autoRefresh = !autoRefresh">
