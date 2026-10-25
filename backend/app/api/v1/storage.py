@@ -22,28 +22,19 @@ from app.schemas.storage import (
 )
 from app.services.monitor import temperature
 from app.services.storage import disk_name, self_test, smart
+from app.services.storage import enrich as disk_enrich
 from app.services.storage import raid as raid_service
 from app.services.storage import volumes as volume_service
 from app.utils.async_cmd import run_cmd
-from app.utils.validators import smart_health_key, validate_device_name
+from app.utils.validators import validate_device_name
 
 router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[ApiKeyDep, TrimAuthDep])
 
 
 async def _disk_items(db: AsyncSession) -> list[DiskItem]:
-    disks = await volume_service.list_disks()
-    aliases = await disk_name.get_alias_map(db)
-    # 健康与温度来自 SMART 慢采集缓存（temperature 60s 一轮，零额外 fork）
-    health_map = await temperature.disk_health()
-    temps = await temperature.disk_temps()
-    items = []
-    for d in disks:
-        d["alias"] = aliases.get(d.get("serial") or "")
-        key = smart_health_key(d.get("device") or "")
-        d["health"] = health_map.get(key, "unknown")
-        d["temp_c"] = temps.get(key)
-        items.append(DiskItem(**d))
-    return items
+    # 富化逻辑收敛到 services/storage/enrich（健康报告与存储页同口径）
+    disks = await disk_enrich.enriched_disks(db)
+    return [DiskItem(**d) for d in disks]
 
 
 @router.get("/disks", response_model=list[DiskItem])

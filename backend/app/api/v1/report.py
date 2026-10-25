@@ -18,11 +18,12 @@ router = APIRouter(prefix="/report", tags=["report"], dependencies=[ApiKeyDep, T
 async def generate_health(redact: bool = Query(default=True)) -> dict:
     from app.services.monitor import temperature
     from app.services.monitor.cache import realtime_cache
-    from app.services.storage import volumes as volume_service
+    from app.services.storage import enrich as disk_enrich
 
     snap = realtime_cache.get("realtime") or {}
     temps = realtime_cache.get("temperatures") or await temperature.temperatures()
-    disks = await volume_service.list_disks()
+    # 富化后磁盘表带 alias/health/temp_c：此前裸 lsblk 恒 unknown/—（评审 N-2）
+    disks = await disk_enrich.enriched_disks(db)
     payload = {
         "kv": {
             "CPU": f"{snap.get('cpu_percent', 0)}%",
