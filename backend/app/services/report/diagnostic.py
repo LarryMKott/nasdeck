@@ -19,6 +19,18 @@ from app.services.report.desensitizer import desensitize, mask_secret_values
 
 REPORT_DIR = Path(__file__).resolve().parents[3] / "data" / "reports"
 
+# settings 导出白名单：值可安全外发的键（布尔/无敏感语义）。
+# SystemSetting 是自由 KV（PUT /settings/{key} 任意 key/嵌套 value 可写），嵌套 dict
+# 里的凭据、URL query token 无法靠正则穷举 —— 非白名单键值整体置 <redacted>，
+# key 本身保留（排障需要知道存在哪些设置）（评审 2026-10-25 P0-C）。
+_SAFE_SETTING_KEYS = frozenset({"downsample_v2_migrated"})
+
+
+def _settings_for_export(dump: dict, redact: bool) -> dict:
+    if not redact:
+        return dump
+    return {k: (v if k in _SAFE_SETTING_KEYS else "<redacted>") for k, v in dump.items()}
+
 
 async def generate_diagnostic(redact: bool) -> dict:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -42,8 +54,9 @@ async def generate_diagnostic(redact: bool) -> dict:
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("info.json", json.dumps(desensitize(json.dumps(info), redact), ensure_ascii=False, indent=2))
-        # 自由 KV 的 settings：先按 key 命中打码凭据值（正则覆盖不了的形态），再整体脱敏
-        masked_settings = mask_secret_values(settings_dump, redact)
+        # 自由 KV 的 settings：白名单外键值整体 <redacted>，白名单内再按 key 命中
+        # 打码凭据值（纵深），最后整体文本脱敏（IP/路径/序列号兜底）
+        masked_settings = _settings_for_export(mask_secret_values(settings_dump, redact), redact)
         zf.writestr(
             "settings.json",
             json.dumps(desensitize(json.dumps(masked_settings), redact), ensure_ascii=False, indent=2),

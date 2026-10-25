@@ -133,6 +133,50 @@ def test_desensitizer_masks_ipv6_and_secret_values():
     assert masked["hostname"] == "nas"
 
 
+def test_desensitizer_masks_paths_and_serial_variants():
+    """路径/序列号/MAC 其他形态（评审 2026-10-25 P0-C：此前全部漏网）。"""
+    text = desensitize("盘 /dev/sda1 挂载在 /volume1/share，另有 /home/admin/x.conf")
+    assert "/dev/sda1" not in text and "/volume1/share" not in text and "/home/admin/x.conf" not in text
+    assert "/dev/***" in text and "/volume1/***" in text and "/home/***" in text
+    # 挂载路径不应误伤普通 URL 主机名之外的核心语义（URL 路径段被抹也属脱敏，可接受）
+    for raw in ("Serial Number: S6XQNJ0R123456", "SN: ZA9QK1L2", "serial=WD-WX21A9", "S/N VKJ92R8D"):
+        assert desensitize(raw) != raw, raw
+    assert "S6XQNJ0R123456" not in desensitize("Serial Number: S6XQNJ0R123456")
+    assert "WD-WX21A9" not in desensitize("serial=WD-WX21A9")
+    # 普通单词不该被序列号规则误杀（值需含数字）
+    assert desensitize("S/N healthy disk") == "S/N healthy disk"
+    # MAC 连字符/点分形态
+    assert "aa-bb-cc-dd-ee-ff" not in desensitize("MAC aa-bb-cc-dd-ee-ff")
+    assert "aabb.ccdd.eeff" not in desensitize("MAC aabb.ccdd.eeff")
+
+
+def test_mask_secret_values_recurses_nested_structures():
+    """嵌套 dict/list 里的凭据不再原样保留（P0-C：顶层 key 无害≠嵌套无凭据）。"""
+    masked = mask_secret_values(
+        {
+            "ui_prefs": {"theme": "dark", "notify_token": "abc123", "channels": [{"bark_api_key": "xyz"}]},
+            "plain": [1, {"web_password": "p"}, "keep"],
+        }
+    )
+    assert masked["ui_prefs"]["theme"] == "dark"
+    assert masked["ui_prefs"]["notify_token"] == "********"
+    assert masked["ui_prefs"]["channels"][0]["bark_api_key"] == "********"
+    assert masked["plain"][0] == 1 and masked["plain"][2] == "keep"
+    assert masked["plain"][1]["web_password"] == "********"
+
+
+def test_diagnostic_settings_export_whitelist():
+    """诊断包 settings：白名单外的键值整体 <redacted>，键名保留。"""
+    from app.services.report.diagnostic import _settings_for_export
+
+    dump = {"downsample_v2_migrated": True, "some_url": "https://x/y?token=abc", "custom": {"pw": "1"}}
+    out = _settings_for_export(dump, redact=True)
+    assert out["downsample_v2_migrated"] is True
+    assert out["some_url"] == "<redacted>"
+    assert out["custom"] == "<redacted>"
+    assert _settings_for_export(dump, redact=False) == dump
+
+
 def test_mask_config_masks_url_credentials():
     masked = mask_config("webhook", {"url": "http://user:pass@host/hook?token=abc&x=1"})
     assert "user:pass@" not in masked["url"]
