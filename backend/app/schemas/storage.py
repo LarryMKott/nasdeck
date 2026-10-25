@@ -110,11 +110,13 @@ class VolumeItem(BaseModel):
     device: str
     mount: str
     fs_type: str
-    total_bytes: int
-    used_bytes: int
-    free_bytes: int
-    percent: float
+    # 网络文件系统（nfs/cifs/…）对端失联时不探测容量：数值为 None + stale=true
+    total_bytes: int | None
+    used_bytes: int | None
+    free_bytes: int | None
+    percent: float | None
     opts: list[str]
+    stale: bool = False
 
 
 class SelfTestIn(BaseModel):

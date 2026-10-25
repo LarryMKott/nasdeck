@@ -13,6 +13,9 @@ from app.utils.unit_convert import bytes_to_human
 
 _PSEUDO_FS = {"squashfs", "tmpfs", "devtmpfs", "proc", "sysfs", "devfs", "overlay", "ramfs", "cgroup"}
 _SYSTEM_MOUNTS = {"/boot/efi", "/run", "/dev/shm", "/run/user"}
+# 网络文件系统：对端失联时 statvfs 陷入不可中断阻塞（分钟级甚至永久），
+# 不探测容量——usage 置 None + stale 标记，UI 如实呈现（评审 P1-7）
+_NET_FS = {"nfs", "nfs4", "cifs", "smbfs", "9p", "fuse.sshfs", "sshfs", "glusterfs", "ceph"}
 
 
 def list_volumes() -> list[dict]:
@@ -22,22 +25,27 @@ def list_volumes() -> list[dict]:
             continue
         if any(part.mountpoint.startswith(p) for p in _SYSTEM_MOUNTS):
             continue
-        try:
-            usage = psutil.disk_usage(part.mountpoint)
-        except OSError:
-            continue
-        volumes.append(
-            {
-                "device": part.device,
-                "mount": part.mountpoint,
-                "fs_type": part.fstype,
-                "total_bytes": usage.total,
-                "used_bytes": usage.used,
-                "free_bytes": usage.free,
-                "percent": round(usage.percent, 1),
-                "opts": part.opts.split(",") if part.opts else [],
-            }
-        )
+        entry = {
+            "device": part.device,
+            "mount": part.mountpoint,
+            "fs_type": part.fstype,
+            "opts": part.opts.split(",") if part.opts else [],
+        }
+        if part.fstype.lower() in _NET_FS:
+            entry.update(total_bytes=None, used_bytes=None, free_bytes=None, percent=None, stale=True)
+        else:
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+            except OSError:
+                continue
+            entry.update(
+                total_bytes=usage.total,
+                used_bytes=usage.used,
+                free_bytes=usage.free,
+                percent=round(usage.percent, 1),
+                stale=False,
+            )
+        volumes.append(entry)
     return sorted(volumes, key=lambda v: v["mount"])
 
 

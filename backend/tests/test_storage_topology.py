@@ -274,6 +274,9 @@ def test_disk_items_health_and_temp_backfilled(monkeypatch):
 
 
 def test_smart_key_fallback():
-    assert storage_api._smart_key("sda") == "sda"
-    assert storage_api._smart_key("nvme0n1") == "nvme0"
-    assert storage_api._smart_key("nvme12n1") == "nvme12"
+    # _smart_key 已上移为公共工具 smart_health_key（summary/disk_failed 告警同口径）
+    from app.utils.validators import smart_health_key
+
+    assert smart_health_key("sda") == "sda"
+    assert smart_health_key("nvme0n1") == "nvme0"
+    assert smart_health_key("nvme12n1") == "nvme12"

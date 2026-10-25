@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,7 +81,9 @@ async def get_raid() -> dict:
 
 @router.get("/volumes", response_model=list[VolumeItem])
 async def get_volumes() -> list[dict]:
-    return volume_service.list_volumes()
+    # psutil 分区/容量探测走线程池：失联 NFS 的 statvfs 不可中断阻塞，
+    # 直跑事件循环会把整个后端卡死（评审 P1-7）
+    return await asyncio.to_thread(volume_service.list_volumes)
 
 
 @router.post("/self-tests", response_model=SelfTestState)

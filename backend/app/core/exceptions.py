@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 
 class NasdeckError(Exception):
@@ -56,5 +60,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(status_code=422, content=_envelope(2000, detail or "validation failed"))
 
     @app.exception_handler(Exception)
-    async def unhandled_handler(_req: Request, exc: Exception):
-        return JSONResponse(status_code=500, content=_envelope(5000, f"internal error: {exc}"))
+    async def unhandled_handler(req: Request, exc: Exception):
+        # 响应只回通用文案：原始异常可含 SQL/路径/工具 stderr，回显即信息泄露
+        # （评审 2026-10-25 P1-07）；完整 traceback 走日志供排障
+        logger.exception("未处理异常 %s %s", req.method, req.url.path)
+        return JSONResponse(status_code=500, content=_envelope(5000, "internal error"))

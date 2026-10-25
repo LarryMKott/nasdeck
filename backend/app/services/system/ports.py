@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import socket
 
 import psutil
@@ -11,10 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.system import PortAlias
 
 
-async def list_ports(db: AsyncSession) -> list[dict]:
-    result = await db.execute(select(PortAlias))
-    alias_map = {row.port: row.label for row in result.scalars()}
-
+def _scan_ports(alias_map: dict[int, str]) -> list[dict]:
+    """同步 psutil 扫描：由调用方放线程池（net_connections 需遍历全部进程 fd 表，
+    root 下 O(进程×fd)，直跑事件循环可阻塞秒级——评审 P1-7）。"""
     proc_names: dict[int, str] = {}
     for proc in psutil.process_iter(["pid", "name"]):
         try:
@@ -56,6 +56,12 @@ async def list_ports(db: AsyncSession) -> list[dict]:
             }
         )
     return sorted(entries, key=lambda e: e["local_port"])
+
+
+async def list_ports(db: AsyncSession) -> list[dict]:
+    result = await db.execute(select(PortAlias))
+    alias_map = {row.port: row.label for row in result.scalars()}
+    return await asyncio.to_thread(_scan_ports, alias_map)
 
 
 async def upsert_alias(db: AsyncSession, port: int, label: str, note: str | None) -> PortAlias:
