@@ -56,6 +56,11 @@ def test_disk_health_cached_with_temps(monkeypatch):
     temperature._disk_cache.update(ts=0.0, items=[], health={})
 
     health = asyncio.run(temperature.disk_health())
-    assert health == {"sda": "passed", "sdb": "failing"}
+    # 临时诊断（CI 与本地结果不一致排查）：断言失败时 dump patch 生效状态与缓存
+    assert health == {"sda": "passed", "sdb": "failing"}, (
+        f"which={temperature.shutil.which('smartctl')!r} "
+        f"glob_attr={temperature.glob!r} run_cmd={temperature.run_cmd!r} "
+        f"platform={temperature.platform.system()!r} cache={temperature._disk_cache!r}"
+    )
     # 与盘温共用缓存：60s 内重复调用不再触发探测
     assert asyncio.run(temperature.disk_health()) == health
