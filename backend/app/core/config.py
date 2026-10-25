@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     proxy_token: str = ""
     db_url: str = f"sqlite+aiosqlite:///{(APP_ROOT / 'data' / 'nasdeck.db').as_posix()}"
     raw_keep_minutes: int = 120
+    # 结构演进期的整库重建开关（NASDECK_DB_ALLOW_REBUILD=false 关闭）：重建前会
+    # 先备份 DB 文件并落 db_rebuilt_at 标记；生产建议关闭，结构变更走 Alembic
+    db_allow_rebuild: bool = True
     storcli_path: str = ""
     # 空 = 跟随版本通道缺省（resolved_log_level）：dev 包 DEBUG 便于真机排查采集
     # 链路，正式包 INFO；FPK 形态由配置向导显式选择后写入 runtime.env
